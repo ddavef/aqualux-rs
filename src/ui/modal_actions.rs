@@ -1,0 +1,254 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 ddavef aqualux-rs
+
+use crate::game::AwardKind;
+use crate::ui::GameApp;
+use crate::ui::summary::SummaryHideAction;
+use crate::ui::title::TitleSubmenu;
+use crate::ui::widgets::{ModalState, QuestionId, UiAction};
+
+impl GameApp {
+    pub(crate) fn open_profile_modal(&mut self) {
+        let items: Vec<String> = self.save.profiles.iter().map(|p| p.name.clone()).collect();
+        let cur_idx = self
+            .save
+            .current_profile
+            .as_deref()
+            .and_then(|c| items.iter().position(|n| n.eq_ignore_ascii_case(c)))
+            .unwrap_or(0);
+        self.modals.push(ModalState::Profile {
+            items,
+            added: Vec::new(),
+            selected: cur_idx,
+            hover_slot: None,
+        });
+    }
+
+    pub(crate) fn handle_profile_action(&mut self, action: UiAction) {
+        match action {
+            UiAction::ProfileSelectIdx(idx) => {
+                if let Some(ModalState::Profile {
+                    selected, items, ..
+                }) = self.modals.last_mut()
+                    && idx < items.len()
+                {
+                    *selected = idx;
+                }
+            }
+            UiAction::ProfileNew => {
+                if let Some(ModalState::Profile { items, .. }) = self.modals.last()
+                    && items.len() >= 9
+                {
+                    self.modals.push(ModalState::Question {
+                        id: QuestionId::ProfileFull,
+                        message: "No slots left; delete a profile to add a new one.".to_string(),
+                        yes_label: "ok",
+                        no_label: None,
+                    });
+                    return;
+                }
+                self.modals.push(ModalState::EnterName {
+                    prompt: "Enter your name:".to_string(),
+                    input: String::new(),
+                    allow_cancel: true,
+                    creating_for_profile_list: true,
+                    pending_launch_after: false,
+                });
+            }
+            UiAction::ProfileDelete => {
+                if let Some(ModalState::Profile {
+                    items,
+                    added,
+                    selected,
+                    ..
+                }) = self.modals.last()
+                {
+                    if items.len() <= 1 {
+                        return;
+                    }
+                    let target = items[*selected].clone();
+                    let is_recent = added.iter().any(|a| a.eq_ignore_ascii_case(&target));
+                    let msg = if is_recent {
+                        format!("Really delete '{}'?", target)
+                    } else {
+                        format!(
+                            "Really delete '{}'?\n \n  Saved progress will be lost.",
+                            target
+                        )
+                    };
+                    self.modals.push(ModalState::Question {
+                        id: QuestionId::ConfirmDeleteProfile(target),
+                        message: msg,
+                        yes_label: "yes",
+                        no_label: Some("no"),
+                    });
+                }
+            }
+            UiAction::ProfileAccept => {
+                if let Some(ModalState::Profile {
+                    items, selected, ..
+                }) = self.modals.pop()
+                {
+                    if let Some(chosen) = items.get(selected) {
+                        self.save.apply_profile_list(chosen, &items);
+                    }
+                    self.title_submenu = TitleSubmenu::Main;
+                    self.title_submenu_age = 0.0;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn handle_submit_name(&mut self) {
+        let Some(ModalState::EnterName {
+            input,
+            creating_for_profile_list,
+            ..
+        }) = self.modals.last_mut()
+        else {
+            return;
+        };
+        let trimmed = input.trim().to_string();
+        if trimmed.is_empty() {
+            *input = "Player 1".to_string();
+            return;
+        }
+        let for_list = *creating_for_profile_list;
+        if for_list {
+            let duplicate = self.modals.iter().any(|m| {
+                matches!(m, ModalState::Profile { items, .. } if items.iter().any(|i| i.eq_ignore_ascii_case(&trimmed)))
+            });
+            if duplicate {
+                self.modals.push(ModalState::Question {
+                    id: QuestionId::ProfileDuplicate,
+                    message: format!("You already have a profile named '{}.'", trimmed),
+                    yes_label: "ok",
+                    no_label: None,
+                });
+                return;
+            }
+            self.modals.pop();
+            if let Some(ModalState::Profile {
+                items,
+                added,
+                selected,
+                ..
+            }) = self.modals.last_mut()
+            {
+                items.push(trimmed.clone());
+                added.push(trimmed);
+                *selected = items.len().saturating_sub(1);
+            }
+        } else {
+            self.modals.pop();
+            self.save.set_or_create_profile(&trimmed);
+        }
+    }
+
+    pub(crate) fn handle_question_yes(&mut self) {
+        let Some(ModalState::Question { id, .. }) = self.modals.pop() else {
+            return;
+        };
+        match id {
+            QuestionId::ConfirmNewGame => {
+                self.title_submenu = TitleSubmenu::DifficultyChoices;
+                self.title_submenu_age = 0.0;
+            }
+            QuestionId::ConfirmMainMenuFromPause => {
+                self.return_to_main_menu();
+            }
+            QuestionId::ConfirmMainMenuFromSummary => {
+                if !self.is_lotd_mode {
+                    let len = self.assets.campaign_levels.len();
+                    if let Some(prof) = self.save.active_profile_mut() {
+                        prof.level_index = (self.current_level_idx + 1) % len.max(1);
+                        prof.savable_level_index = prof.level_index;
+                    }
+                }
+                self.start_summary_hide(SummaryHideAction::MainMenu);
+            }
+            QuestionId::ConfirmDeleteProfile(name) => {
+                if let Some(ModalState::Profile {
+                    items, selected, ..
+                }) = self.modals.last_mut()
+                    && let Some(pos) = items.iter().position(|n| n.eq_ignore_ascii_case(&name))
+                {
+                    items.remove(pos);
+                    if *selected >= items.len() {
+                        *selected = items.len().saturating_sub(1);
+                    }
+                }
+            }
+            QuestionId::ConfirmQuit => {
+                self.save.save();
+                self.should_quit = true;
+            }
+            QuestionId::UnlockMatchNotice(lvl) => {
+                self.launch_level_def(*lvl);
+            }
+            QuestionId::UnlockMirrorNotice(need_ultra_award) => {
+                self.audio.play_sfx("BonusTwoSound");
+                self.modals.push(ModalState::Award {
+                    kind: AwardKind::Champ,
+                    then_champion: true,
+                    then_ultralux: need_ultra_award,
+                    then_unlock_match_level: None,
+                });
+            }
+            QuestionId::TrophyNeedSave
+            | QuestionId::ProfileFull
+            | QuestionId::ProfileDuplicate
+            | QuestionId::SimpleNotice => {}
+        }
+    }
+
+    pub(crate) fn handle_dismiss_award(&mut self) {
+        let Some(ModalState::Award {
+            then_champion,
+            then_ultralux,
+            then_unlock_match_level,
+            ..
+        }) = self.modals.pop()
+        else {
+            return;
+        };
+        if let Some(lvl) = then_unlock_match_level {
+            self.audio.play_sfx("BonusTwoSound");
+            self.modals.push(ModalState::Question {
+                id: QuestionId::UnlockMatchNotice(lvl),
+                message: "-SECRET UNLOCKED!-\n\nMATCH MODE has been unlocked on the main menu!"
+                    .to_string(),
+                yes_label: "Ok",
+                no_label: None,
+            });
+        } else if then_ultralux {
+            self.audio.play_sfx("BonusTwoSound");
+            self.modals.push(ModalState::Award {
+                kind: AwardKind::Ultralux,
+                then_champion,
+                then_ultralux: false,
+                then_unlock_match_level: None,
+            });
+        } else if then_champion {
+            let score = self
+                .save
+                .active_profile()
+                .map(|p| p.total_score())
+                .unwrap_or(0);
+            let has_u = self.save.active_profile().is_some_and(|p| p.awards[3]);
+            self.enter_champion_screen(score, has_u);
+        } else if self.match_sim.is_some() {
+            let is_mirror = self
+                .save
+                .active_profile()
+                .is_some_and(|p| p.is_mirror_unlocked());
+            let idx = self
+                .save
+                .active_profile()
+                .map(|p| p.mirror_level_index.max(0) as usize)
+                .unwrap_or(0);
+            self.start_match_level(idx, is_mirror, false);
+        }
+    }
+}
