@@ -128,7 +128,7 @@ fn try_build_candidate(
         TileDef {
             x: dx,
             y: dy,
-            shape: PieceShape::Drain,
+            shape: PieceShape::Spigot,
             piece_type: PieceType::Drain,
             direction: d_dir,
             is_moveable: false,

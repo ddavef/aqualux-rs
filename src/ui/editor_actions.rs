@@ -3,6 +3,7 @@
 
 use crate::audio::music_for_background;
 use crate::game::Difficulty;
+use crate::game::level_io::{MAX_LIQUID_SPEED, MAX_START_DELAY, MIN_LIQUID_SPEED};
 use crate::game::solver::{SolveOutcome, solve_level, validate_level_structure};
 use crate::game::types::GameColor;
 use crate::render::BoardLayout;
@@ -422,7 +423,7 @@ impl GameApp {
                     let cur = props.description.clone();
                     self.modals.push(ModalState::TextPrompt {
                         purpose: TextPromptPurpose::EditLevelDescription,
-                        prompt: "Enter level subtitle:".to_string(),
+                        prompt: "Enter level description:".to_string(),
                         input: cur,
                         max_len: 54,
                     });
@@ -440,13 +441,34 @@ impl GameApp {
             }
             UiAction::PropsAdjustDelay(delta) => {
                 if let Some(ModalState::LevelProps(props)) = self.modals.last_mut() {
-                    props.start_delay = (props.start_delay + delta as f32).round().clamp(0.0, 60.0);
+                    props.start_delay = (props.start_delay + delta as f32)
+                        .round()
+                        .clamp(0.0, MAX_START_DELAY);
                 }
             }
             UiAction::PropsAdjustSpeed(delta) => {
                 if let Some(ModalState::LevelProps(props)) = self.modals.last_mut() {
-                    let next = (props.liquid_speed + delta as f32 * 0.25).clamp(0.5, 6.0);
-                    props.liquid_speed = (next * 4.0).round() * 0.25;
+                    let cur = props.liquid_speed;
+                    let next = if delta > 0 {
+                        if cur < 0.5 - 1e-4 {
+                            0.5
+                        } else if cur < 3.0 - 1e-4 {
+                            ((cur * 4.0).floor() + 1.0) * 0.25
+                        } else if cur < 10.0 - 1e-4 {
+                            ((cur * 2.0).floor() + 1.0) * 0.5
+                        } else {
+                            (cur.floor() + 1.0).min(MAX_LIQUID_SPEED)
+                        }
+                    } else if cur > 10.0 + 1e-4 {
+                        (cur.ceil() - 1.0).max(10.0)
+                    } else if cur > 3.0 + 1e-4 {
+                        ((cur * 2.0).ceil() - 1.0) * 0.5
+                    } else if cur > 0.5 + 1e-4 {
+                        ((cur * 4.0).ceil() - 1.0) * 0.25
+                    } else {
+                        MIN_LIQUID_SPEED
+                    };
+                    props.liquid_speed = next.clamp(MIN_LIQUID_SPEED, MAX_LIQUID_SPEED);
                 }
             }
             UiAction::PropsCyclePipeColor(slot) => {

@@ -82,7 +82,7 @@ fn xml_pack_round_trip_synthetic_and_all_campaign_levels() {
             description: "Test \"quotes\" & 'apostrophes'".to_string(),
             background_id: "SnowyHills".to_string(),
             liquid_color: GameColor::Green,
-            start_delay: 7.5,
+            start_delay: 8.0,
             liquid_speed: 2.25,
             rotater_color: GameColor::White,
             mover_color: GameColor::Yellow,
@@ -102,7 +102,7 @@ fn xml_pack_round_trip_synthetic_and_all_campaign_levels() {
                 gate,
                 magic,
                 portal_b,
-                tile(4, 2, PieceShape::Drain, PieceType::Drain, 1, false, false),
+                tile(4, 2, PieceShape::Spigot, PieceType::Drain, 1, false, false),
             ],
             tutorials: vec![
                 TutorialMsg {
@@ -126,8 +126,42 @@ fn xml_pack_round_trip_synthetic_and_all_campaign_levels() {
     };
 
     let xml = write_pack_xml(&synthetic);
+    assert!(xml.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
+    assert!(xml.contains("<response>"));
+    assert!(xml.contains("<game id=\"mmg.aqualux\""));
+    assert!(xml.contains("<startDelay>8</startDelay>"));
+    assert!(xml.contains("<shape>Spigot</shape>"));
+    assert!(xml.contains("<type>Drain</type>"));
+    assert!(xml.contains("<shape>Elbow</shape>"));
+    assert!(xml.contains("<type>FrozenPipe</type>"));
+    assert!(xml.contains("<isFreeze/>"));
+    assert!(!xml.contains("<shape>Drain</shape>"));
+    assert!(!xml.contains("<shape>drain</shape>"));
+
     let parsed = parse_pack_xml(&xml, "fallback").expect("synthetic pack should parse");
     assert_eq!(parsed, synthetic);
+
+    let legacy_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<levels name="Old Pack" author="Bob" description="Legacy">
+  <level index="0">
+    <title>Legacy 1</title>
+    <levelData>
+      <backgroundId>NightHills</backgroundId>
+      <liquidColor>BLUE</liquidColor>
+      <startDelay>10</startDelay>
+      <liquidSpeed>1.5</liquidSpeed>
+      <tileGrid cols="2" rows="2">
+        <tile x="0" y="0"><shape>spigot</shape><type>source</type><direction>3</direction></tile>
+        <tile x="1" y="0"><shape>drain</shape><type>drain</type><direction>1</direction></tile>
+      </tileGrid>
+    </levelData>
+  </level>
+</levels>"#;
+    let legacy = parse_pack_xml(legacy_xml, "fallback").expect("legacy XML should still parse");
+    assert_eq!(legacy.meta.name, "Old Pack");
+    assert_eq!(legacy.meta.author, "Bob");
+    assert_eq!(legacy.meta.description, "Legacy");
+    assert_eq!(legacy.levels.len(), 1);
 
     let Some(path) = asset_file_if_present() else {
         return;
@@ -147,6 +181,64 @@ fn xml_pack_round_trip_synthetic_and_all_campaign_levels() {
     for (orig, rt) in bundle.campaign_levels.iter().zip(reparsed.levels.iter()) {
         assert_eq!(orig, rt, "level {} differed on round-trip", orig.index);
     }
+}
+
+#[test]
+fn xml_schema_edge_cases_and_error_handling() {
+    let quirk_xml = "\u{feff}<reponse>
+  <game id=\"mmg.aqualux\" title=\"Quirk Pack\" owner=\"tester\" extra=\"ignored\">
+    <level index=\"0\" tags=\"lotd\">
+      <title>  Spaced Title  </title>
+      <description/>
+      <levelData>
+        <backgroundId>bluesky</backgroundId>
+        <liquidColor>BLUE</liquidColor>
+        <startDelay>25</startDelay>
+        <liquidSpeed> .5 </liquidSpeed>
+        <tutorial>
+          <message tile=\"0,0\"><![CDATA[Hello <b>world</b>!<br>Next]]></message>
+          <message tile=\"1,0\" holdHilight=\"true\">Held one</message>
+          <message tile=\"2,0\">Still held</message>
+        </tutorial>
+        <tileGrid cols=\"3\" rows=\"2\">
+          <tile x=\"0\" y=\"0\"><shape>Spigot</shape><type>Source</type><direction>3</direction></tile>
+          <tile x=\"1\" y=\"0\"><shape>Cross</shape><type>Pipe</type><direction>0</direction><isMoveable/></tile>
+          <tile x=\"2\" y=\"0\"><shape>Spigot</shape><type>Drain</type><direction>1</direction></tile>
+          <tile x=\"0\" y=\"1\"><shape>Block</shape><type>Blocker</type><direction>0</direction></tile>
+        </tileGrid>
+        <par moves=\"3\" pipes=\"5\" time=\"4058\"/>
+      </levelData>
+    </level>
+  </game>
+</reponse>";
+    let parsed = parse_pack_xml(quirk_xml, "fallback").expect("quirk XML should parse");
+    assert_eq!(parsed.meta.name, "Quirk Pack");
+    assert_eq!(parsed.meta.author, "tester");
+    assert_eq!(parsed.levels.len(), 1);
+    let lvl = &parsed.levels[0];
+    assert_eq!(lvl.title, "Spaced Title");
+    assert_eq!(lvl.description, "");
+    assert_eq!(lvl.background_id, "DaySky");
+    assert!((lvl.liquid_speed - 0.5).abs() < 1e-6);
+    assert_eq!(lvl.rotater_color, GameColor::White);
+    assert_eq!(lvl.mover_color, GameColor::Yellow);
+    assert_eq!(lvl.stationary_color, GameColor::Orange);
+    assert_eq!(lvl.gate_color, GameColor::Violet);
+    assert_eq!(lvl.freeze_color, GameColor::Yellow);
+    assert_eq!(lvl.magic_color, GameColor::Green);
+    assert_eq!(lvl.par_moves, 3);
+    assert_eq!(lvl.par_pipes, 5);
+    assert_eq!(lvl.par_time_ms, 4058);
+    assert_eq!(lvl.tutorials.len(), 3);
+    assert_eq!(lvl.tutorials[0].text, "Hello world!\nNext");
+    assert!(!lvl.tutorials[0].hold_hilight);
+    assert!(lvl.tutorials[1].hold_hilight);
+    assert!(lvl.tutorials[2].hold_hilight);
+
+    assert!(parse_pack_xml("", "fb").is_err());
+    assert!(parse_pack_xml("not xml at all", "fb").is_err());
+    assert!(parse_pack_xml("<response><game><level>", "fb").is_err());
+    assert!(parse_pack_xml("<response><game id=\"mmg.aqualux\"/></response>", "fb").is_err());
 }
 
 #[test]
@@ -274,6 +366,48 @@ fn solver_validation_and_mechanics() {
     unpaired.tiles[0] = p;
     assert!(!validate_level_structure(&unpaired).is_empty());
 
+    let mut both_move_rot = default_starter_level(0);
+    both_move_rot.tiles[1] = tile(1, 0, PieceShape::Elbow, PieceType::Pipe, 0, true, true);
+    assert!(!validate_level_structure(&both_move_rot).is_empty());
+
+    let mut magic_frozen = default_starter_level(0);
+    let mut mf = tile(
+        1,
+        0,
+        PieceShape::Elbow,
+        PieceType::FrozenPipe,
+        0,
+        false,
+        false,
+    );
+    mf.is_magic = true;
+    magic_frozen.tiles[1] = mf;
+    assert!(!validate_level_structure(&magic_frozen).is_empty());
+
+    let mut gate_movable = default_starter_level(0);
+    let mut gm = tile(1, 0, PieceShape::Elbow, PieceType::Pipe, 0, true, false);
+    gm.is_gate = true;
+    gate_movable.tiles[1] = gm;
+    assert!(!validate_level_structure(&gate_movable).is_empty());
+
+    let mut portal_no_color = default_starter_level(0);
+    portal_no_color.tiles[0] = tile(0, 0, PieceShape::Spigot, PieceType::Portal, 3, false, false);
+    assert!(!validate_level_structure(&portal_no_color).is_empty());
+
+    let mut bad_bg = default_starter_level(0);
+    bad_bg.background_id = "InvalidBg".to_string();
+    assert!(!validate_level_structure(&bad_bg).is_empty());
+
+    let mut bad_src = default_starter_level(0);
+    let src = bad_src
+        .tiles
+        .iter_mut()
+        .find(|t| t.piece_type == PieceType::Source)
+        .unwrap();
+    src.shape = PieceShape::Elbow;
+    src.can_rotate = true;
+    assert!(!validate_level_structure(&bad_src).is_empty());
+
     // Unsolvable blocker wall
     let unsolvable = LevelDef {
         cols: 3,
@@ -379,6 +513,15 @@ fn solver_validation_and_mechanics() {
         return;
     };
     let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    for lvl in &bundle.campaign_levels {
+        let issues = validate_level_structure(lvl);
+        assert!(
+            issues.is_empty(),
+            "campaign level {} had validation issues: {:?}",
+            lvl.index + 1,
+            issues
+        );
+    }
     let mut solved_count = 0usize;
     for lvl in &bundle.campaign_levels {
         if let SolveOutcome::Solvable(res) = solve_level(lvl, Duration::from_millis(250)) {

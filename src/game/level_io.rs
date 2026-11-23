@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 ddavef aqualux-rs
 
-use crate::game::levels::parse_levels_xml;
-use crate::game::types::{GameColor, LevelDef, PieceShape, PieceType, TileDef};
-use std::fmt::Write as _;
+use crate::game::types::{GameColor, LevelDef, PieceShape, PieceType, TileDef, TutorialMsg};
+use quick_xml::de::from_str as xml_from_str;
+use quick_xml::se::Serializer;
+use serde::{Deserialize, Deserializer, Serialize, Serializer as SerdeSerializer};
 
 pub const MAX_CUSTOM_XML_BYTES: usize = 2 * 1024 * 1024;
 pub const MIN_GRID_DIM: usize = 2;
 pub const MAX_GRID_COLS: usize = 10;
 pub const MAX_GRID_ROWS: usize = 8;
+pub const MAX_START_DELAY: f32 = 99.0;
+pub const MIN_LIQUID_SPEED: f32 = 0.4;
+pub const MAX_LIQUID_SPEED: f32 = 30.0;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CustomPackMeta {
@@ -23,6 +27,598 @@ pub struct CustomPackFile {
     pub levels: Vec<LevelDef>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct XmlFlag;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct XmlColor(Option<GameColor>);
+
+impl Serialize for XmlColor {
+    fn serialize<S: SerdeSerializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.0.map_or("", color_to_xml))
+    }
+}
+
+impl<'de> Deserialize<'de> for XmlColor {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        Ok(Self(GameColor::from_str_loose(&s)))
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct XmlShape(Option<PieceShape>);
+
+impl Serialize for XmlShape {
+    fn serialize<S: SerdeSerializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.0.map_or("Elbow", shape_to_xml))
+    }
+}
+
+impl<'de> Deserialize<'de> for XmlShape {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        Ok(Self(PieceShape::from_str_loose(&s)))
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct XmlPieceType(Option<PieceType>);
+
+impl Serialize for XmlPieceType {
+    fn serialize<S: SerdeSerializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.0.map_or("Pipe", piece_type_to_xml))
+    }
+}
+
+impl<'de> Deserialize<'de> for XmlPieceType {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        Ok(Self(PieceType::from_str_loose(&s)))
+    }
+}
+
+/// Single unified XML schema definition for both reading (`<response><game>`,
+/// `<reponse><game>`, legacy `<levels>`) and writing canonical Aqualux XML.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename = "response")]
+struct XmlResponse {
+    #[serde(rename = "@name", default, skip_serializing_if = "Option::is_none")]
+    legacy_name: Option<String>,
+    #[serde(rename = "@author", default, skip_serializing_if = "Option::is_none")]
+    legacy_author: Option<String>,
+    #[serde(
+        rename = "@description",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    legacy_description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    game: Option<XmlGame>,
+    #[serde(rename = "level", default, skip_serializing_if = "Vec::is_empty")]
+    legacy_levels: Vec<XmlLevel>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct XmlGame {
+    #[serde(rename = "@id", default, skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    #[serde(rename = "@title", default, skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    #[serde(rename = "@name", default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(rename = "@owner", default, skip_serializing_if = "Option::is_none")]
+    owner: Option<String>,
+    #[serde(rename = "@author", default, skip_serializing_if = "Option::is_none")]
+    author: Option<String>,
+    #[serde(
+        rename = "@description",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    description: Option<String>,
+    #[serde(rename = "level", default)]
+    levels: Vec<XmlLevel>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct XmlLevel {
+    #[serde(rename = "@index", default, skip_serializing_if = "Option::is_none")]
+    index: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(rename = "levelData", default, skip_serializing_if = "Option::is_none")]
+    level_data: Option<XmlLevelData>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct XmlLevelData {
+    #[serde(
+        rename = "backgroundId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    background_id: Option<String>,
+    #[serde(
+        rename = "liquidColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    liquid_color: Option<XmlColor>,
+    #[serde(
+        rename = "startDelay",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    start_delay: Option<String>,
+    #[serde(
+        rename = "liquidSpeed",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    liquid_speed: Option<String>,
+    #[serde(
+        rename = "rotaterColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    rotater_color: Option<XmlColor>,
+    #[serde(
+        rename = "moverColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    mover_color: Option<XmlColor>,
+    #[serde(
+        rename = "stationaryColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    stationary_color: Option<XmlColor>,
+    #[serde(rename = "gateColor", default, skip_serializing_if = "Option::is_none")]
+    gate_color: Option<XmlColor>,
+    #[serde(
+        rename = "freezeColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    freeze_color: Option<XmlColor>,
+    #[serde(
+        rename = "magicColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    magic_color: Option<XmlColor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    par: Option<XmlPar>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tutorial: Option<XmlTutorial>,
+    #[serde(rename = "tileGrid", default, skip_serializing_if = "Option::is_none")]
+    tile_grid: Option<XmlTileGrid>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct XmlPar {
+    #[serde(rename = "@moves", default, skip_serializing_if = "Option::is_none")]
+    moves: Option<String>,
+    #[serde(rename = "@pipes", default, skip_serializing_if = "Option::is_none")]
+    pipes: Option<String>,
+    #[serde(rename = "@time", default, skip_serializing_if = "Option::is_none")]
+    time: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct XmlTutorial {
+    #[serde(default)]
+    message: Vec<XmlTutorialMsg>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct XmlTutorialMsg {
+    #[serde(rename = "@tile", default, skip_serializing_if = "Option::is_none")]
+    tile: Option<String>,
+    #[serde(
+        rename = "@waitForSelect",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    wait_for_select: Option<String>,
+    #[serde(
+        rename = "@waitForSwap",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    wait_for_swap: Option<String>,
+    #[serde(
+        rename = "@waitForDrag",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    wait_for_drag: Option<String>,
+    #[serde(
+        rename = "@holdHilight",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    hold_hilight: Option<String>,
+    #[serde(rename = "$text", default)]
+    text: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct XmlTileGrid {
+    #[serde(rename = "@cols", default, skip_serializing_if = "Option::is_none")]
+    cols: Option<String>,
+    #[serde(rename = "@rows", default, skip_serializing_if = "Option::is_none")]
+    rows: Option<String>,
+    #[serde(default)]
+    tile: Vec<XmlTile>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct XmlTile {
+    #[serde(rename = "@x", default, skip_serializing_if = "Option::is_none")]
+    x: Option<String>,
+    #[serde(rename = "@y", default, skip_serializing_if = "Option::is_none")]
+    y: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shape: Option<XmlShape>,
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    piece_type: Option<XmlPieceType>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    direction: Option<String>,
+    #[serde(
+        rename = "isMoveable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    is_moveable: Option<XmlFlag>,
+    #[serde(rename = "canRotate", default, skip_serializing_if = "Option::is_none")]
+    can_rotate: Option<XmlFlag>,
+    #[serde(rename = "isGate", default, skip_serializing_if = "Option::is_none")]
+    is_gate: Option<XmlFlag>,
+    #[serde(rename = "isFreeze", default, skip_serializing_if = "Option::is_none")]
+    is_freeze: Option<XmlFlag>,
+    #[serde(rename = "isMagic", default, skip_serializing_if = "Option::is_none")]
+    is_magic: Option<XmlFlag>,
+    #[serde(
+        rename = "secondaryColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    secondary_color: Option<XmlColor>,
+}
+
+impl XmlResponse {
+    fn from_pack(pack: &CustomPackFile) -> Self {
+        let levels = pack
+            .levels
+            .iter()
+            .enumerate()
+            .map(|(idx, lvl)| XmlLevel::from_level_def(idx, lvl))
+            .collect();
+        Self {
+            legacy_name: None,
+            legacy_author: None,
+            legacy_description: None,
+            game: Some(XmlGame {
+                id: Some("mmg.aqualux".to_string()),
+                title: Some(pack.meta.name.clone()),
+                name: None,
+                owner: Some(pack.meta.author.clone()),
+                author: None,
+                description: Some(pack.meta.description.clone()),
+                levels,
+            }),
+            legacy_levels: Vec::new(),
+        }
+    }
+
+    fn into_levels_and_meta(self) -> (CustomPackMeta, Vec<LevelDef>) {
+        let mut meta = CustomPackMeta::default();
+        let raw_levels = if let Some(game) = self.game {
+            if let Some(n) = game
+                .title
+                .as_deref()
+                .or(game.name.as_deref())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                meta.name = n.to_string();
+            }
+            if let Some(a) = game
+                .owner
+                .as_deref()
+                .or(game.author.as_deref())
+                .map(str::trim)
+            {
+                meta.author = a.to_string();
+            }
+            if let Some(d) = game.description.as_deref().map(str::trim) {
+                meta.description = d.to_string();
+            }
+            game.levels
+        } else {
+            if let Some(n) = self
+                .legacy_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                meta.name = n.to_string();
+            }
+            if let Some(a) = self.legacy_author.as_deref().map(str::trim) {
+                meta.author = a.to_string();
+            }
+            if let Some(d) = self.legacy_description.as_deref().map(str::trim) {
+                meta.description = d.to_string();
+            }
+            self.legacy_levels
+        };
+
+        let mut levels: Vec<LevelDef> = raw_levels
+            .into_iter()
+            .enumerate()
+            .filter_map(|(idx, lvl)| lvl.into_level_def(idx))
+            .collect();
+        levels.sort_by_key(|l| l.index);
+        (meta, levels)
+    }
+}
+
+impl XmlLevel {
+    fn from_level_def(idx: usize, lvl: &LevelDef) -> Self {
+        let start_delay = lvl.start_delay.round().clamp(0.0, MAX_START_DELAY) as u32;
+        let liquid_speed = lvl.liquid_speed.clamp(MIN_LIQUID_SPEED, MAX_LIQUID_SPEED);
+        let tutorial = (!lvl.tutorials.is_empty()).then(|| XmlTutorial {
+            message: lvl
+                .tutorials
+                .iter()
+                .map(|tut| XmlTutorialMsg {
+                    tile: (!tut.tiles.is_empty()).then(|| format_point_list(&tut.tiles)),
+                    wait_for_select: tut.wait_for_select.map(|(x, y)| format!("{},{}", x, y)),
+                    wait_for_swap: (!tut.wait_for_swap.is_empty())
+                        .then(|| format_point_list(&tut.wait_for_swap)),
+                    wait_for_drag: (!tut.wait_for_drag.is_empty())
+                        .then(|| format_point_list(&tut.wait_for_drag)),
+                    hold_hilight: tut.hold_hilight.then(|| "true".to_string()),
+                    text: tut.text.clone(),
+                })
+                .collect(),
+        });
+        let tiles = lvl
+            .tiles
+            .iter()
+            .map(|t| {
+                let is_frozen = t.piece_type == PieceType::FrozenPipe || t.is_freeze;
+                let xml_type = if is_frozen {
+                    PieceType::FrozenPipe
+                } else {
+                    t.piece_type
+                };
+                XmlTile {
+                    x: Some(t.x.to_string()),
+                    y: Some(t.y.to_string()),
+                    shape: Some(XmlShape(Some(t.shape))),
+                    piece_type: Some(XmlPieceType(Some(xml_type))),
+                    direction: Some((t.direction % 4).to_string()),
+                    is_moveable: t.is_moveable.then_some(XmlFlag),
+                    can_rotate: t.can_rotate.then_some(XmlFlag),
+                    is_gate: t.is_gate.then_some(XmlFlag),
+                    is_freeze: is_frozen.then_some(XmlFlag),
+                    is_magic: t.is_magic.then_some(XmlFlag),
+                    secondary_color: t.secondary_color.map(|c| XmlColor(Some(c))),
+                }
+            })
+            .collect();
+
+        Self {
+            index: Some(idx.to_string()),
+            title: Some(lvl.title.clone()),
+            description: Some(lvl.description.clone()),
+            level_data: Some(XmlLevelData {
+                background_id: Some(lvl.background_id.clone()),
+                liquid_color: Some(XmlColor(Some(lvl.liquid_color))),
+                start_delay: Some(start_delay.to_string()),
+                liquid_speed: Some(liquid_speed.to_string()),
+                rotater_color: Some(XmlColor(Some(lvl.rotater_color))),
+                mover_color: Some(XmlColor(Some(lvl.mover_color))),
+                stationary_color: Some(XmlColor(Some(lvl.stationary_color))),
+                gate_color: Some(XmlColor(Some(lvl.gate_color))),
+                freeze_color: Some(XmlColor(Some(lvl.freeze_color))),
+                magic_color: Some(XmlColor(Some(lvl.magic_color))),
+                par: Some(XmlPar {
+                    moves: Some(lvl.par_moves.to_string()),
+                    pipes: Some(lvl.par_pipes.to_string()),
+                    time: Some(lvl.par_time_ms.to_string()),
+                }),
+                tutorial,
+                tile_grid: Some(XmlTileGrid {
+                    cols: Some(lvl.cols.to_string()),
+                    rows: Some(lvl.rows.to_string()),
+                    tile: tiles,
+                }),
+            }),
+        }
+    }
+
+    fn into_level_def(self, fallback_idx: usize) -> Option<LevelDef> {
+        let index = self
+            .index
+            .as_deref()
+            .and_then(|s| s.trim().parse::<usize>().ok())
+            .unwrap_or(fallback_idx);
+        let title = self
+            .title
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("Level {}", index + 1));
+        let description = self
+            .description
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .to_string();
+
+        let ld = self.level_data?;
+        let grid = ld.tile_grid?;
+
+        let background_id = normalize_bg_id(ld.background_id.as_deref().unwrap_or("NightHills"));
+        let liquid_color = ld.liquid_color.and_then(|c| c.0).unwrap_or(GameColor::Blue);
+        let start_delay = ld
+            .start_delay
+            .as_deref()
+            .and_then(|s| s.trim().parse::<f32>().ok())
+            .unwrap_or(10.0);
+        let liquid_speed = ld
+            .liquid_speed
+            .as_deref()
+            .and_then(|s| s.trim().parse::<f32>().ok())
+            .unwrap_or(1.5);
+
+        let rotater_color = ld
+            .rotater_color
+            .and_then(|c| c.0)
+            .unwrap_or(GameColor::White);
+        let mover_color = ld
+            .mover_color
+            .and_then(|c| c.0)
+            .unwrap_or(GameColor::Yellow);
+        let stationary_color = ld
+            .stationary_color
+            .and_then(|c| c.0)
+            .unwrap_or(GameColor::Orange);
+        let gate_color = ld.gate_color.and_then(|c| c.0).unwrap_or(GameColor::Violet);
+        let freeze_color = ld
+            .freeze_color
+            .and_then(|c| c.0)
+            .unwrap_or(GameColor::Yellow);
+        let magic_color = ld.magic_color.and_then(|c| c.0).unwrap_or(GameColor::Green);
+
+        let par_moves = ld
+            .par
+            .as_ref()
+            .and_then(|p| p.moves.as_deref())
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(10);
+        let par_pipes = ld
+            .par
+            .as_ref()
+            .and_then(|p| p.pipes.as_deref())
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(5);
+        let par_time_ms = ld
+            .par
+            .as_ref()
+            .and_then(|p| p.time.as_deref())
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(10000);
+
+        let mut tutorials = Vec::new();
+        if let Some(tut) = ld.tutorial {
+            let mut hold_hilight = false;
+            for msg in tut.message {
+                if msg.hold_hilight.as_deref().map(str::trim) == Some("true") {
+                    hold_hilight = true;
+                }
+                tutorials.push(TutorialMsg {
+                    tiles: parse_point_list(msg.tile.as_deref()),
+                    wait_for_select: parse_point_list(msg.wait_for_select.as_deref())
+                        .into_iter()
+                        .next(),
+                    wait_for_swap: parse_point_list(msg.wait_for_swap.as_deref()),
+                    wait_for_drag: parse_point_list(msg.wait_for_drag.as_deref()),
+                    hold_hilight,
+                    text: strip_html_tags(&msg.text),
+                });
+            }
+        }
+
+        let cols = grid
+            .cols
+            .as_deref()
+            .and_then(|s| s.trim().parse::<usize>().ok())
+            .unwrap_or(5);
+        let rows = grid
+            .rows
+            .as_deref()
+            .and_then(|s| s.trim().parse::<usize>().ok())
+            .unwrap_or(5);
+
+        let tiles = grid
+            .tile
+            .into_iter()
+            .map(|t| {
+                let piece_type = t.piece_type.and_then(|p| p.0).unwrap_or(PieceType::Pipe);
+                TileDef {
+                    x: t.x
+                        .as_deref()
+                        .and_then(|s| s.trim().parse().ok())
+                        .unwrap_or(0),
+                    y: t.y
+                        .as_deref()
+                        .and_then(|s| s.trim().parse().ok())
+                        .unwrap_or(0),
+                    shape: t.shape.and_then(|s| s.0).unwrap_or(PieceShape::Elbow),
+                    piece_type,
+                    direction: t
+                        .direction
+                        .as_deref()
+                        .and_then(|s| s.trim().parse::<u8>().ok())
+                        .unwrap_or(0)
+                        % 4,
+                    is_moveable: t.is_moveable.is_some(),
+                    can_rotate: t.can_rotate.is_some(),
+                    is_gate: t.is_gate.is_some(),
+                    is_freeze: piece_type == PieceType::FrozenPipe || t.is_freeze.is_some(),
+                    is_magic: t.is_magic.is_some(),
+                    secondary_color: t.secondary_color.and_then(|c| c.0),
+                }
+            })
+            .collect();
+
+        Some(LevelDef {
+            index,
+            title,
+            description,
+            background_id,
+            liquid_color,
+            start_delay,
+            liquid_speed,
+            rotater_color,
+            mover_color,
+            stationary_color,
+            gate_color,
+            freeze_color,
+            magic_color,
+            par_moves,
+            par_pipes,
+            par_time_ms,
+            cols,
+            rows,
+            tiles,
+            tutorials,
+        })
+    }
+}
+
+fn parse_xml_response(xml_raw: &str) -> Result<XmlResponse, String> {
+    let trimmed = xml_raw.trim_start_matches('\u{feff}').trim();
+    if trimmed.is_empty() || !trimmed.starts_with('<') {
+        return Err("XML parse error: empty or non-XML input".to_string());
+    }
+    xml_from_str::<XmlResponse>(trimmed).map_err(|e| format!("XML parse error: {}", e))
+}
+
+pub fn parse_levels_xml(xml_raw: &str) -> Result<Vec<LevelDef>, String> {
+    let (_, levels) = parse_xml_response(xml_raw)?.into_levels_and_meta();
+    Ok(levels)
+}
+
 pub fn parse_pack_xml(xml_raw: &str, fallback_name: &str) -> Result<CustomPackFile, String> {
     if xml_raw.len() > MAX_CUSTOM_XML_BYTES {
         return Err(format!(
@@ -31,26 +627,8 @@ pub fn parse_pack_xml(xml_raw: &str, fallback_name: &str) -> Result<CustomPackFi
             xml_raw.len()
         ));
     }
-    let trimmed = xml_raw.trim_start_matches('\u{feff}').trim();
-    let doc = roxmltree::Document::parse(trimmed).map_err(|e| format!("XML parse error: {}", e))?;
 
-    let mut meta = CustomPackMeta::default();
-    if let Some(levels_node) = doc
-        .descendants()
-        .find(|n| n.is_element() && n.tag_name().name() == "levels")
-    {
-        if let Some(n) = levels_node.attribute("name").map(str::trim)
-            && !n.is_empty()
-        {
-            meta.name = n.to_string();
-        }
-        if let Some(a) = levels_node.attribute("author").map(str::trim) {
-            meta.author = a.to_string();
-        }
-        if let Some(d) = levels_node.attribute("description").map(str::trim) {
-            meta.description = d.to_string();
-        }
-    }
+    let (mut meta, mut levels) = parse_xml_response(xml_raw)?.into_levels_and_meta();
     if meta.name.is_empty() {
         let fb = fallback_name.trim();
         meta.name = if fb.is_empty() {
@@ -60,7 +638,6 @@ pub fn parse_pack_xml(xml_raw: &str, fallback_name: &str) -> Result<CustomPackFi
         };
     }
 
-    let mut levels = parse_levels_xml(trimmed)?;
     if levels.is_empty() {
         return Err("XML file contains no levels".to_string());
     }
@@ -70,12 +647,12 @@ pub fn parse_pack_xml(xml_raw: &str, fallback_name: &str) -> Result<CustomPackFi
         lvl.cols = lvl.cols.clamp(MIN_GRID_DIM, MAX_GRID_COLS);
         lvl.rows = lvl.rows.clamp(MIN_GRID_DIM, MAX_GRID_ROWS);
         lvl.start_delay = if lvl.start_delay.is_finite() {
-            lvl.start_delay.clamp(0.0, 120.0)
+            lvl.start_delay.round().clamp(0.0, MAX_START_DELAY)
         } else {
             10.0
         };
         lvl.liquid_speed = if lvl.liquid_speed.is_finite() {
-            lvl.liquid_speed.clamp(0.1, 20.0)
+            lvl.liquid_speed.clamp(MIN_LIQUID_SPEED, MAX_LIQUID_SPEED)
         } else {
             1.5
         };
@@ -86,175 +663,39 @@ pub fn parse_pack_xml(xml_raw: &str, fallback_name: &str) -> Result<CustomPackFi
 }
 
 pub fn write_pack_xml(pack: &CustomPackFile) -> String {
-    let mut out = String::with_capacity(4096);
-    out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    let _ = writeln!(
-        out,
-        "<levels name=\"{}\" author=\"{}\" description=\"{}\">",
-        escape_attr(&pack.meta.name),
-        escape_attr(&pack.meta.author),
-        escape_attr(&pack.meta.description),
-    );
-    for (idx, lvl) in pack.levels.iter().enumerate() {
-        write_level_xml(&mut out, idx, lvl);
-    }
-    out.push_str("</levels>\n");
+    let response = XmlResponse::from_pack(pack);
+    let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    let mut ser = Serializer::new(&mut out);
+    ser.indent(' ', 2);
+    response
+        .serialize(ser)
+        .expect("serializing valid LevelDef pack to XML cannot fail");
+    out.push('\n');
     out
 }
 
-fn write_level_xml(out: &mut String, idx: usize, lvl: &LevelDef) {
-    let _ = writeln!(out, "  <level index=\"{}\">", idx);
-    let _ = writeln!(out, "    <title>{}</title>", escape_text(&lvl.title));
-    let _ = writeln!(
-        out,
-        "    <description>{}</description>",
-        escape_text(&lvl.description)
-    );
-    out.push_str("    <levelData>\n");
-    let _ = writeln!(
-        out,
-        "      <backgroundId>{}</backgroundId>",
-        escape_text(&lvl.background_id)
-    );
-    let _ = writeln!(
-        out,
-        "      <liquidColor>{}</liquidColor>",
-        color_to_xml(lvl.liquid_color)
-    );
-    let _ = writeln!(out, "      <startDelay>{}</startDelay>", lvl.start_delay);
-    let _ = writeln!(out, "      <liquidSpeed>{}</liquidSpeed>", lvl.liquid_speed);
-    let _ = writeln!(
-        out,
-        "      <rotaterColor>{}</rotaterColor>",
-        color_to_xml(lvl.rotater_color)
-    );
-    let _ = writeln!(
-        out,
-        "      <moverColor>{}</moverColor>",
-        color_to_xml(lvl.mover_color)
-    );
-    let _ = writeln!(
-        out,
-        "      <stationaryColor>{}</stationaryColor>",
-        color_to_xml(lvl.stationary_color)
-    );
-    let _ = writeln!(
-        out,
-        "      <gateColor>{}</gateColor>",
-        color_to_xml(lvl.gate_color)
-    );
-    let _ = writeln!(
-        out,
-        "      <freezeColor>{}</freezeColor>",
-        color_to_xml(lvl.freeze_color)
-    );
-    let _ = writeln!(
-        out,
-        "      <magicColor>{}</magicColor>",
-        color_to_xml(lvl.magic_color)
-    );
-    let _ = writeln!(
-        out,
-        "      <par moves=\"{}\" pipes=\"{}\" time=\"{}\"/>",
-        lvl.par_moves, lvl.par_pipes, lvl.par_time_ms
-    );
-    if !lvl.tutorials.is_empty() {
-        out.push_str("      <tutorial>\n");
-        for tut in &lvl.tutorials {
-            out.push_str("        <message");
-            if !tut.tiles.is_empty() {
-                let _ = write!(out, " tile=\"{}\"", format_point_list(&tut.tiles));
-            }
-            if let Some((sx, sy)) = tut.wait_for_select {
-                let _ = write!(out, " waitForSelect=\"{},{}\"", sx, sy);
-            }
-            if !tut.wait_for_swap.is_empty() {
-                let _ = write!(
-                    out,
-                    " waitForSwap=\"{}\"",
-                    format_point_list(&tut.wait_for_swap)
-                );
-            }
-            if !tut.wait_for_drag.is_empty() {
-                let _ = write!(
-                    out,
-                    " waitForDrag=\"{}\"",
-                    format_point_list(&tut.wait_for_drag)
-                );
-            }
-            if tut.hold_hilight {
-                out.push_str(" holdHilight=\"true\"");
-            }
-            let _ = writeln!(out, ">{}</message>", escape_text(&tut.text));
-        }
-        out.push_str("      </tutorial>\n");
-    }
-    let _ = writeln!(
-        out,
-        "      <tileGrid cols=\"{}\" rows=\"{}\">",
-        lvl.cols, lvl.rows
-    );
-    for t in &lvl.tiles {
-        let _ = writeln!(out, "        <tile x=\"{}\" y=\"{}\">", t.x, t.y);
-        let _ = writeln!(out, "          <shape>{}</shape>", shape_to_xml(t.shape));
-        let _ = writeln!(
-            out,
-            "          <type>{}</type>",
-            piece_type_to_xml(t.piece_type)
-        );
-        let _ = writeln!(out, "          <direction>{}</direction>", t.direction % 4);
-        if t.is_moveable {
-            out.push_str("          <isMoveable/>\n");
-        }
-        if t.can_rotate {
-            out.push_str("          <canRotate/>\n");
-        }
-        if t.is_gate {
-            out.push_str("          <isGate/>\n");
-        }
-        if t.is_freeze {
-            out.push_str("          <isFreeze/>\n");
-        }
-        if t.is_magic {
-            out.push_str("          <isMagic/>\n");
-        }
-        if let Some(sc) = t.secondary_color {
-            let _ = writeln!(
-                out,
-                "          <secondaryColor>{}</secondaryColor>",
-                color_to_xml(sc)
-            );
-        }
-        out.push_str("        </tile>\n");
-    }
-    out.push_str("      </tileGrid>\n");
-    out.push_str("    </levelData>\n");
-    out.push_str("  </level>\n");
-}
-
-pub fn shape_to_xml(s: PieceShape) -> &'static str {
+fn shape_to_xml(s: PieceShape) -> &'static str {
     match s {
-        PieceShape::Elbow => "elbow",
-        PieceShape::Straight => "straight",
-        PieceShape::Cross => "cross",
-        PieceShape::Spigot => "spigot",
-        PieceShape::Drain => "drain",
-        PieceShape::Block => "block",
+        PieceShape::Elbow => "Elbow",
+        PieceShape::Straight => "Straight",
+        PieceShape::Cross => "Cross",
+        PieceShape::Spigot | PieceShape::Drain => "Spigot",
+        PieceShape::Block => "Block",
     }
 }
 
-pub fn piece_type_to_xml(p: PieceType) -> &'static str {
+fn piece_type_to_xml(p: PieceType) -> &'static str {
     match p {
-        PieceType::Source => "source",
-        PieceType::Pipe => "pipe",
-        PieceType::Drain => "drain",
-        PieceType::Blocker => "blocker",
-        PieceType::Portal => "portal",
-        PieceType::FrozenPipe => "frozenPipe",
+        PieceType::Source => "Source",
+        PieceType::Pipe => "Pipe",
+        PieceType::Drain => "Drain",
+        PieceType::Blocker => "Blocker",
+        PieceType::Portal => "Portal",
+        PieceType::FrozenPipe => "FrozenPipe",
     }
 }
 
-pub fn color_to_xml(c: GameColor) -> &'static str {
+fn color_to_xml(c: GameColor) -> &'static str {
     match c {
         GameColor::Red => "RED",
         GameColor::Orange => "ORANGE",
@@ -290,7 +731,7 @@ pub fn default_starter_level(index: usize) -> LevelDef {
                 (4, 2) => TileDef {
                     x,
                     y,
-                    shape: PieceShape::Drain,
+                    shape: PieceShape::Spigot,
                     piece_type: PieceType::Drain,
                     direction: 1,
                     is_moveable: false,
@@ -373,6 +814,23 @@ fn pipe_tile(
     }
 }
 
+fn parse_point_list(raw: Option<&str>) -> Vec<(usize, usize)> {
+    let Some(s) = raw.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in s.split('|') {
+        let mut parts = item.trim().split(',');
+        if let (Some(x), Some(y)) = (
+            parts.next().and_then(|v| v.trim().parse::<usize>().ok()),
+            parts.next().and_then(|v| v.trim().parse::<usize>().ok()),
+        ) {
+            out.push((x, y));
+        }
+    }
+    out
+}
+
 fn format_point_list(pts: &[(usize, usize)]) -> String {
     pts.iter()
         .map(|(x, y)| format!("{},{}", x, y))
@@ -380,30 +838,38 @@ fn format_point_list(pts: &[(usize, usize)]) -> String {
         .join("|")
 }
 
-fn escape_attr(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&apos;"),
-            _ => out.push(ch),
-        }
+fn normalize_bg_id(raw: &str) -> String {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "nighthills" => "NightHills".to_string(),
+        "daysky" | "bluesky" => "DaySky".to_string(),
+        "snowyhills" | "snowhills" => "SnowyHills".to_string(),
+        "outerspace" | "spacesky" => "OuterSpace".to_string(),
+        other if !other.is_empty() => raw.trim().to_string(),
+        _ => "NightHills".to_string(),
     }
-    out
 }
 
-fn escape_text(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
+fn strip_html_tags(input: &str) -> String {
+    let with_breaks = input
+        .replace("<br>", "\n")
+        .replace("<br/>", "\n")
+        .replace("<br />", "\n")
+        .replace("<BR>", "\n")
+        .replace('\r', "\n");
+    let mut out = String::with_capacity(with_breaks.len());
+    let mut in_tag = false;
+    for ch in with_breaks.chars() {
         match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            _ => out.push(ch),
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
         }
     }
-    out
+    out.split('\n')
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
 }

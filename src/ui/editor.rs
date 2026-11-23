@@ -2,7 +2,9 @@
 // Copyright (C) 2026 ddavef aqualux-rs
 
 use crate::game::Difficulty;
-use crate::game::level_io::{MAX_GRID_COLS, MAX_GRID_ROWS, MIN_GRID_DIM};
+use crate::game::level_io::{
+    MAX_GRID_COLS, MAX_GRID_ROWS, MAX_LIQUID_SPEED, MAX_START_DELAY, MIN_GRID_DIM, MIN_LIQUID_SPEED,
+};
 use crate::game::solver::{SolveResult, ValidationIssue, validate_level_structure};
 use crate::game::tile::build_tile_grid;
 use crate::game::types::{GameColor, LevelDef, PieceShape, PieceType, Side, TileDef};
@@ -352,7 +354,7 @@ impl EditorState {
             EditorTool::Drain => TileDef {
                 x,
                 y,
-                shape: PieceShape::Drain,
+                shape: PieceShape::Spigot,
                 piece_type: PieceType::Drain,
                 direction: dir,
                 is_moveable: false,
@@ -473,7 +475,7 @@ impl EditorState {
                     TileDef {
                         x,
                         y,
-                        shape: PieceShape::Drain,
+                        shape: PieceShape::Spigot,
                         piece_type: PieceType::Drain,
                         direction: 1,
                         is_moveable: false,
@@ -1605,28 +1607,28 @@ pub fn build_level_props_buttons(props: &LevelPropsDraft) -> Vec<UiButton> {
     let mut out = vec![
         UiButton {
             id: "pr_title",
-            rect: Rect::new(430.0, 108.0, 214.0, 22.0),
+            rect: Rect::new(264.0, 92.0, 380.0, 26.0),
             action: UiAction::PropsEditTitle,
             enabled: true,
             hover_sfx: Some("PopTwoSound"),
         },
         UiButton {
             id: "pr_desc",
-            rect: Rect::new(430.0, 138.0, 214.0, 22.0),
+            rect: Rect::new(264.0, 124.0, 380.0, 42.0),
             action: UiAction::PropsEditDesc,
             enabled: true,
             hover_sfx: Some("PopTwoSound"),
         },
         UiButton {
             id: "pr_bg",
-            rect: Rect::new(430.0, 174.0, 214.0, 22.0),
+            rect: Rect::new(430.0, 178.0, 214.0, 22.0),
             action: UiAction::PropsCycleBg,
             enabled: true,
             hover_sfx: Some("PopTwoSound"),
         },
         UiButton {
             id: "pr_liq",
-            rect: Rect::new(430.0, 204.0, 214.0, 22.0),
+            rect: Rect::new(430.0, 206.0, 214.0, 22.0),
             action: UiAction::PropsCycleLiquid,
             enabled: true,
             hover_sfx: Some("PopTwoSound"),
@@ -1642,21 +1644,21 @@ pub fn build_level_props_buttons(props: &LevelPropsDraft) -> Vec<UiButton> {
             id: "pr_delay_inc",
             rect: Rect::new(616.0, 234.0, 28.0, 22.0),
             action: UiAction::PropsAdjustDelay(1),
-            enabled: props.start_delay < 60.0,
+            enabled: props.start_delay < MAX_START_DELAY,
             hover_sfx: Some("PopTwoSound"),
         },
         UiButton {
             id: "pr_speed_dec",
-            rect: Rect::new(516.0, 264.0, 28.0, 22.0),
+            rect: Rect::new(516.0, 262.0, 28.0, 22.0),
             action: UiAction::PropsAdjustSpeed(-1),
-            enabled: props.liquid_speed > 0.5,
+            enabled: props.liquid_speed > MIN_LIQUID_SPEED + 0.001,
             hover_sfx: Some("PopTwoSound"),
         },
         UiButton {
             id: "pr_speed_inc",
-            rect: Rect::new(616.0, 264.0, 28.0, 22.0),
+            rect: Rect::new(616.0, 262.0, 28.0, 22.0),
             action: UiAction::PropsAdjustSpeed(1),
-            enabled: props.liquid_speed < 6.0,
+            enabled: props.liquid_speed < MAX_LIQUID_SPEED - 0.001,
             hover_sfx: Some("PopTwoSound"),
         },
     ];
@@ -1665,7 +1667,7 @@ pub fn build_level_props_buttons(props: &LevelPropsDraft) -> Vec<UiButton> {
         let col = i % 2;
         let row = i / 2;
         let rx = 152.0 + col as f32 * 256.0;
-        let ry = 322.0 + row as f32 * 26.0;
+        let ry = 320.0 + row as f32 * 26.0;
         out.push(UiButton {
             id: btn_id,
             rect: Rect::new(rx + 114.0, ry, 120.0, 22.0),
@@ -1779,7 +1781,7 @@ pub fn render_level_props_modal(
         canvas,
         FontFamily::Neuropol,
         400.0,
-        58.0,
+        56.0,
         24.0,
         (255, 255, 255),
         (5, 13, 43),
@@ -1787,23 +1789,60 @@ pub fn render_level_props_modal(
         "-Level Properties-",
     );
 
-    // Title & Subtitle
+    // Title & Description recessed fields
     fonts.draw(
         canvas,
         FontFamily::Neuropol,
         152.0,
-        108.0,
-        16.0,
+        96.0,
+        15.0,
         (255, 255, 255),
         TextAlign::Left,
-        &format!("Title: {}", truncate_chars(&props.title, 20)),
+        "Title:",
     );
+    let r_title_hit = Rect::new(264.0, 92.0, 380.0, 26.0);
+    let title_hov = r_title_hit.contains(mouse_pos.0, mouse_pos.1);
+    canvas.draw_rounded_rect(
+        Rect::new(264.0, 92.0, 314.0, 26.0),
+        6.0,
+        (0x05, 0x0D, 0x2B, 204),
+        Some(if title_hov {
+            (0x59, 0x95, 0xC1, 255, 2.0)
+        } else {
+            (0x0E, 0x15, 0x32, 255, 2.0)
+        }),
+    );
+    let title_trimmed = props.title.trim();
+    if title_trimmed.is_empty() {
+        fonts.draw(
+            canvas,
+            FontFamily::Neuropol,
+            272.0,
+            97.0,
+            14.0,
+            (0x88, 0xA0, 0xC0),
+            TextAlign::Left,
+            "(untitled)",
+        );
+    } else {
+        let title_fit = truncate_to_width(fonts, FontFamily::Neuropol, title_trimmed, 14.0, 298.0);
+        fonts.draw(
+            canvas,
+            FontFamily::Neuropol,
+            272.0,
+            97.0,
+            14.0,
+            (255, 255, 255),
+            TextAlign::Left,
+            &title_fit,
+        );
+    }
     draw_editor_link(
         canvas,
         fonts,
-        Rect::new(430.0, 108.0, 214.0, 22.0),
+        r_title_hit,
         644.0,
-        108.0,
+        96.0,
         15.0,
         TextAlign::Right,
         "[edit]",
@@ -1812,27 +1851,90 @@ pub fn render_level_props_modal(
         mouse_pos,
     );
 
-    let sub_disp = if props.description.trim().is_empty() {
-        "(none)".to_string()
-    } else {
-        truncate_chars(&props.description, 20)
-    };
     fonts.draw(
         canvas,
         FontFamily::Neuropol,
         152.0,
-        138.0,
-        16.0,
+        130.0,
+        15.0,
         (255, 255, 255),
         TextAlign::Left,
-        &format!("Subtitle: {}", sub_disp),
+        "Description:",
     );
+    let r_desc_hit = Rect::new(264.0, 124.0, 380.0, 42.0);
+    let desc_hov = r_desc_hit.contains(mouse_pos.0, mouse_pos.1);
+    canvas.draw_rounded_rect(
+        Rect::new(264.0, 124.0, 314.0, 42.0),
+        6.0,
+        (0x05, 0x0D, 0x2B, 204),
+        Some(if desc_hov {
+            (0x59, 0x95, 0xC1, 255, 2.0)
+        } else {
+            (0x0E, 0x15, 0x32, 255, 2.0)
+        }),
+    );
+    let desc_trimmed = props.description.trim();
+    if desc_trimmed.is_empty() {
+        fonts.draw(
+            canvas,
+            FontFamily::Neuropol,
+            272.0,
+            138.0,
+            13.0,
+            (0x88, 0xA0, 0xC0),
+            TextAlign::Left,
+            "(none)",
+        );
+    } else {
+        let lines = fonts.wrap_lines(FontFamily::Neuropol, desc_trimmed, 13.0, 298.0);
+        if lines.len() <= 1 {
+            let line = truncate_to_width(fonts, FontFamily::Neuropol, &lines[0], 13.0, 298.0);
+            fonts.draw(
+                canvas,
+                FontFamily::Neuropol,
+                272.0,
+                138.0,
+                13.0,
+                (255, 255, 255),
+                TextAlign::Left,
+                &line,
+            );
+        } else {
+            let l1 = truncate_to_width(fonts, FontFamily::Neuropol, &lines[0], 13.0, 298.0);
+            let l2_raw = if lines.len() > 2 {
+                lines[1..].join(" ")
+            } else {
+                lines[1].clone()
+            };
+            let l2 = truncate_to_width(fonts, FontFamily::Neuropol, &l2_raw, 13.0, 298.0);
+            fonts.draw(
+                canvas,
+                FontFamily::Neuropol,
+                272.0,
+                128.0,
+                13.0,
+                (255, 255, 255),
+                TextAlign::Left,
+                &l1,
+            );
+            fonts.draw(
+                canvas,
+                FontFamily::Neuropol,
+                272.0,
+                146.0,
+                13.0,
+                (255, 255, 255),
+                TextAlign::Left,
+                &l2,
+            );
+        }
+    }
     draw_editor_link(
         canvas,
         fonts,
-        Rect::new(430.0, 138.0, 214.0, 22.0),
+        r_desc_hit,
         644.0,
-        138.0,
+        136.0,
         15.0,
         TextAlign::Right,
         "[edit]",
@@ -1846,7 +1948,7 @@ pub fn render_level_props_modal(
         canvas,
         FontFamily::Neuropol,
         152.0,
-        174.0,
+        178.0,
         16.0,
         (255, 255, 255),
         TextAlign::Left,
@@ -1855,9 +1957,9 @@ pub fn render_level_props_modal(
     draw_editor_link(
         canvas,
         fonts,
-        Rect::new(430.0, 174.0, 214.0, 22.0),
+        Rect::new(430.0, 178.0, 214.0, 22.0),
         644.0,
-        174.0,
+        178.0,
         15.0,
         TextAlign::Right,
         &props.background_id,
@@ -1870,7 +1972,7 @@ pub fn render_level_props_modal(
         canvas,
         FontFamily::Neuropol,
         152.0,
-        204.0,
+        206.0,
         16.0,
         (255, 255, 255),
         TextAlign::Left,
@@ -1878,16 +1980,16 @@ pub fn render_level_props_modal(
     );
     draw_color_swatch(
         canvas,
-        Rect::new(506.0, 206.0, 20.0, 16.0),
+        Rect::new(506.0, 208.0, 20.0, 16.0),
         props.liquid_color,
         false,
     );
     draw_editor_link(
         canvas,
         fonts,
-        Rect::new(430.0, 204.0, 214.0, 22.0),
+        Rect::new(430.0, 206.0, 214.0, 22.0),
         644.0,
-        204.0,
+        206.0,
         15.0,
         TextAlign::Right,
         color_label(props.liquid_color),
@@ -1913,7 +2015,7 @@ pub fn render_level_props_modal(
         234.0,
         &format!("{:.0}s", props.start_delay),
         props.start_delay > 0.0,
-        props.start_delay < 60.0,
+        props.start_delay < MAX_START_DELAY,
         mouse_pos,
     );
 
@@ -1921,20 +2023,29 @@ pub fn render_level_props_modal(
         canvas,
         FontFamily::Neuropol,
         152.0,
-        264.0,
+        262.0,
         16.0,
         (255, 255, 255),
         TextAlign::Left,
         "Flow Speed:",
     );
+    let speed_str = if props.liquid_speed >= 10.0 {
+        format!("{:.0}x", props.liquid_speed)
+    } else if (props.liquid_speed * 2.0 - (props.liquid_speed * 2.0).round()).abs() < 0.01
+        && props.liquid_speed >= 1.0
+    {
+        format!("{:.1}x", props.liquid_speed)
+    } else {
+        format!("{:.2}x", props.liquid_speed)
+    };
     draw_props_stepper(
         canvas,
         fonts,
         516.0,
-        264.0,
-        &format!("{:.2}x", props.liquid_speed),
-        props.liquid_speed > 0.5,
-        props.liquid_speed < 6.0,
+        262.0,
+        &speed_str,
+        props.liquid_speed > MIN_LIQUID_SPEED + 0.001,
+        props.liquid_speed < MAX_LIQUID_SPEED - 0.001,
         mouse_pos,
     );
 
@@ -1943,7 +2054,7 @@ pub fn render_level_props_modal(
         canvas,
         FontFamily::Neuropol,
         152.0,
-        296.0,
+        294.0,
         16.0,
         (255, 255, 255),
         (5, 13, 43),
@@ -1954,7 +2065,7 @@ pub fn render_level_props_modal(
         let col_idx = i % 2;
         let row_idx = i / 2;
         let rx = 152.0 + col_idx as f32 * 256.0;
-        let ry = 322.0 + row_idx as f32 * 26.0;
+        let ry = 320.0 + row_idx as f32 * 26.0;
         let c = match slot {
             PipeColorSlot::Mover => props.mover_color,
             PipeColorSlot::Rotater => props.rotater_color,
@@ -2396,5 +2507,34 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
     } else {
         let head: String = s.chars().take(max_chars.saturating_sub(1)).collect();
         format!("{}…", head)
+    }
+}
+
+fn truncate_to_width(
+    fonts: &FontSet,
+    fam: FontFamily,
+    text: &str,
+    size: f32,
+    max_w: f32,
+) -> String {
+    if fonts.measure_width(fam, text, size) <= max_w {
+        return text.to_string();
+    }
+    let ellipsis = "…";
+    let ellipsis_w = fonts.measure_width(fam, ellipsis, size);
+    let budget = (max_w - ellipsis_w).max(0.0);
+    let mut head = String::new();
+    for ch in text.chars() {
+        head.push(ch);
+        if fonts.measure_width(fam, &head, size) > budget {
+            head.pop();
+            break;
+        }
+    }
+    let trimmed = head.trim_end();
+    if trimmed.is_empty() && !head.is_empty() {
+        format!("{}{}", head, ellipsis)
+    } else {
+        format!("{}{}", trimmed, ellipsis)
     }
 }

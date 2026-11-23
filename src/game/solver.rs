@@ -119,6 +119,16 @@ pub fn validate_level_structure(level: &LevelDef) -> Vec<ValidationIssue> {
         return issues;
     }
 
+    if !matches!(
+        level.background_id.as_str(),
+        "NightHills" | "DaySky" | "SnowyHills" | "OuterSpace"
+    ) {
+        issues.push(ValidationIssue {
+            pos: None,
+            message: format!("Unsupported background '{}'", level.background_id),
+        });
+    }
+
     let mut seen_coords = HashSet::new();
     let mut sources = Vec::new();
     let mut drains = Vec::new();
@@ -138,14 +148,63 @@ pub fn validate_level_structure(level: &LevelDef) -> Vec<ValidationIssue> {
                 message: format!("Duplicate tile at ({}, {})", t.x, t.y),
             });
         }
+        let has_pipe_flags =
+            t.is_moveable || t.can_rotate || t.is_gate || t.is_freeze || t.is_magic;
         match t.piece_type {
-            PieceType::Source => sources.push((t.x, t.y, t.direction)),
-            PieceType::Drain => drains.push((t.x, t.y, t.direction)),
+            PieceType::Source => {
+                if t.shape != PieceShape::Spigot {
+                    issues.push(ValidationIssue {
+                        pos: Some((t.x, t.y)),
+                        message: format!("Source at ({}, {}) must have Spigot shape", t.x, t.y),
+                    });
+                }
+                if has_pipe_flags {
+                    issues.push(ValidationIssue {
+                        pos: Some((t.x, t.y)),
+                        message: format!("Source at ({}, {}) cannot have pipe modifiers", t.x, t.y),
+                    });
+                }
+                sources.push((t.x, t.y, t.direction));
+            }
+            PieceType::Drain => {
+                if !matches!(t.shape, PieceShape::Spigot | PieceShape::Drain) {
+                    issues.push(ValidationIssue {
+                        pos: Some((t.x, t.y)),
+                        message: format!("Drain at ({}, {}) must have Spigot shape", t.x, t.y),
+                    });
+                }
+                if has_pipe_flags {
+                    issues.push(ValidationIssue {
+                        pos: Some((t.x, t.y)),
+                        message: format!("Drain at ({}, {}) cannot have pipe modifiers", t.x, t.y),
+                    });
+                }
+                drains.push((t.x, t.y, t.direction));
+            }
             PieceType::Portal => {
-                portal_colors
-                    .entry(t.secondary_color)
-                    .or_default()
-                    .push((t.x, t.y));
+                if t.shape != PieceShape::Spigot {
+                    issues.push(ValidationIssue {
+                        pos: Some((t.x, t.y)),
+                        message: format!("Portal at ({}, {}) must have Spigot shape", t.x, t.y),
+                    });
+                }
+                if t.secondary_color.is_none() {
+                    issues.push(ValidationIssue {
+                        pos: Some((t.x, t.y)),
+                        message: format!("Portal at ({}, {}) is missing a color", t.x, t.y),
+                    });
+                } else {
+                    portal_colors
+                        .entry(t.secondary_color)
+                        .or_default()
+                        .push((t.x, t.y));
+                }
+                if has_pipe_flags {
+                    issues.push(ValidationIssue {
+                        pos: Some((t.x, t.y)),
+                        message: format!("Portal at ({}, {}) cannot have pipe modifiers", t.x, t.y),
+                    });
+                }
                 let ports = ports_for(t.shape, t.direction);
                 if !spout_in_bounds(t.x, t.y, level.cols, level.rows, ports) {
                     issues.push(ValidationIssue {
@@ -154,7 +213,67 @@ pub fn validate_level_structure(level: &LevelDef) -> Vec<ValidationIssue> {
                     });
                 }
             }
-            _ => {}
+            PieceType::Blocker => {
+                if t.shape != PieceShape::Block {
+                    issues.push(ValidationIssue {
+                        pos: Some((t.x, t.y)),
+                        message: format!("Blocker at ({}, {}) must have Block shape", t.x, t.y),
+                    });
+                }
+                if has_pipe_flags {
+                    issues.push(ValidationIssue {
+                        pos: Some((t.x, t.y)),
+                        message: format!(
+                            "Blocker at ({}, {}) cannot have pipe modifiers",
+                            t.x, t.y
+                        ),
+                    });
+                }
+            }
+            PieceType::Pipe | PieceType::FrozenPipe => {
+                if !matches!(
+                    t.shape,
+                    PieceShape::Elbow | PieceShape::Straight | PieceShape::Cross
+                ) {
+                    issues.push(ValidationIssue {
+                        pos: Some((t.x, t.y)),
+                        message: format!("Pipe at ({}, {}) has invalid shape", t.x, t.y),
+                    });
+                }
+                if t.is_moveable && t.can_rotate {
+                    issues.push(ValidationIssue {
+                        pos: Some((t.x, t.y)),
+                        message: format!(
+                            "Pipe at ({}, {}) cannot be both moveable and rotatable",
+                            t.x, t.y
+                        ),
+                    });
+                }
+                if t.is_gate && t.is_magic {
+                    issues.push(ValidationIssue {
+                        pos: Some((t.x, t.y)),
+                        message: format!(
+                            "Pipe at ({}, {}) cannot be both Gate and Magic",
+                            t.x, t.y
+                        ),
+                    });
+                }
+                if (t.is_gate || t.is_magic) && (t.is_moveable || t.can_rotate) {
+                    issues.push(ValidationIssue {
+                        pos: Some((t.x, t.y)),
+                        message: format!(
+                            "Gate/Magic pipe at ({}, {}) must be stationary",
+                            t.x, t.y
+                        ),
+                    });
+                }
+                if t.is_magic && (t.is_freeze || t.piece_type == PieceType::FrozenPipe) {
+                    issues.push(ValidationIssue {
+                        pos: Some((t.x, t.y)),
+                        message: format!("Magic pipe at ({}, {}) cannot be frozen", t.x, t.y),
+                    });
+                }
+            }
         }
     }
 
