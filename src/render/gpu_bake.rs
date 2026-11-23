@@ -142,6 +142,7 @@ fn run_blur_pass(
         label: Some("blur_pass"),
         color_attachments: &[Some(RenderPassColorAttachment {
             view: &dst.view,
+            depth_slice: None,
             resolve_target: None,
             ops: Operations {
                 load: LoadOp::Clear(Color::TRANSPARENT),
@@ -151,6 +152,7 @@ fn run_blur_pass(
         depth_stencil_attachment: None,
         timestamp_writes: None,
         occlusion_query_set: None,
+        multiview_mask: None,
     });
     rp.set_pipeline(&gpu.pipelines.blur_unorm);
     rp.set_bind_group(0, &bg, &[]);
@@ -302,6 +304,7 @@ fn composite_two_sprites(
         label: Some("comp2_pass"),
         color_attachments: &[Some(RenderPassColorAttachment {
             view: &out.view,
+            depth_slice: None,
             resolve_target: None,
             ops: Operations {
                 load: LoadOp::Clear(Color::TRANSPARENT),
@@ -311,6 +314,7 @@ fn composite_two_sprites(
         depth_stencil_attachment: None,
         timestamp_writes: None,
         occlusion_query_set: None,
+        multiview_mask: None,
     });
     rp.set_pipeline(&gpu.pipelines.sprite_unorm);
     rp.set_bind_group(0, &sc_bg, &[]);
@@ -415,6 +419,7 @@ pub fn bake_path_highlight_texture(gpu: &GpuCore, entry: Side, exit: Side, pad: 
             label: Some("ph_core"),
             color_attachments: &[Some(RenderPassColorAttachment {
                 view: &core.view,
+                depth_slice: None,
                 resolve_target: None,
                 ops: Operations {
                     load: LoadOp::Clear(Color::TRANSPARENT),
@@ -424,6 +429,7 @@ pub fn bake_path_highlight_texture(gpu: &GpuCore, entry: Side, exit: Side, pad: 
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         rp.set_pipeline(&gpu.pipelines.shape_unorm);
         rp.set_bind_group(0, &so_bg, &[]);
@@ -483,6 +489,7 @@ pub fn bake_rainbow_texture(gpu: &GpuCore) -> GpuTexture {
             label: Some("rb_bake"),
             color_attachments: &[Some(RenderPassColorAttachment {
                 view: &core.view,
+                depth_slice: None,
                 resolve_target: None,
                 ops: Operations {
                     load: LoadOp::Clear(Color::TRANSPARENT),
@@ -492,6 +499,7 @@ pub fn bake_rainbow_texture(gpu: &GpuCore) -> GpuTexture {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         rp.set_pipeline(&gpu.pipelines.shape_unorm);
         rp.set_bind_group(0, &so_bg, &[]);

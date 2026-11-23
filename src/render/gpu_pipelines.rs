@@ -173,14 +173,15 @@ fn build_pipe(
     label: &str,
     bgls: &[&BindGroupLayout],
     shader: &ShaderModule,
-    buffers: &[VertexBufferLayout<'_>],
+    buffers: &[Option<VertexBufferLayout<'_>>],
     target: ColorTargetState,
     msaa_ds: (u32, Option<DepthStencilState>),
 ) -> RenderPipeline {
+    let opt_bgls: Vec<Option<&BindGroupLayout>> = bgls.iter().copied().map(Some).collect();
     let layout: PipelineLayout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: Some(label),
-        bind_group_layouts: bgls,
-        push_constant_ranges: &[],
+        bind_group_layouts: &opt_bgls,
+        immediate_size: 0,
     });
     let targets = [Some(target)];
     device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -207,7 +208,7 @@ fn build_pipe(
             compilation_options: PipelineCompilationOptions::default(),
             targets: &targets,
         }),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     })
 }
@@ -281,26 +282,26 @@ impl GpuPipelines {
         let sh_blur = load("blur.wgsl", include_str!("shaders/blur.wgsl").into());
         let sh_glyph = load("glyph.wgsl", include_str!("shaders/glyph.wgsl").into());
 
-        let sp_buf = [VertexBufferLayout {
+        let sp_buf = [Some(VertexBufferLayout {
             array_stride: size_of::<SpriteInstance>() as u64,
             step_mode: VertexStepMode::Instance,
             attributes: &SPRITE_ATTRS,
-        }];
-        let sh_buf = [VertexBufferLayout {
+        })];
+        let sh_buf = [Some(VertexBufferLayout {
             array_stride: size_of::<ShapeInstance>() as u64,
             step_mode: VertexStepMode::Instance,
             attributes: &SHAPE_ATTRS,
-        }];
-        let pm_buf = [VertexBufferLayout {
+        })];
+        let pm_buf = [Some(VertexBufferLayout {
             array_stride: size_of::<PipeMaskInstance>() as u64,
             step_mode: VertexStepMode::Instance,
             attributes: &PIPE_MASK_ATTRS,
-        }];
-        let gl_buf = [VertexBufferLayout {
+        })];
+        let gl_buf = [Some(VertexBufferLayout {
             array_stride: size_of::<GlyphVertex>() as u64,
             step_mode: VertexStepMode::Vertex,
             attributes: &GLYPH_ATTRS,
-        }];
+        })];
 
         let sprite_target = build_pipe(
             device,
@@ -349,8 +350,8 @@ impl GpuPipelines {
         );
         let msaa_ds = DepthStencilState {
             format: TextureFormat::Depth24PlusStencil8,
-            depth_write_enabled: false,
-            depth_compare: CompareFunction::Always,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(CompareFunction::Always),
             stencil: StencilState::default(),
             bias: DepthBiasState::default(),
         };
@@ -400,8 +401,8 @@ impl GpuPipelines {
         };
         let ds_for = |face, rm, wm| DepthStencilState {
             format: TextureFormat::Depth24PlusStencil8,
-            depth_write_enabled: false,
-            depth_compare: CompareFunction::Always,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(CompareFunction::Always),
             stencil: StencilState {
                 front: face,
                 back: face,

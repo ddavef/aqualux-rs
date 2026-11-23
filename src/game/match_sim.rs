@@ -8,7 +8,7 @@ use crate::game::tile::{
     swap_grid_tiles_raw, swap_grid_tiles_timed,
 };
 use crate::game::types::{LevelDef, PieceType};
-use rand::Rng;
+use rand::RngExt;
 
 #[derive(Debug, Clone)]
 pub struct MatchSim {
@@ -27,7 +27,7 @@ pub struct MatchSim {
 }
 
 impl MatchSim {
-    pub fn new(level_index: usize, mirror_mode: bool, rng: &mut impl Rng) -> Self {
+    pub fn new(level_index: usize, mirror_mode: bool, rng: &mut impl RngExt) -> Self {
         let level = generate_match_level(level_index, rng);
         let play_tiles = build_tile_grid(&level);
         let mut goal_tiles = build_tile_grid(&level);
@@ -61,19 +61,19 @@ impl MatchSim {
     }
 
     /// Scrambles the Match board away from its solved configuration.
-    fn scramble_grid(grid: &mut [Vec<Tile>], rows: usize, cols: usize, rng: &mut impl Rng) {
+    fn scramble_grid(grid: &mut [Vec<Tile>], rows: usize, cols: usize, rng: &mut impl RngExt) {
         for y in 0..rows {
             for x in 0..cols {
                 let elig = collect_swap_eligible(grid, cols, rows, (x, y), false);
                 if elig.is_empty() {
                     continue;
                 }
-                let partner = elig[rng.gen_range(0..elig.len())];
+                let partner = elig[rng.random_range(0..elig.len())];
                 if grid[y][x].can_rotate {
-                    let turns = rng.gen_range(1..=2) as u8;
+                    let turns = rng.random_range(1..=2) as u8;
                     grid[y][x].rotate_cw_instant(turns);
                 } else if grid[partner.1][partner.0].can_rotate {
-                    let turns = rng.gen_range(1..=2) as u8;
+                    let turns = rng.random_range(1..=2) as u8;
                     grid[partner.1][partner.0].rotate_cw_instant(turns);
                 } else {
                     let a_t = grid[y][x].piece_type;

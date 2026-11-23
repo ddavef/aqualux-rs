@@ -6,7 +6,7 @@ use crate::render::canvas::Canvas;
 use crate::render::easing::back_out;
 use crate::render::emitter::Particle30;
 use crate::render::tex_bank::TexBank;
-use rand::Rng;
+use rand::RngExt;
 
 /// Multi-ray celebratory firework burst with fading star trails.
 #[derive(Debug, Clone)]
@@ -27,7 +27,7 @@ impl FireworkBurst {
         origin_y: f32,
         rgb: (u8, u8, u8),
         power: f32,
-        rng: &mut impl Rng,
+        rng: &mut impl RngExt,
     ) -> Self {
         let count = 15usize;
         let mut particles = Vec::with_capacity(count);
@@ -35,10 +35,10 @@ impl FireworkBurst {
         for i in 0..count {
             let deg = (i as f32) * (360.0 / count as f32);
             let rad = deg.to_radians();
-            let xf = rad.sin() * (30.0 * power * ((rng.gen_range(0.0..1.0) + 0.8) * 0.31));
-            let yf = rad.cos() * (15.0 * power * ((rng.gen_range(0.0..1.0) + 0.8) * 0.31));
+            let xf = rad.sin() * (30.0 * power * ((rng.random_range(0.0..1.0) + 0.8) * 0.31));
+            let yf = rad.cos() * (15.0 * power * ((rng.random_range(0.0..1.0) + 0.8) * 0.31));
             particles.push(Particle30::new(xf, yf, 0.7, 0.7, 0.05, 1.05));
-            star_durs.push(rng.gen_range(2.0..4.0));
+            star_durs.push(rng.random_range(2.0..4.0));
         }
         Self {
             origin_x,
@@ -120,15 +120,21 @@ pub struct StarField {
 }
 
 impl StarField {
-    pub fn new(rng: &mut impl Rng) -> Self {
+    pub fn new(rng: &mut impl RngExt) -> Self {
         let mut stars = Vec::with_capacity(250);
         for i in 0..250 {
             let (x_pos, y_pos) = if i < 125 {
-                (rng.gen_range(-800.0..800.0), rng.gen_range(-600.0..600.0))
+                (
+                    rng.random_range(-800.0..800.0),
+                    rng.random_range(-600.0..600.0),
+                )
             } else {
-                (rng.gen_range(-400.0..400.0), rng.gen_range(-300.0..300.0))
+                (
+                    rng.random_range(-400.0..400.0),
+                    rng.random_range(-300.0..300.0),
+                )
             };
-            let pipe = match rng.gen_range(0..70) {
+            let pipe = match rng.random_range(0..70) {
                 1 => Some("PipeSpigotBitmap"),
                 2 => Some("ElbowClearBitmap"),
                 3 => Some("StraightClearBitmap"),
@@ -137,15 +143,15 @@ impl StarField {
             .map(|k| {
                 (
                     k,
-                    STAR_PIPE_COLORS[rng.gen_range(0..STAR_PIPE_COLORS.len())],
+                    STAR_PIPE_COLORS[rng.random_range(0..STAR_PIPE_COLORS.len())],
                 )
             });
             stars.push(FieldStar {
                 x_pos,
                 y_pos,
-                z_depth: rng.gen_range(-1600.0..400.0),
+                z_depth: rng.random_range(-1600.0..400.0),
                 rot: 0.0,
-                rot_vel: rng.gen_range(-12.0..-6.0),
+                rot_vel: rng.random_range(-12.0..-6.0),
                 pipe,
             });
         }

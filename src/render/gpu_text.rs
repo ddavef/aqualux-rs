@@ -263,6 +263,7 @@ pub fn bake_swf_text_gpu(
             label: Some("glyph_msaa_pass"),
             color_attachments: &[Some(RenderPassColorAttachment {
                 view: &msaa_view,
+                depth_slice: None,
                 resolve_target: Some(&resolved.view),
                 ops: Operations {
                     load: LoadOp::Clear(Color::TRANSPARENT),
@@ -279,6 +280,7 @@ pub fn bake_swf_text_gpu(
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         if let Some(cvb) = &cap_vb {
             rp.set_pipeline(&gpu.pipelines.shape_msaa);
@@ -350,6 +352,7 @@ pub fn bake_swf_text_gpu(
                 label: Some("glyph_comp_pass"),
                 color_attachments: &[Some(RenderPassColorAttachment {
                     view: &out.view,
+                    depth_slice: None,
                     resolve_target: None,
                     ops: Operations {
                         load: LoadOp::Clear(Color::TRANSPARENT),
@@ -359,6 +362,7 @@ pub fn bake_swf_text_gpu(
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             rp.set_pipeline(&gpu.pipelines.sprite_unorm);
             rp.set_bind_group(0, &csc_bg, &[]);

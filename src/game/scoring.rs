@@ -3,7 +3,7 @@
 
 use crate::game::awards::Trophy;
 use crate::game::types::{GameColor, LevelDef, PieceShape, PieceType, TileDef};
-use rand::Rng;
+use rand::RngExt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MetricResult {
@@ -68,7 +68,7 @@ pub fn calculate_score(
 }
 
 /// Procedural Match-mode puzzle generator (0-indexed `level_idx`).
-pub fn generate_match_level(level_idx: usize, rng: &mut impl Rng) -> LevelDef {
+pub fn generate_match_level(level_idx: usize, rng: &mut impl RngExt) -> LevelDef {
     let (cols, rows, bg) = if level_idx < 5 {
         (3usize, 3usize, "NightHills")
     } else if level_idx < 15 {
@@ -81,19 +81,19 @@ pub fn generate_match_level(level_idx: usize, rng: &mut impl Rng) -> LevelDef {
         (7, 7, "OuterSpace")
     };
 
-    let sx = rng.gen_range(0..cols);
-    let sy = rng.gen_range(0..rows);
-    let mut dx = rng.gen_range(0..cols);
-    let mut dy = rng.gen_range(0..rows);
+    let sx = rng.random_range(0..cols);
+    let sy = rng.random_range(0..rows);
+    let mut dx = rng.random_range(0..cols);
+    let mut dy = rng.random_range(0..rows);
     while dx == sx && dy == sy {
-        dx = rng.gen_range(0..cols);
-        dy = rng.gen_range(0..rows);
+        dx = rng.random_range(0..cols);
+        dy = rng.random_range(0..rows);
     }
 
     let mut tiles = Vec::with_capacity(cols * rows);
     for y in 0..rows {
         for x in 0..cols {
-            let dir = rng.gen_range(0..3) as u8;
+            let dir = rng.random_range(0..3) as u8;
             if x == sx && y == sy {
                 tiles.push(TileDef {
                     x,
@@ -123,14 +123,14 @@ pub fn generate_match_level(level_idx: usize, rng: &mut impl Rng) -> LevelDef {
                     secondary_color: None,
                 });
             } else {
-                let shape = match rng.gen_range(0..3) {
+                let shape = match rng.random_range(0..3) {
                     0 => PieceShape::Cross,
                     1 => PieceShape::Elbow,
                     _ => PieceShape::Straight,
                 };
-                let can_rotate = level_idx > 5 && rng.gen_range(0..3) == 0;
+                let can_rotate = level_idx > 5 && rng.random_range(0..3) == 0;
                 let is_moveable = !can_rotate;
-                let is_magic = level_idx > 30 && rng.gen_range(0.0..10.0) < 2.0;
+                let is_magic = level_idx > 30 && rng.random_range(0.0..10.0) < 2.0;
 
                 tiles.push(TileDef {
                     x,

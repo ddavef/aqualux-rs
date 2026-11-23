@@ -13,11 +13,11 @@ use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
     Adapter, BindGroup, BindGroupDescriptor, BindGroupEntry, BindingResource, Buffer,
     BufferDescriptor, BufferUsages, Color, CompositeAlphaMode, Device, DeviceDescriptor, Extent3d,
-    FilterMode, Instance, LoadOp, Maintain, MapMode, Operations, PowerPreference, PresentMode,
-    Queue, RenderPassColorAttachment, RenderPassDescriptor, RequestAdapterOptions, Sampler,
-    SamplerDescriptor, StoreOp, Surface, TexelCopyBufferInfo, TexelCopyBufferLayout,
-    TexelCopyTextureInfo, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat,
-    TextureUsages, TextureView, TextureViewDescriptor,
+    FilterMode, Instance, InstanceDescriptor, LoadOp, MapMode, Operations, PollType,
+    PowerPreference, PresentMode, Queue, RenderPassColorAttachment, RenderPassDescriptor,
+    RequestAdapterOptions, Sampler, SamplerDescriptor, StoreOp, Surface, TexelCopyBufferInfo,
+    TexelCopyBufferLayout, TexelCopyTextureInfo, TextureAspect, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
 };
 
 #[derive(Default)]
@@ -88,15 +88,14 @@ fn init_from_adapter(
 ) -> Result<GpuCore, String> {
     let limits = adapter.limits();
     let max_tex_dim = limits.max_texture_dimension_2d;
-    let (device, queue) = pollster::block_on(adapter.request_device(
-        &DeviceDescriptor {
-            label: Some("aqualux_device"),
-            required_features: wgpu::Features::empty(),
-            required_limits: limits,
-            memory_hints: Default::default(),
-        },
-        None,
-    ))
+    let (device, queue) = pollster::block_on(adapter.request_device(&DeviceDescriptor {
+        label: Some("aqualux_device"),
+        required_features: wgpu::Features::empty(),
+        required_limits: limits,
+        experimental_features: Default::default(),
+        memory_hints: Default::default(),
+        trace: Default::default(),
+    }))
     .map_err(|e| format!("GPU device creation failed: {}", e))?;
 
     let pipelines = GpuPipelines::new(&device, target_format);
@@ -166,9 +165,12 @@ fn pick_adapter(instance: &Instance, compatible_surface: Option<&Surface<'_>>) -
             power_preference,
             compatible_surface,
             force_fallback_adapter,
+            apply_limit_buckets: false,
         }))
     };
-    req(PowerPreference::HighPerformance, false).or_else(|| req(PowerPreference::LowPower, true))
+    req(PowerPreference::HighPerformance, false)
+        .or_else(|_| req(PowerPreference::LowPower, true))
+        .ok()
 }
 
 impl GpuCore {
@@ -202,7 +204,7 @@ impl GpuCore {
     }
 
     pub fn new_headless() -> Result<Self, String> {
-        let instance = Instance::default();
+        let instance = Instance::new(InstanceDescriptor::new_without_display_handle());
         let adapter = pick_adapter(&instance, None)
             .ok_or_else(|| "No headless GPU adapter available".to_string())?;
         init_from_adapter(
@@ -342,6 +344,7 @@ impl GpuCore {
                 label: Some("main_frame"),
                 color_attachments: &[Some(RenderPassColorAttachment {
                     view: target_view,
+                    depth_slice: None,
                     resolve_target: None,
                     ops: Operations {
                         load: LoadOp::Clear(Color::BLACK),
@@ -351,6 +354,7 @@ impl GpuCore {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             rp.set_viewport(ox, oy, dw, dh, 0.0, 1.0);
             rp.set_scissor_rect(ox as u32, oy as u32, dw as u32, dh as u32);
@@ -471,10 +475,10 @@ impl GpuCore {
         slice.map_async(MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        self.device.poll(Maintain::Wait);
+        let _ = self.device.poll(PollType::wait_indefinitely());
         let _ = rx.recv();
 
-        let data = slice.get_mapped_range();
+        let data = slice.get_mapped_range().expect("mapped buffer range");
         let mut out = vec![0u8; (unpadded * h) as usize];
         for y in 0..h as usize {
             let (s0, d0) = (y * padded as usize, y * unpadded as usize);

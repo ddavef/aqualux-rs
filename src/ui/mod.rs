@@ -27,7 +27,6 @@ use crate::render::{
 };
 use crate::save::{LevelRecord, SaveData};
 use champion::ChampionState;
-use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::sync::Arc;
 use summary::SummaryState;
@@ -178,7 +177,7 @@ impl GameApp {
             blurbs: Vec::new(),
             leaks: Vec::new(),
             fireworks: Vec::new(),
-            rng: StdRng::from_entropy(),
+            rng: rand::make_rng(),
             should_quit: false,
             sync_fullscreen_req: false,
         })

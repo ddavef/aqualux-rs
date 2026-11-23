@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 ddavef aqualux-rs
 
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
+use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
 use std::collections::HashMap;
 use std::io::Cursor;
 
@@ -24,9 +24,8 @@ struct DelayedAudio {
 }
 
 pub struct AudioEngine {
-    _stream: Option<OutputStream>,
-    handle: Option<OutputStreamHandle>,
-    music_sink: Option<Sink>,
+    device_sink: Option<MixerDeviceSink>,
+    music_player: Option<Player>,
     current_music: Option<String>,
     sounds: HashMap<String, Vec<u8>>,
     delayed: Vec<DelayedAudio>,
@@ -36,14 +35,13 @@ pub struct AudioEngine {
 
 impl AudioEngine {
     pub fn new(sounds: HashMap<String, Vec<u8>>, music_vol: f32, sfx_vol: f32) -> Self {
-        let (stream, handle) = match OutputStream::try_default() {
-            Ok((s, h)) => (Some(s), Some(h)),
-            Err(_) => (None, None),
-        };
+        let device_sink = DeviceSinkBuilder::open_default_sink().ok().map(|mut s| {
+            s.log_on_drop(false);
+            s
+        });
         Self {
-            _stream: stream,
-            handle,
-            music_sink: None,
+            device_sink,
+            music_player: None,
             current_music: None,
             sounds,
             delayed: Vec::new(),
@@ -53,8 +51,8 @@ impl AudioEngine {
     }
 
     pub fn apply_volumes(&self) {
-        if let Some(sink) = &self.music_sink {
-            sink.set_volume(self.music_volume);
+        if let Some(player) = &self.music_player {
+            player.set_volume(self.music_volume);
         }
     }
 
@@ -87,13 +85,13 @@ impl AudioEngine {
 
     pub fn play_music(&mut self, name: &str, loop_forever: bool) {
         if self.current_music.as_deref() == Some(name)
-            && self.music_sink.as_ref().is_none_or(|s| !s.empty())
+            && self.music_player.as_ref().is_none_or(|p| !p.empty())
         {
             return;
         }
         self.stop_music();
         self.current_music = Some(name.to_string());
-        let Some(handle) = &self.handle else {
+        let Some(sink) = &self.device_sink else {
             return;
         };
         let Some(bytes) = self.sounds.get(name) else {
@@ -102,16 +100,14 @@ impl AudioEngine {
         let Ok(decoder) = Decoder::new(Cursor::new(bytes.clone())) else {
             return;
         };
-        let Ok(sink) = Sink::try_new(handle) else {
-            return;
-        };
-        sink.set_volume(self.music_volume);
+        let player = Player::connect_new(sink.mixer());
+        player.set_volume(self.music_volume);
         if loop_forever {
-            sink.append(decoder.repeat_infinite());
+            player.append(decoder.repeat_infinite());
         } else {
-            sink.append(decoder);
+            player.append(decoder);
         }
-        self.music_sink = Some(sink);
+        self.music_player = Some(player);
     }
 
     pub fn play_music_delayed(&mut self, name: &str, delay_secs: f32, loop_forever: bool) {
@@ -129,8 +125,8 @@ impl AudioEngine {
     }
 
     pub fn stop_music(&mut self) {
-        if let Some(sink) = self.music_sink.take() {
-            sink.stop();
+        if let Some(player) = self.music_player.take() {
+            player.stop();
         }
         self.current_music = None;
     }
@@ -144,7 +140,7 @@ impl AudioEngine {
         if vol <= 0.001 {
             return;
         }
-        let Some(handle) = &self.handle else {
+        let Some(sink) = &self.device_sink else {
             return;
         };
         let Some(bytes) = self.sounds.get(name) else {
@@ -153,11 +149,10 @@ impl AudioEngine {
         let Ok(decoder) = Decoder::new(Cursor::new(bytes.clone())) else {
             return;
         };
-        if let Ok(sink) = Sink::try_new(handle) {
-            sink.set_volume(vol);
-            sink.append(decoder);
-            sink.detach();
-        }
+        let player = Player::connect_new(sink.mixer());
+        player.set_volume(vol);
+        player.append(decoder);
+        player.detach();
     }
 
     pub fn play_sfx_delayed(&mut self, name: &str, delay_secs: f32, vol_scale: f32) {

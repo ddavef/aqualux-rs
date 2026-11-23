@@ -186,14 +186,14 @@ fn verify_bundle(bundle: &AssetBundle, fps_override: Option<u32>) -> Result<(), 
         canvas.begin_frame(dpr);
         app.render(canvas);
         gpu.render_frame(canvas, &app.renderer.bank, &view, w, h);
-        gpu.device.poll(wgpu::Maintain::Wait);
+        let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
         let t0 = std::time::Instant::now();
         for _ in 0..100 {
             canvas.begin_frame(dpr);
             app.render(canvas);
             gpu.render_frame(canvas, &app.renderer.bank, &view, w, h);
         }
-        gpu.device.poll(wgpu::Maintain::Wait);
+        let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
         t0.elapsed().as_secs_f64() * 1000.0 / 100.0
     };
 

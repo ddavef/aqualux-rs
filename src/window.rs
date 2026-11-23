@@ -8,8 +8,8 @@ use crate::ui::GameApp;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use wgpu::{
-    Instance, PresentMode, Surface, SurfaceConfiguration, SurfaceError, TextureUsages,
-    TextureViewDescriptor,
+    CurrentSurfaceTexture, Instance, InstanceDescriptor, PresentMode, Surface, SurfaceColorSpace,
+    SurfaceConfiguration, TextureUsages, TextureViewDescriptor,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -124,12 +124,18 @@ impl Runner {
         app.render(&mut self.canvas);
 
         let frame = match ws.surface.get_current_texture() {
-            Ok(f) => f,
-            Err(SurfaceError::Lost | SurfaceError::Outdated) => {
+            CurrentSurfaceTexture::Success(f) => f,
+            CurrentSurfaceTexture::Suboptimal(f) => {
+                ws.surface.configure(&ws.gpu.device, &ws.config);
+                f
+            }
+            CurrentSurfaceTexture::Lost | CurrentSurfaceTexture::Outdated => {
                 ws.surface.configure(&ws.gpu.device, &ws.config);
                 return;
             }
-            Err(_) => return,
+            CurrentSurfaceTexture::Timeout
+            | CurrentSurfaceTexture::Occluded
+            | CurrentSurfaceTexture::Validation => return,
         };
         let view = frame.texture.create_view(&TextureViewDescriptor {
             format: Some(ws.gpu.target_format),
@@ -142,7 +148,7 @@ impl Runner {
             ws.config.width,
             ws.config.height,
         );
-        frame.present();
+        ws.gpu.queue.present(frame);
     }
 }
 
@@ -168,7 +174,9 @@ impl ApplicationHandler for Runner {
         );
         window.set_cursor_visible(false);
 
-        let instance = Instance::default();
+        let instance = Instance::new(InstanceDescriptor::new_with_display_handle(Box::new(
+            event_loop.owned_display_handle(),
+        )));
         let surface = instance
             .create_surface(window.clone())
             .expect("Failed to create wgpu surface");
@@ -191,6 +199,7 @@ impl ApplicationHandler for Runner {
         let config = SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,
             format: gpu.surface_format,
+            color_space: SurfaceColorSpace::Auto,
             width: sz.width.max(1),
             height: sz.height.max(1),
             present_mode: choose_present_mode(&gpu.present_modes, init_fps, hz),

@@ -7,7 +7,7 @@ use crate::ui::champion::ChampionState;
 use crate::ui::summary::{SummaryHideAction, SummaryState};
 use crate::ui::widgets::{ModalState, QuestionId};
 use crate::ui::{GameApp, HideAfterBoard, InfoBanner, Screen};
-use rand::Rng;
+use rand::RngExt;
 
 impl GameApp {
     pub(crate) fn on_campaign_win(&mut self, res: MetricResult) {
@@ -276,11 +276,11 @@ impl GameApp {
             GameColor::Blue,
             GameColor::White,
         ];
-        let c = palette[self.rng.gen_range(0..palette.len())];
-        let power = self.rng.gen_range(1.0..1.2);
+        let c = palette[self.rng.random_range(0..palette.len())];
+        let power = self.rng.random_range(1.0..1.2);
         self.fireworks
             .push(FireworkBurst::new(fx, fy, c.rgb(), power, &mut self.rng));
-        let snd = if self.rng.gen_bool(0.5) {
+        let snd = if self.rng.random_bool(0.5) {
             "FireworkOneSound"
         } else {
             "FireworkTwoSound"
@@ -300,7 +300,7 @@ impl GameApp {
     }
 
     pub(crate) fn play_random_bonus_sfx(&mut self) {
-        self.audio.play_sfx(if self.rng.gen_bool(0.5) {
+        self.audio.play_sfx(if self.rng.random_bool(0.5) {
             "BonusOneSound"
         } else {
             "BonusTwoSound"
@@ -355,10 +355,10 @@ impl GameApp {
                 .summary_state
                 .as_mut()
                 .map_or((false, None), |s| s.update(dt));
-            if fire_tick && self.rng.gen_range(0..9) == 0 {
+            if fire_tick && self.rng.random_range(0..9) == 0 {
                 let (fx, fy) = (
-                    self.rng.gen_range(0.0..800.0),
-                    self.rng.gen_range(0.0..180.0),
+                    self.rng.random_range(0.0..800.0),
+                    self.rng.random_range(0.0..180.0),
                 );
                 self.spawn_firework(fx, fy);
             }

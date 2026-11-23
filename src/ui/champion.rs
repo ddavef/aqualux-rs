@@ -4,7 +4,7 @@
 use crate::render::easing::back_out;
 use crate::render::{Canvas, FontFamily, FontSet, Rect, StarField, TexBank, TextAlign};
 use crate::ui::widgets::{ScoreRoller, UiAction, UiButton, draw_text_button};
-use rand::Rng;
+use rand::RngExt;
 
 pub struct ChampionState {
     pub age: f32,
@@ -15,7 +15,7 @@ pub struct ChampionState {
 }
 
 impl ChampionState {
-    pub fn new(final_score: u32, has_ultralux: bool, rng: &mut impl Rng) -> Self {
+    pub fn new(final_score: u32, has_ultralux: bool, rng: &mut impl RngExt) -> Self {
         let mut score_roller = ScoreRoller::new(0);
         score_roller.roll_to(final_score, 3.0, 5.6);
         Self {
