@@ -5,6 +5,9 @@
 mod anim_tests;
 mod assets;
 mod audio;
+mod custom;
+#[cfg(test)]
+mod custom_tests;
 mod game;
 #[cfg(test)]
 mod highlight_tests;
@@ -33,6 +36,7 @@ use std::sync::Arc;
 struct CliArgs {
     assets_path: Option<PathBuf>,
     extract_dir: Option<PathBuf>,
+    custom_levels_dir: Option<PathBuf>,
     verify_assets: bool,
     fps_override: Option<u32>,
 }
@@ -59,9 +63,13 @@ fn parse_cli() -> Result<CliArgs, String> {
         .ok()
         .map(|v| parse_fps_str(&v))
         .transpose()?;
+    let env_custom = std::env::var_os("AQUALUX_CUSTOM_LEVELS")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from);
     let mut out = CliArgs {
         assets_path: None,
         extract_dir: None,
+        custom_levels_dir: env_custom,
         verify_assets: false,
         fps_override: None,
     };
@@ -81,10 +89,16 @@ fn parse_cli() -> Result<CliArgs, String> {
                     .ok_or("--extract-assets requires an output directory")?;
                 out.extract_dir = Some(PathBuf::from(val));
             }
+            "--custom-levels" => {
+                let val = args
+                    .next()
+                    .ok_or("--custom-levels requires a directory path")?;
+                out.custom_levels_dir = Some(PathBuf::from(val));
+            }
             "--verify-assets" => out.verify_assets = true,
             "--help" | "-h" => {
                 println!(
-                    "aqualux-rs\n\nOptions:\n  --assets <PATH>          Load original resource.n or aqualux.swf (required)\n  --fps <N>                Target frame rate (15..=1000, or 0 for uncapped)\n  --extract-assets <DIR>   Extract PNGs/MP3s/XMLs to <DIR> and exit\n  --verify-assets          Verify assets, simulate all levels, render all screens, exit"
+                    "aqualux-rs\n\nOptions:\n  --assets <PATH>          Load original resource.n or aqualux.swf (required)\n  --fps <N>                Target frame rate (15..=1000, or 0 for uncapped)\n  --extract-assets <DIR>   Extract PNGs/MP3s/XMLs to <DIR> and exit\n  --custom-levels <DIR>    Override custom level packs directory\n  --verify-assets          Verify assets, simulate all levels, render all screens, exit"
                 );
                 std::process::exit(0);
             }
@@ -292,6 +306,8 @@ fn main() {
         }
         return;
     }
+
+    let _custom_levels_dir = cli.custom_levels_dir;
 
     if let Err(e) = window::run_window(bundle, cli.fps_override) {
         eprintln!("Runtime error: {}", e);

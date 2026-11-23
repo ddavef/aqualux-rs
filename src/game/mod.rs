@@ -2,12 +2,16 @@
 // Copyright (C) 2026 ddavef aqualux-rs
 
 pub mod awards;
+pub mod generator;
+pub mod level_io;
 pub mod level_sim;
 pub mod level_step;
 pub mod levels;
 pub mod match_sim;
 pub mod path;
 pub mod scoring;
+pub mod solver;
+pub mod solver_route;
 pub mod tile;
 pub mod types;
 
