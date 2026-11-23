@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  verify-tag:
+    name: Verify tag is on main branch
+    runs-on: ubuntu-24.04
+    outputs:
+      on_main: ${{ steps.check.outputs.on_main }}
+    steps:
+      - name: Checkout repository with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if tagged commit is on main branch
+        id: check
+        shell: bash
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
+            echo "on_main=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Skipping release: tag ${GITHUB_REF_NAME} (${GITHUB_SHA}) is not on the main branch."
+            echo "on_main=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build Release Matrix
+    needs: verify-tag
+    if: needs.verify-tag.outputs.on_main == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ github.ref_name }}
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-24.04
+    needs: [verify-tag, build]
+    if: needs.verify-tag.outputs.on_main == 'true'
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate SHA256 checksums
+        shell: bash
+        run: |
+          (cd release-assets && sha256sum aqualux-rs-* > SHA256SUMS.txt)
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          prerelease_flag=""
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            prerelease_flag="--prerelease"
+          fi
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            ${prerelease_flag} \
+            release-assets/*
