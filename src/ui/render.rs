@@ -175,7 +175,11 @@ impl GameApp {
             );
         }
         if let Some((txt, age)) = &self.status_toast {
-            hud::draw_status_toast(canvas, &self.renderer.fonts, txt, *age);
+            if self.screen == Screen::Editor {
+                hud::draw_editor_toast(canvas, &self.renderer.fonts, txt, *age);
+            } else {
+                hud::draw_status_toast(canvas, &self.renderer.fonts, txt, *age);
+            }
         }
         if !self.modals.is_empty() {
             modals::render_modal_stack(

@@ -28,9 +28,9 @@ pub const ALL_GAME_COLORS: &[GameColor] = &[
     GameColor::Grey,
 ];
 pub const PORTAL_PALETTE_COLORS: &[GameColor] = &[
+    GameColor::Orange,
     GameColor::Violet,
     GameColor::Red,
-    GameColor::Orange,
     GameColor::Yellow,
     GameColor::Green,
     GameColor::Blue,
@@ -174,7 +174,6 @@ impl LevelPropsDraft {
 #[derive(Debug, Clone)]
 pub struct EditorState {
     pub pack_id: String,
-    pub pack_name: String,
     pub level_idx: usize,
     pub draft: LevelDef,
     pub dirty: bool,
@@ -199,14 +198,12 @@ pub struct EditorState {
 impl EditorState {
     pub fn new(
         pack_id: String,
-        pack_name: String,
         level_idx: usize,
         draft: LevelDef,
         test_difficulty: Difficulty,
     ) -> Self {
         let mut st = Self {
             pack_id,
-            pack_name,
             level_idx,
             draft,
             dirty: false,
@@ -216,7 +213,7 @@ impl EditorState {
             mod_freeze: false,
             mod_gate: false,
             mod_magic: false,
-            portal_color: GameColor::Violet,
+            portal_color: GameColor::Orange,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             validation_issues: Vec::new(),
@@ -390,22 +387,23 @@ impl EditorState {
         let Some(new_tile) = self.brush_tile_def(x, y) else {
             return false;
         };
-        let other_source = new_tile.piece_type == PieceType::Source
+        let unique_kind = matches!(new_tile.piece_type, PieceType::Source | PieceType::Drain);
+        let other_same = unique_kind
             && self
                 .draft
                 .tiles
                 .iter()
                 .enumerate()
-                .any(|(i, t)| i != idx && t.piece_type == PieceType::Source);
-        if self.draft.tiles[idx] == new_tile && !other_source {
+                .any(|(i, t)| i != idx && t.piece_type == new_tile.piece_type);
+        if self.draft.tiles[idx] == new_tile && !other_same {
             return false;
         }
         if push_undo_now {
             self.push_undo();
         }
-        if new_tile.piece_type == PieceType::Source {
+        if unique_kind {
             for (i, t) in self.draft.tiles.iter_mut().enumerate() {
-                if i != idx && t.piece_type == PieceType::Source {
+                if i != idx && t.piece_type == new_tile.piece_type {
                     *t = TileDef {
                         x: t.x,
                         y: t.y,
@@ -754,10 +752,9 @@ pub fn render_editor(
     );
     let dirty_mark = if state.dirty { "*" } else { "" };
     let header_title = format!(
-        "[{}] {}. {}{}",
-        truncate_chars(&state.pack_name, 12),
+        "{}. {}{}",
         state.level_idx + 1,
-        truncate_chars(&state.draft.title, 16),
+        truncate_chars(&state.draft.title, 18),
         dirty_mark
     );
     renderer.fonts.draw_stroked(
@@ -765,7 +762,7 @@ pub fn render_editor(
         FontFamily::Neuropol,
         266.0,
         15.0,
-        17.0,
+        16.0,
         (255, 255, 255),
         (0x05, 0x0D, 0x2B),
         TextAlign::Left,
@@ -898,6 +895,23 @@ pub fn render_editor(
     }
 
     if let Some((hx, hy)) = hover {
+        if state.tool != EditorTool::Rotate {
+            let (cx, cy) = layout.tile_center(hx, hy);
+            draw_tool_icon(
+                canvas,
+                &renderer.bank,
+                state.tool,
+                cx,
+                cy,
+                layout.tile_px,
+                (state.brush_dir % 4) as f32 * 90.0,
+                state.active_brush_color(),
+                state.draft.stationary_color,
+                state.portal_color,
+                state.mod_freeze,
+                0.45,
+            );
+        }
         let rx = layout.origin_x + hx as f32 * layout.tile_px + 1.5;
         let ry = layout.origin_y + hy as f32 * layout.tile_px + 1.5;
         canvas.draw_rounded_rect(
@@ -914,7 +928,7 @@ pub fn render_editor(
 
 fn editor_status_summary(state: &EditorState) -> (String, (u8, u8, u8)) {
     if let Some(first) = state.validation_issues.first() {
-        return (truncate_chars(&first.message, 34), (0xFF, 0x8C, 0x80));
+        return (truncate_chars(&first.message, 30), (0xFF, 0x8C, 0x80));
     }
     match &state.solve_status {
         SolveStatus::Unchecked => (
@@ -935,7 +949,7 @@ fn editor_status_summary(state: &EditorState) -> (String, (u8, u8, u8)) {
             ),
             (0x8E, 0xFF, 0x8A),
         ),
-        SolveStatus::Unsolvable(msg) => (truncate_chars(msg, 34), (0xFF, 0x8C, 0x80)),
+        SolveStatus::Unsolvable(msg) => (truncate_chars(msg, 30), (0xFF, 0x8C, 0x80)),
         SolveStatus::BudgetExceeded => (
             "Solver timed out (use Test)".to_string(),
             (0xFF, 0xDC, 0x73),
@@ -957,7 +971,7 @@ fn draw_solution_overlay(
 ) {
     let half = layout.tile_px * 0.5;
     let pulse_a = (195.0 + 40.0 * (time * 3.0).sin()) as u8;
-    for seg in &res.path {
+    for (idx, seg) in res.path.iter().enumerate() {
         let (cx, cy) = layout.tile_center(seg.x, seg.y);
         if seg.entry != Side::Center {
             let (ex, ey) = side_edge_point(cx, cy, half, seg.entry);
@@ -974,6 +988,13 @@ fn draw_solution_overlay(
             .is_some_and(|t| t.piece_type == PieceType::Portal)
         {
             canvas.stroke_circle_alpha(cx, cy, half * 0.55, 3.0, (0xA8, 0xFF, 0x78, 210));
+            if let Some(next) = res.path.get(idx + 1)
+                && next.entry == Side::Center
+            {
+                let (nx, ny) = layout.tile_center(next.x, next.y);
+                canvas.draw_line(cx, cy, nx, ny, 2.5, (0xC8, 0x90, 0xFF, 165));
+                canvas.stroke_circle_alpha(nx, ny, half * 0.55, 3.0, (0xA8, 0xFF, 0x78, 210));
+            }
         }
         canvas.fill_circle_alpha(cx, cy, 4.0, (0xE0, 0xFF, 0xA0, 230));
     }
@@ -1030,7 +1051,10 @@ fn render_left_palette(
             34.0,
             rot_deg,
             pipe_col,
+            state.draft.stationary_color,
             state.portal_color,
+            state.mod_freeze,
+            1.0,
         );
     }
 
@@ -1185,7 +1209,7 @@ fn render_left_palette(
         11.0,
         (0xC0, 0xD4, 0xF0),
         TextAlign::Center,
-        "R-click: rotate  |  1-8  R  Ctrl+Z/S",
+        "R-Click:Spin  R:Rot  1-8",
     );
 }
 
@@ -1199,7 +1223,10 @@ fn draw_tool_icon(
     size: f32,
     rot_deg: f32,
     pipe_col: GameColor,
+    stationary_col: GameColor,
     portal_col: GameColor,
+    mod_freeze: bool,
+    alpha: f32,
 ) {
     let uv = [0.0, 0.0, 1.0, 1.0];
     match tool {
@@ -1215,7 +1242,23 @@ fn draw_tool_icon(
                     rot_deg,
                     Some((pipe_col, false)),
                     1.0,
+                    alpha,
+                    false,
+                    (0.0, 0.0),
+                );
+            }
+            if mod_freeze && let Some((tid, _, _)) = bank.named("ElbowFrostBitmap") {
+                canvas.draw_tex_uv_rotated_blur(
+                    tid,
+                    uv,
+                    cx,
+                    cy,
+                    size,
+                    size,
+                    rot_deg,
+                    None,
                     1.0,
+                    alpha,
                     false,
                     (0.0, 0.0),
                 );
@@ -1233,7 +1276,23 @@ fn draw_tool_icon(
                     rot_deg,
                     Some((pipe_col, false)),
                     1.0,
+                    alpha,
+                    false,
+                    (0.0, 0.0),
+                );
+            }
+            if mod_freeze && let Some((tid, _, _)) = bank.named("StraightFrostBitmap") {
+                canvas.draw_tex_uv_rotated_blur(
+                    tid,
+                    uv,
+                    cx,
+                    cy,
+                    size,
+                    size,
+                    rot_deg,
+                    None,
                     1.0,
+                    alpha,
                     false,
                     (0.0, 0.0),
                 );
@@ -1251,7 +1310,23 @@ fn draw_tool_icon(
                     rot_deg,
                     Some((pipe_col, false)),
                     1.0,
+                    alpha,
+                    false,
+                    (0.0, 0.0),
+                );
+            }
+            if mod_freeze && let Some((tid, _, _)) = bank.named("CrossFrostBitmap") {
+                canvas.draw_tex_uv_rotated_blur(
+                    tid,
+                    uv,
+                    cx,
+                    cy,
+                    size,
+                    size,
+                    rot_deg,
+                    None,
                     1.0,
+                    alpha,
                     false,
                     (0.0, 0.0),
                 );
@@ -1269,7 +1344,7 @@ fn draw_tool_icon(
                     0.0,
                     None,
                     1.0,
-                    1.0,
+                    alpha,
                     false,
                     (0.0, 0.0),
                 );
@@ -1285,9 +1360,9 @@ fn draw_tool_icon(
                     size,
                     size,
                     rot_deg,
-                    Some((pipe_col, false)),
+                    Some((stationary_col, false)),
                     1.0,
-                    1.0,
+                    alpha,
                     false,
                     (0.0, 0.0),
                 );
@@ -1303,7 +1378,7 @@ fn draw_tool_icon(
                     rot_deg,
                     None,
                     1.0,
-                    1.0,
+                    alpha,
                     false,
                     (0.0, 0.0),
                 );
@@ -1321,7 +1396,23 @@ fn draw_tool_icon(
                     rot_deg,
                     None,
                     1.0,
+                    alpha,
+                    false,
+                    (0.0, 0.0),
+                );
+            }
+            if let Some((tid, _, _)) = bank.named("DrainRingBitmap") {
+                canvas.draw_tex_uv_rotated_blur(
+                    tid,
+                    uv,
+                    cx,
+                    cy,
+                    size,
+                    size,
+                    rot_deg,
+                    Some((stationary_col, false)),
                     1.0,
+                    alpha,
                     false,
                     (0.0, 0.0),
                 );
@@ -1335,9 +1426,9 @@ fn draw_tool_icon(
                     size,
                     size,
                     rot_deg,
-                    Some((pipe_col, false)),
+                    Some((stationary_col, false)),
                     1.0,
-                    1.0,
+                    alpha,
                     false,
                     (0.0, 0.0),
                 );
@@ -1355,7 +1446,7 @@ fn draw_tool_icon(
                     rot_deg,
                     Some((portal_col, false)),
                     1.0,
-                    1.0,
+                    alpha,
                     false,
                     (0.0, 0.0),
                 );
@@ -1369,9 +1460,9 @@ fn draw_tool_icon(
                     size,
                     size,
                     rot_deg,
-                    Some((pipe_col, false)),
+                    Some((stationary_col, false)),
                     1.0,
-                    1.0,
+                    alpha,
                     false,
                     (0.0, 0.0),
                 );
@@ -1389,7 +1480,7 @@ fn draw_tool_icon(
                     0.0,
                     None,
                     1.0,
-                    1.0,
+                    alpha,
                     false,
                     (0.0, 0.0),
                 );
@@ -1570,13 +1661,13 @@ pub fn build_level_props_buttons(props: &LevelPropsDraft) -> Vec<UiButton> {
         },
     ];
 
-    for (i, &(_, slot)) in PIPE_COLOR_SLOTS.iter().enumerate() {
+    for (i, &(_, slot, btn_id)) in PIPE_COLOR_SLOTS.iter().enumerate() {
         let col = i % 2;
         let row = i / 2;
         let rx = 152.0 + col as f32 * 256.0;
         let ry = 322.0 + row as f32 * 26.0;
         out.push(UiButton {
-            id: "pr_pipe_col",
+            id: btn_id,
             rect: Rect::new(rx + 114.0, ry, 120.0, 22.0),
             action: UiAction::PropsCyclePipeColor(slot),
             enabled: true,
@@ -1660,13 +1751,13 @@ pub fn build_level_props_buttons(props: &LevelPropsDraft) -> Vec<UiButton> {
     out
 }
 
-const PIPE_COLOR_SLOTS: [(&str, PipeColorSlot); 6] = [
-    ("Mover:", PipeColorSlot::Mover),
-    ("Gate:", PipeColorSlot::Gate),
-    ("Rotater:", PipeColorSlot::Rotater),
-    ("Frozen:", PipeColorSlot::Freeze),
-    ("Fixed:", PipeColorSlot::Stationary),
-    ("Magic:", PipeColorSlot::Magic),
+const PIPE_COLOR_SLOTS: [(&str, PipeColorSlot, &str); 6] = [
+    ("Mover:", PipeColorSlot::Mover, "pr_col_mover"),
+    ("Gate:", PipeColorSlot::Gate, "pr_col_gate"),
+    ("Rotater:", PipeColorSlot::Rotater, "pr_col_rotater"),
+    ("Frozen:", PipeColorSlot::Freeze, "pr_col_freeze"),
+    ("Fixed:", PipeColorSlot::Stationary, "pr_col_fixed"),
+    ("Magic:", PipeColorSlot::Magic, "pr_col_magic"),
 ];
 
 pub fn render_level_props_modal(
@@ -1683,12 +1774,12 @@ pub fn render_level_props_modal(
         0,
         110,
     );
-    draw_modal_bubble(canvas, Rect::new(124.0, 48.0, 552.0, 504.0));
+    draw_modal_bubble(canvas, Rect::new(124.0, 42.0, 552.0, 516.0));
     fonts.draw_stroked(
         canvas,
         FontFamily::Neuropol,
         400.0,
-        64.0,
+        58.0,
         24.0,
         (255, 255, 255),
         (5, 13, 43),
@@ -1859,7 +1950,7 @@ pub fn render_level_props_modal(
         TextAlign::Left,
         "Pipe Theme Colors",
     );
-    for (i, &(lbl, slot)) in PIPE_COLOR_SLOTS.iter().enumerate() {
+    for (i, &(lbl, slot, _)) in PIPE_COLOR_SLOTS.iter().enumerate() {
         let col_idx = i % 2;
         let row_idx = i / 2;
         let rx = 152.0 + col_idx as f32 * 256.0;

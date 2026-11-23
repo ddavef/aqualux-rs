@@ -15,7 +15,7 @@ use crate::render::{BoardLayout, Canvas};
 use crate::save::{ProfileData, SaveData};
 use crate::tests::asset_file_if_present;
 use crate::tests::test_gpu;
-use crate::ui::editor::{EditorTool, SolveStatus, editor_board_area};
+use crate::ui::editor::{EditorTool, PipeBehavior, SolveStatus, editor_board_area};
 use crate::ui::title::title_menu_metrics;
 use crate::ui::title_data::{TitleSubmenu, menu_entries};
 use crate::ui::widgets::{ModalState, QuestionId, UiAction};
@@ -250,6 +250,14 @@ fn solver_validation_and_mechanics() {
     let mut bad_drain = default_starter_level(0);
     bad_drain.tiles.retain(|t| t.piece_type != PieceType::Drain);
     assert!(!validate_level_structure(&bad_drain).is_empty());
+
+    let mut two_sources = default_starter_level(0);
+    two_sources.tiles[0] = tile(0, 0, PieceShape::Spigot, PieceType::Source, 3, false, false);
+    assert!(!validate_level_structure(&two_sources).is_empty());
+
+    let mut two_drains = default_starter_level(0);
+    two_drains.tiles[1] = tile(1, 0, PieceShape::Drain, PieceType::Drain, 1, false, false);
+    assert!(!validate_level_structure(&two_drains).is_empty());
 
     let mut oob_src = default_starter_level(0);
     oob_src
@@ -666,6 +674,15 @@ fn editor_grid_editing_undo_redo_resize_verify_autopar_and_save() {
     app.trigger_action(UiAction::HubEditLevel);
     assert_eq!(app.screen, Screen::Editor);
     assert!(app.editor.is_some());
+    {
+        let draft = &app.editor.as_ref().unwrap().draft;
+        assert_eq!(draft.rotater_color, GameColor::White);
+        assert_eq!(draft.mover_color, GameColor::Yellow);
+        assert_eq!(draft.stationary_color, GameColor::Orange);
+        assert_eq!(draft.gate_color, GameColor::Violet);
+        assert_eq!(draft.freeze_color, GameColor::Yellow);
+        assert_eq!(draft.magic_color, GameColor::Green);
+    }
 
     let mut canvas = Canvas::new();
     canvas.begin_frame(1.0);
@@ -727,6 +744,45 @@ fn editor_grid_editing_undo_redo_resize_verify_autopar_and_save() {
     );
     // Revert back to solvable starter source at (0, 2)
     app.on_shortcut('z', true, false);
+
+    // Relocate Drain to (4, 1); previous Drain at (4, 2) must turn into Blocker
+    app.trigger_action(UiAction::EditorSelectTool(EditorTool::Drain));
+    assert!(app.editor.as_mut().unwrap().paint_cell(4, 1, true));
+    let drain_count = app
+        .editor
+        .as_ref()
+        .unwrap()
+        .draft
+        .tiles
+        .iter()
+        .filter(|t| t.piece_type == PieceType::Drain)
+        .count();
+    assert_eq!(drain_count, 1);
+    app.on_shortcut('z', true, false);
+    assert_eq!(
+        app.editor
+            .as_ref()
+            .unwrap()
+            .draft
+            .tiles
+            .iter()
+            .find(|t| t.piece_type == PieceType::Drain)
+            .map(|t| (t.x, t.y)),
+        Some((4, 2))
+    );
+
+    // Gate/Magic force Fixed behavior; choosing Mover clears Gate/Magic
+    app.trigger_action(UiAction::EditorSelectTool(EditorTool::Elbow));
+    app.trigger_action(UiAction::EditorToggleGate);
+    assert_eq!(app.editor.as_ref().unwrap().behavior, PipeBehavior::Fixed);
+    assert!(app.editor.as_ref().unwrap().mod_gate);
+    app.trigger_action(UiAction::EditorToggleMagic);
+    assert_eq!(app.editor.as_ref().unwrap().behavior, PipeBehavior::Fixed);
+    assert!(!app.editor.as_ref().unwrap().mod_gate);
+    assert!(app.editor.as_ref().unwrap().mod_magic);
+    app.trigger_action(UiAction::EditorSetBehavior(PipeBehavior::Mover));
+    assert!(!app.editor.as_ref().unwrap().mod_gate);
+    assert!(!app.editor.as_ref().unwrap().mod_magic);
 
     let dir_before = app.editor.as_ref().unwrap().brush_dir;
     app.on_shortcut('r', false, false);

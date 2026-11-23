@@ -6,7 +6,9 @@ This repository contains zero copyrighted assets. You must supply your own *Aqua
 
 ## Extra Features
 
+- Higher FPS and smoother animations.
 - Match mode and mirror match mode are both available when unlocked (in the original mirror match mode replaces match mode).
+- Custom levels and level editor.
 
 ## Building
 

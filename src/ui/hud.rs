@@ -453,6 +453,43 @@ pub fn draw_status_toast(canvas: &mut Canvas, fonts: &FontSet, text: &str, age: 
     );
 }
 
+pub fn draw_editor_toast(canvas: &mut Canvas, fonts: &FontSet, text: &str, age: f32) {
+    if text.is_empty() || age > 4.5 {
+        return;
+    }
+    let alpha = if age < 0.4 {
+        (age / 0.4).clamp(0.0, 1.0)
+    } else if age < 3.5 {
+        1.0
+    } else {
+        (1.0 - (age - 3.5)).clamp(0.0, 1.0)
+    };
+    let w = (fonts.measure_width(FontFamily::Neuropol, text, 14.0) + 28.0).clamp(160.0, 500.0);
+    let r = Rect::new(524.0 - w * 0.5, 494.0, w, 28.0);
+    let bg_a = (220.0 * alpha).round() as u8;
+    let bd_a = (240.0 * alpha).round() as u8;
+    canvas.draw_rounded_rect(
+        r,
+        8.0,
+        (0x05, 0x0D, 0x2B, bg_a),
+        Some((0x59, 0x95, 0xC1, bd_a, 2.0)),
+    );
+    fonts.draw_styled_alpha(
+        canvas,
+        FontFamily::Neuropol,
+        524.0,
+        500.0,
+        14.0,
+        1.0,
+        1.0,
+        (255, 255, 255),
+        Some((0x05, 0x0D, 0x2B)),
+        TextAlign::Center,
+        text,
+        alpha,
+    );
+}
+
 fn draw_icon(
     canvas: &mut Canvas,
     bank: &TexBank,

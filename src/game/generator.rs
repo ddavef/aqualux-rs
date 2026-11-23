@@ -178,7 +178,7 @@ fn try_build_candidate(
                     is_gate: false,
                     is_freeze: false,
                     is_magic: false,
-                    secondary_color: Some(GameColor::Violet),
+                    secondary_color: Some(GameColor::Orange),
                 },
             );
             continue;
@@ -197,7 +197,7 @@ fn try_build_candidate(
                     is_gate: false,
                     is_freeze: false,
                     is_magic: false,
-                    secondary_color: Some(GameColor::Violet),
+                    secondary_color: Some(GameColor::Orange),
                 },
             );
             continue;
@@ -378,12 +378,12 @@ fn try_build_candidate(
         liquid_color: GameColor::Blue,
         start_delay: delay,
         liquid_speed: speed,
-        rotater_color: GameColor::Blue,
+        rotater_color: GameColor::White,
         mover_color: GameColor::Yellow,
         stationary_color: GameColor::Orange,
-        gate_color: GameColor::Green,
-        freeze_color: GameColor::White,
-        magic_color: GameColor::Violet,
+        gate_color: GameColor::Violet,
+        freeze_color: GameColor::Yellow,
+        magic_color: GameColor::Green,
         par_moves: 10,
         par_pipes: path.len() as u32,
         par_time_ms: 20000,

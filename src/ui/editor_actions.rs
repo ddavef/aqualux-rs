@@ -55,7 +55,6 @@ impl GameApp {
 
         self.editor = Some(EditorState::new(
             pack.id,
-            pack.pack.meta.name,
             lvl_idx,
             lvl,
             self.custom_hub.play_difficulty,
@@ -116,6 +115,10 @@ impl GameApp {
             UiAction::EditorSetBehavior(beh) => {
                 if let Some(ed) = &mut self.editor {
                     ed.behavior = beh;
+                    if beh != PipeBehavior::Fixed {
+                        ed.mod_gate = false;
+                        ed.mod_magic = false;
+                    }
                 }
             }
             UiAction::EditorToggleFreeze => {
@@ -130,6 +133,7 @@ impl GameApp {
                 if let Some(ed) = &mut self.editor {
                     ed.mod_gate = !ed.mod_gate;
                     if ed.mod_gate {
+                        ed.behavior = PipeBehavior::Fixed;
                         ed.mod_magic = false;
                     }
                 }
@@ -138,6 +142,7 @@ impl GameApp {
                 if let Some(ed) = &mut self.editor {
                     ed.mod_magic = !ed.mod_magic;
                     if ed.mod_magic {
+                        ed.behavior = PipeBehavior::Fixed;
                         ed.mod_gate = false;
                         ed.mod_freeze = false;
                     }

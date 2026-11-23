@@ -159,16 +159,34 @@ pub fn validate_level_structure(level: &LevelDef) -> Vec<ValidationIssue> {
     }
 
     if sources.len() != 1 {
-        issues.push(ValidationIssue {
-            pos: sources.first().map(|&(x, y, _)| (x, y)),
-            message: format!("Expected exactly 1 Source, found {}", sources.len()),
-        });
+        if sources.is_empty() {
+            issues.push(ValidationIssue {
+                pos: None,
+                message: "Expected exactly 1 Source, found 0".to_string(),
+            });
+        } else {
+            for &(sx, sy, _) in &sources {
+                issues.push(ValidationIssue {
+                    pos: Some((sx, sy)),
+                    message: format!("Expected exactly 1 Source, found {}", sources.len()),
+                });
+            }
+        }
     }
-    if drains.is_empty() {
-        issues.push(ValidationIssue {
-            pos: None,
-            message: "Level must contain at least 1 Drain".to_string(),
-        });
+    if drains.len() != 1 {
+        if drains.is_empty() {
+            issues.push(ValidationIssue {
+                pos: None,
+                message: "Expected exactly 1 Drain, found 0".to_string(),
+            });
+        } else {
+            for &(dx, dy, _) in &drains {
+                issues.push(ValidationIssue {
+                    pos: Some((dx, dy)),
+                    message: format!("Expected exactly 1 Drain, found {}", drains.len()),
+                });
+            }
+        }
     }
     for (sx, sy, dir) in sources {
         if !spout_in_bounds(

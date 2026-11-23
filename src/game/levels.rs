@@ -45,12 +45,12 @@ fn parse_single_level(idx: usize, level_node: roxmltree::Node<'_, '_>) -> Option
         .and_then(|s| s.trim().parse::<f32>().ok())
         .unwrap_or(1.5);
 
-    let rotater_color = child_color(&ld, "rotaterColor", GameColor::Blue);
+    let rotater_color = child_color(&ld, "rotaterColor", GameColor::White);
     let mover_color = child_color(&ld, "moverColor", GameColor::Yellow);
     let stationary_color = child_color(&ld, "stationaryColor", GameColor::Orange);
-    let gate_color = child_color(&ld, "gateColor", GameColor::Green);
-    let freeze_color = child_color(&ld, "freezeColor", GameColor::White);
-    let magic_color = child_color(&ld, "magicColor", GameColor::Violet);
+    let gate_color = child_color(&ld, "gateColor", GameColor::Violet);
+    let freeze_color = child_color(&ld, "freezeColor", GameColor::Yellow);
+    let magic_color = child_color(&ld, "magicColor", GameColor::Green);
 
     let (par_moves, par_pipes, par_time_ms) = parse_par(&ld);
     let tutorials = parse_tutorials(&ld);
