@@ -75,6 +75,7 @@ jobs:
             prerelease_flag="--prerelease"
           fi
           gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
             ${prerelease_flag} \
