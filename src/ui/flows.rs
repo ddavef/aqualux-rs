@@ -55,21 +55,19 @@ impl GameApp {
                 let def = self.assets.lotd_levels[0].clone();
                 self.launch_level_def(def);
             }
-            LaunchSource::Match => {
+            LaunchSource::Match { mirror } => {
                 self.is_lotd_mode = false;
-                let (idx, mirror) = self
+                let idx = self
                     .save
                     .active_profile()
                     .map(|p| {
-                        let m = p.is_mirror_unlocked();
-                        let v = if m {
+                        if mirror {
                             p.mirror_level_index.max(0) as usize
                         } else {
                             p.match_level_index.max(0) as usize
-                        };
-                        (v, m)
+                        }
                     })
-                    .unwrap_or((0, false));
+                    .unwrap_or(0);
                 self.start_match_level(idx, mirror, true);
             }
             LaunchSource::RetryTrophy { idx, difficulty } => {

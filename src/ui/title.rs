@@ -171,7 +171,7 @@ pub fn render_title_screen(
     }
 
     if let Some(info) = hovered_info {
-        let info_y = entries.len() as f32 * BUTTON_SPACING + BUTTON_Y + INFO_GUTTER;
+        let info_y = (entries.len() as f32 * BUTTON_SPACING + BUTTON_Y + INFO_GUTTER).min(486.0);
         fonts.draw_multiline(
             canvas,
             FontFamily::Neuropol,

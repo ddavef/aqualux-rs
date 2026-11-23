@@ -197,21 +197,18 @@ impl GameApp {
     }
 
     pub(crate) fn advance_after_match(&mut self) {
-        let is_mirror = self
-            .save
-            .active_profile()
-            .is_some_and(|p| p.is_mirror_unlocked());
+        let is_mirror = self.match_sim.as_ref().is_some_and(|m| m.mirror_mode);
         let mut trigger_mirror_award = false;
         let next_idx = if let Some(prof) = self.save.active_profile_mut() {
             if is_mirror {
-                prof.mirror_level_index += 1;
+                prof.mirror_level_index = prof.mirror_level_index.max(0) + 1;
                 if prof.mirror_level_index == 50 && !prof.awards[2] {
                     prof.awards[2] = true;
                     trigger_mirror_award = true;
                 }
                 prof.mirror_level_index.max(0) as usize
             } else {
-                prof.match_level_index += 1;
+                prof.match_level_index = prof.match_level_index.max(0) + 1;
                 prof.match_level_index.max(0) as usize
             }
         } else {

@@ -104,19 +104,20 @@ pub fn menu_entries(submenu: TitleSubmenu, save: &SaveData) -> Vec<MenuEntry> {
                     },
                 ]
             };
-            if mirror_unlocked {
-                out.push(MenuEntry {
-                    id: "btn_mirror",
-                    label: "mirror match mode",
-                    info: "Spot the differences between \n two mirrored grids.",
-                    action: Some(UiAction::StartMatch),
-                });
-            } else if match_unlocked {
+            if match_unlocked {
                 out.push(MenuEntry {
                     id: "btn_match",
                     label: "match mode",
                     info: "Spot the differences between two grids.",
                     action: Some(UiAction::StartMatch),
+                });
+            }
+            if mirror_unlocked {
+                out.push(MenuEntry {
+                    id: "btn_mirror",
+                    label: "mirror match mode",
+                    info: "Spot the differences between \n two mirrored grids.",
+                    action: Some(UiAction::StartMirrorMatch),
                 });
             }
             out.push(MenuEntry {

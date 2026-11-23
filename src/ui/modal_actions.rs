@@ -238,15 +238,18 @@ impl GameApp {
                 .unwrap_or(0);
             let has_u = self.save.active_profile().is_some_and(|p| p.awards[3]);
             self.enter_champion_screen(score, has_u);
-        } else if self.match_sim.is_some() {
-            let is_mirror = self
-                .save
-                .active_profile()
-                .is_some_and(|p| p.is_mirror_unlocked());
+        } else if let Some(sim) = &self.match_sim {
+            let is_mirror = sim.mirror_mode;
             let idx = self
                 .save
                 .active_profile()
-                .map(|p| p.mirror_level_index.max(0) as usize)
+                .map(|p| {
+                    if is_mirror {
+                        p.mirror_level_index.max(0) as usize
+                    } else {
+                        p.match_level_index.max(0) as usize
+                    }
+                })
                 .unwrap_or(0);
             self.start_match_level(idx, is_mirror, false);
         }

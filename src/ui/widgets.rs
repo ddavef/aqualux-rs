@@ -25,7 +25,7 @@ pub enum LaunchSource {
     NewCampaign(Difficulty),
     ContinueCampaign,
     Lotd,
-    Match,
+    Match { mirror: bool },
     RetryTrophy { idx: usize, difficulty: Difficulty },
 }
 
@@ -84,6 +84,7 @@ pub enum UiAction {
     ContinueCampaign,
     PlayLotd,
     StartMatch,
+    StartMirrorMatch,
     OpenLevelmakerNotice,
     OpenTrophyRoom,
     OpenOptions,

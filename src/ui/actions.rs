@@ -63,7 +63,10 @@ impl GameApp {
             }
             UiAction::ContinueCampaign => self.start_title_hide(LaunchSource::ContinueCampaign),
             UiAction::PlayLotd => self.start_title_hide(LaunchSource::Lotd),
-            UiAction::StartMatch => self.start_title_hide(LaunchSource::Match),
+            UiAction::StartMatch => self.start_title_hide(LaunchSource::Match { mirror: false }),
+            UiAction::StartMirrorMatch => {
+                self.start_title_hide(LaunchSource::Match { mirror: true })
+            }
             UiAction::OpenLevelmakerNotice => {
                 self.push_notice("The Milkman Games Levelmaker online service is no longer active.\n\nCampaign and Match Modes remain playable offline.");
             }

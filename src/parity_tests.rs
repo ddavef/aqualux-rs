@@ -7,11 +7,12 @@ use crate::game::types::{LevelDef, TileDef};
 use crate::game::{Difficulty, FlowTimerState, GameColor, LevelSim, PieceShape, PieceType, Trophy};
 use crate::render::pipe_mask::draw_flow_timer;
 use crate::render::{BoardLayout, Canvas, Renderer, ScoreBlurbFx, draw_fx_layers};
-use crate::save::{LevelRecord, ProfileData};
+use crate::save::{LevelRecord, ProfileData, SaveData};
 use crate::tests::{asset_file_if_present, test_gpu};
 use crate::ui::champion::{ChampionState, build_champion_buttons, render_champion_screen};
 use crate::ui::hud;
 use crate::ui::summary::{SummaryState, build_summary_buttons, render_summary_screen};
+use crate::ui::title_data::{TitleSubmenu, menu_entries};
 use crate::ui::widgets::{LaunchSource, ModalState, UiAction};
 use crate::ui::{GameApp, Screen};
 use rand::SeedableRng;
@@ -454,4 +455,78 @@ fn match_rotator_mirror_banner_and_end_screen_hide_parity() {
         app.update(0.05);
     }
     assert_eq!(app.screen, Screen::Title);
+}
+
+#[test]
+fn both_match_and_mirror_modes_available_independently() {
+    let mut save = SaveData {
+        current_profile: Some("Test".to_string()),
+        profiles: vec![ProfileData {
+            name: "Test".to_string(),
+            awards: [true, false, false, false],
+            match_level_index: 2,
+            mirror_level_index: -1,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let match_only = menu_entries(TitleSubmenu::PlayChoices, &save);
+    assert!(
+        match_only
+            .iter()
+            .any(|e| e.id == "btn_match" && e.action == Some(UiAction::StartMatch))
+    );
+    assert!(!match_only.iter().any(|e| e.id == "btn_mirror"));
+
+    save.profiles[0].awards[1] = true;
+    save.profiles[0].mirror_level_index = 5;
+    let both = menu_entries(TitleSubmenu::PlayChoices, &save);
+    assert!(
+        both.iter()
+            .any(|e| e.id == "btn_match" && e.action == Some(UiAction::StartMatch))
+    );
+    assert!(
+        both.iter()
+            .any(|e| e.id == "btn_mirror" && e.action == Some(UiAction::StartMirrorMatch))
+    );
+
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let mut app = GameApp::new(bundle, Some(120), test_gpu()).expect("GameApp init");
+    app.save = save;
+
+    app.execute_launch(LaunchSource::Match { mirror: false });
+    {
+        let sim = app.match_sim.as_ref().expect("match sim active");
+        assert!(!sim.mirror_mode);
+        assert_eq!(sim.level_index, 2);
+    }
+    app.advance_after_match();
+    {
+        let prof = app.save.active_profile().unwrap();
+        assert_eq!(prof.match_level_index, 3);
+        assert_eq!(prof.mirror_level_index, 5);
+        let sim = app.match_sim.as_ref().expect("next match sim active");
+        assert!(!sim.mirror_mode);
+        assert_eq!(sim.level_index, 3);
+    }
+
+    app.execute_launch(LaunchSource::Match { mirror: true });
+    {
+        let sim = app.match_sim.as_ref().expect("mirror sim active");
+        assert!(sim.mirror_mode);
+        assert_eq!(sim.level_index, 5);
+    }
+    app.advance_after_match();
+    {
+        let prof = app.save.active_profile().unwrap();
+        assert_eq!(prof.match_level_index, 3);
+        assert_eq!(prof.mirror_level_index, 6);
+        let sim = app.match_sim.as_ref().expect("next mirror sim active");
+        assert!(sim.mirror_mode);
+        assert_eq!(sim.level_index, 6);
+    }
 }
