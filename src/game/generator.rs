@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 ddavef aqualux-rs
 
-// Phase 1 procedural level generator; UI wiring in Phase 2/3 will consume this.
-#![allow(dead_code)]
-
 use crate::game::level_io::default_starter_level;
 use crate::game::solver::{SolveOutcome, solve_level};
 use crate::game::types::{GameColor, LevelDef, PieceShape, PieceType, Side, TileDef};

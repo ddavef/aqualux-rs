@@ -11,13 +11,14 @@ use crate::game::level_io::{
 use crate::game::scoring::calculate_score;
 use crate::game::solver::{SolveOutcome, solve_level, validate_level_structure};
 use crate::game::types::{GameColor, LevelDef, PieceShape, PieceType, TileDef, TutorialMsg};
-use crate::render::Canvas;
+use crate::render::{BoardLayout, Canvas};
 use crate::save::{ProfileData, SaveData};
 use crate::tests::asset_file_if_present;
 use crate::tests::test_gpu;
+use crate::ui::editor::{EditorTool, SolveStatus, editor_board_area};
 use crate::ui::title::title_menu_metrics;
 use crate::ui::title_data::{TitleSubmenu, menu_entries};
-use crate::ui::widgets::UiAction;
+use crate::ui::widgets::{ModalState, QuestionId, UiAction};
 use crate::ui::{GameApp, PlayMode, Screen};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -645,6 +646,249 @@ fn custom_pack_playback_and_isolated_progress() {
     app.advance_after_summary();
     assert_eq!(app.screen, Screen::CustomHub);
     assert_eq!(app.play_mode, PlayMode::Campaign);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn editor_grid_editing_undo_redo_resize_verify_autopar_and_save() {
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let root = std::env::temp_dir().join(format!("aqualux_editor_test_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let primary = root.join("custom_packs");
+
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let mut app =
+        GameApp::new_with_custom_dir(bundle, Some(120), Some(&primary), test_gpu()).expect("init");
+    app.open_custom_hub(false);
+    app.trigger_action(UiAction::HubEditLevel);
+    assert_eq!(app.screen, Screen::Editor);
+    assert!(app.editor.is_some());
+
+    let mut canvas = Canvas::new();
+    canvas.begin_frame(1.0);
+    app.render(&mut canvas);
+
+    // Paint an Elbow, test single-Source relocation invariant, right-click rotate, shortcuts, undo/redo
+    app.trigger_action(UiAction::EditorSelectTool(EditorTool::Elbow));
+    assert!(app.editor.as_mut().unwrap().paint_cell(1, 1, true));
+    let cell_1_1_dir = app.editor.as_ref().unwrap().draft.tiles
+        [app.editor.as_ref().unwrap().tile_index(1, 1).unwrap()]
+    .direction;
+
+    let layout = BoardLayout::compute(5, 5, editor_board_area());
+    let (cx, cy) = layout.tile_center(1, 1);
+    app.on_right_click(cx, cy);
+    let cell_1_1_dir_after = app.editor.as_ref().unwrap().draft.tiles
+        [app.editor.as_ref().unwrap().tile_index(1, 1).unwrap()]
+    .direction;
+    assert_eq!(cell_1_1_dir_after, (cell_1_1_dir + 1) % 4);
+
+    // Relocate Source to (0, 1); previous Source at (0, 2) must turn into Blocker
+    app.trigger_action(UiAction::EditorSelectTool(EditorTool::Source));
+    assert!(app.editor.as_mut().unwrap().paint_cell(0, 1, true));
+    let source_count = app
+        .editor
+        .as_ref()
+        .unwrap()
+        .draft
+        .tiles
+        .iter()
+        .filter(|t| t.piece_type == PieceType::Source)
+        .count();
+    assert_eq!(source_count, 1);
+
+    // Undo Source move and test keyboard shortcuts ('r', '1', Ctrl+Z, Ctrl+Y)
+    app.on_shortcut('z', true, false);
+    assert_eq!(
+        app.editor
+            .as_ref()
+            .unwrap()
+            .draft
+            .tiles
+            .iter()
+            .find(|t| t.piece_type == PieceType::Source)
+            .map(|t| (t.x, t.y)),
+        Some((0, 2))
+    );
+    app.on_shortcut('y', true, false);
+    assert_eq!(
+        app.editor
+            .as_ref()
+            .unwrap()
+            .draft
+            .tiles
+            .iter()
+            .find(|t| t.piece_type == PieceType::Source)
+            .map(|t| (t.x, t.y)),
+        Some((0, 1))
+    );
+    // Revert back to solvable starter source at (0, 2)
+    app.on_shortcut('z', true, false);
+
+    let dir_before = app.editor.as_ref().unwrap().brush_dir;
+    app.on_shortcut('r', false, false);
+    assert_eq!(app.editor.as_ref().unwrap().brush_dir, (dir_before + 1) % 4);
+    app.on_shortcut('2', false, false);
+    assert_eq!(app.editor.as_ref().unwrap().tool, EditorTool::Straight);
+
+    // Resize grid & undo restoration
+    app.trigger_action(UiAction::EditorResizeCols(1));
+    assert_eq!(app.editor.as_ref().unwrap().draft.cols, 6);
+    app.trigger_action(UiAction::EditorResizeRows(-1));
+    assert_eq!(app.editor.as_ref().unwrap().draft.rows, 4);
+    app.trigger_action(UiAction::EditorUndo);
+    app.trigger_action(UiAction::EditorUndo);
+    assert_eq!(app.editor.as_ref().unwrap().draft.cols, 5);
+    assert_eq!(app.editor.as_ref().unwrap().draft.rows, 5);
+
+    // Verify solvable & render solution overlay
+    app.trigger_action(UiAction::EditorVerify);
+    let suggested = match &app.editor.as_ref().unwrap().solve_status {
+        SolveStatus::Solvable(res) => {
+            assert!(res.verified_by_sim);
+            (
+                res.suggested_par_moves,
+                res.suggested_par_pipes,
+                res.suggested_par_time_ms,
+            )
+        }
+        other => panic!("expected Solvable in editor, got {:?}", other),
+    };
+    assert!(app.editor.as_ref().unwrap().show_solution_path);
+    canvas.begin_frame(1.0);
+    app.render(&mut canvas);
+
+    // Auto-Par updates par values and marks dirty
+    app.trigger_action(UiAction::EditorAutoPar);
+    {
+        let ed = app.editor.as_ref().unwrap();
+        assert_eq!(ed.draft.par_moves, suggested.0);
+        assert_eq!(ed.draft.par_pipes, suggested.1);
+        assert_eq!(ed.draft.par_time_ms, suggested.2);
+        assert!(ed.dirty);
+    }
+
+    // LevelProps modal: render, edit title, cycle background & liquid, apply
+    app.trigger_action(UiAction::EditorOpenProps);
+    assert!(matches!(app.modals.last(), Some(ModalState::LevelProps(_))));
+    canvas.begin_frame(1.0);
+    app.render(&mut canvas);
+
+    app.trigger_action(UiAction::PropsEditTitle);
+    while matches!(
+        app.modals.last(),
+        Some(ModalState::TextPrompt { input, .. }) if !input.is_empty()
+    ) {
+        app.on_key_backspace();
+    }
+    for ch in "Edited Stage".chars() {
+        app.on_text_char(ch);
+    }
+    app.on_key_enter();
+    app.trigger_action(UiAction::PropsCycleBg);
+    app.trigger_action(UiAction::PropsCycleLiquid);
+    app.trigger_action(UiAction::PropsAdjustSpeed(1));
+    app.trigger_action(UiAction::PropsAdjustDelay(-1));
+    app.trigger_action(UiAction::PropsApply);
+    assert!(app.modals.is_empty());
+    assert_eq!(app.editor.as_ref().unwrap().draft.title, "Edited Stage");
+    assert_eq!(app.editor.as_ref().unwrap().draft.background_id, "DaySky");
+
+    // Save to disk & verify reload persistence
+    app.trigger_action(UiAction::EditorSave);
+    assert!(!app.editor.as_ref().unwrap().dirty);
+
+    let reloaded = CustomPackStore::load_with_dirs(primary, Vec::new(), root.join("prog.json"));
+    let saved_lvl = &reloaded.packs[0].pack.levels[0];
+    assert_eq!(saved_lvl.title, "Edited Stage");
+    assert_eq!(saved_lvl.background_id, "DaySky");
+    assert_eq!(saved_lvl.par_moves, suggested.0);
+    assert_eq!(saved_lvl.par_pipes, suggested.1);
+    assert_eq!(saved_lvl.par_time_ms, suggested.2);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn editor_playtest_round_trip_and_unsaved_guard() {
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let root = std::env::temp_dir().join(format!("aqualux_playtest_test_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let primary = root.join("custom_packs");
+
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let mut app =
+        GameApp::new_with_custom_dir(bundle, Some(120), Some(&primary), test_gpu()).expect("init");
+    let camp_records_before = app
+        .save
+        .active_profile()
+        .map(|p| (p.records.len(), p.total_score()));
+
+    app.open_custom_hub(false);
+    app.trigger_action(UiAction::HubEditLevel);
+    assert_eq!(app.screen, Screen::Editor);
+
+    // Mark dirty via painting a side pipe
+    app.trigger_action(UiAction::EditorSelectTool(EditorTool::Straight));
+    assert!(app.editor.as_mut().unwrap().paint_cell(1, 0, true));
+    assert!(app.editor.as_ref().unwrap().dirty);
+
+    // Launch playtest
+    app.trigger_action(UiAction::EditorTest);
+    assert_eq!(app.screen, Screen::Playing);
+    assert!(matches!(app.play_mode, PlayMode::EditorTest { .. }));
+
+    // Winning playtest must not alter campaign or custom pack progress
+    let res = calculate_score(4, 5, 5000, 6, 5, 15000, true);
+    app.on_campaign_win(res);
+    assert_eq!(app.screen, Screen::Summary);
+    assert!(app.custom_packs.progress.packs.is_empty());
+    assert_eq!(
+        app.save
+            .active_profile()
+            .map(|p| (p.records.len(), p.total_score())),
+        camp_records_before
+    );
+
+    app.advance_after_summary();
+    assert_eq!(app.screen, Screen::Editor);
+    assert_eq!(app.play_mode, PlayMode::Campaign);
+    assert!(app.editor.as_ref().unwrap().dirty);
+
+    // Pause -> Back to Editor round-trip
+    app.trigger_action(UiAction::EditorTest);
+    assert_eq!(app.screen, Screen::Playing);
+    app.trigger_action(UiAction::PauseGame);
+    assert_eq!(app.screen, Screen::Paused);
+    app.trigger_action(UiAction::MainMenuPrompt);
+    app.trigger_action(UiAction::QuestionYes);
+    assert_eq!(app.screen, Screen::Editor);
+    assert!(app.editor.as_ref().unwrap().dirty);
+
+    // Removing the Drain prevents playtest launch
+    app.trigger_action(UiAction::EditorSelectTool(EditorTool::Blocker));
+    assert!(app.editor.as_mut().unwrap().paint_cell(4, 2, true));
+    app.trigger_action(UiAction::EditorTest);
+    assert_eq!(app.screen, Screen::Editor);
+    assert!(!app.editor.as_ref().unwrap().validation_issues.is_empty());
+
+    // Backing out while dirty triggers discard confirmation
+    app.trigger_action(UiAction::EditorBack);
+    assert!(matches!(
+        app.modals.last(),
+        Some(ModalState::Question {
+            id: QuestionId::ConfirmDiscardEditor,
+            ..
+        })
+    ));
+    app.trigger_action(UiAction::QuestionYes);
+    assert_eq!(app.screen, Screen::CustomHub);
+    assert!(app.editor.is_none());
 
     let _ = fs::remove_dir_all(&root);
 }

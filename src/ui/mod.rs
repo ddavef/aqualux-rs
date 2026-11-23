@@ -6,6 +6,8 @@ pub mod campaign_end;
 pub mod champion;
 pub mod custom_hub;
 pub mod custom_hub_actions;
+pub mod editor;
+pub mod editor_actions;
 pub mod flows;
 pub mod hud;
 pub mod input;
@@ -31,6 +33,7 @@ use crate::render::{
 use crate::save::{LevelRecord, SaveData};
 use champion::ChampionState;
 use custom_hub::CustomHubState;
+use editor::EditorState;
 use rand::rngs::StdRng;
 use std::path::Path;
 use std::sync::Arc;
@@ -43,6 +46,7 @@ pub enum Screen {
     Splash,
     Title,
     CustomHub,
+    Editor,
     Playing,
     MatchPlaying,
     Paused,
@@ -59,6 +63,9 @@ pub enum PlayMode {
         pack_id: String,
         level_idx: usize,
         session_score: u32,
+        difficulty: Difficulty,
+    },
+    EditorTest {
         difficulty: Difficulty,
     },
 }
@@ -110,6 +117,7 @@ pub struct GameApp {
     pub lotd_score: u32,
     pub custom_packs: CustomPackStore,
     pub custom_hub: CustomHubState,
+    pub editor: Option<EditorState>,
     pub fail_count: u32,
     pub is_retrying_level: bool,
     pub retry_backup: Option<LevelRecord>,
@@ -190,6 +198,7 @@ impl GameApp {
             lotd_score: 0,
             custom_packs,
             custom_hub: CustomHubState::default(),
+            editor: None,
             fail_count: 0,
             is_retrying_level: false,
             retry_backup: None,

@@ -195,7 +195,7 @@ impl GameApp {
                 }
             }
             UiAction::HubEditLevel => {
-                self.show_status_toast("Visual grid editor is coming in Phase 3!");
+                self.open_editor_for_selected_level();
             }
             UiAction::HubNewLevel => {
                 let Some(entry) = self
@@ -422,11 +422,24 @@ impl GameApp {
             return;
         };
         let trimmed = input.trim();
-        if trimmed.is_empty() {
-            return;
-        }
         match purpose {
+            TextPromptPurpose::EditLevelDescription => {
+                if let Some(ModalState::LevelProps(props)) = self.modals.last_mut() {
+                    props.description = trimmed.to_string();
+                }
+            }
+            TextPromptPurpose::EditLevelTitle => {
+                if trimmed.is_empty() {
+                    return;
+                }
+                if let Some(ModalState::LevelProps(props)) = self.modals.last_mut() {
+                    props.title = trimmed.to_string();
+                }
+            }
             TextPromptPurpose::NewCustomPack => {
+                if trimmed.is_empty() {
+                    return;
+                }
                 let id = self.unique_pack_id(trimmed);
                 let pack = CustomPackFile {
                     meta: CustomPackMeta {
@@ -449,6 +462,9 @@ impl GameApp {
                 }
             }
             TextPromptPurpose::RenameCustomPack(pack_id) => {
+                if trimmed.is_empty() {
+                    return;
+                }
                 let Some(entry) = self
                     .custom_packs
                     .packs
@@ -490,8 +506,4 @@ impl GameApp {
         }
         candidate
     }
-
-    pub fn on_right_click(&mut self, _x: f32, _y: f32) {}
-
-    pub fn on_shortcut(&mut self, _ch: char, _ctrl: bool, _shift: bool) {}
 }

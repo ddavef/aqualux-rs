@@ -120,7 +120,9 @@ impl GameApp {
     pub fn launch_level_def(&mut self, def: LevelDef) {
         let diff = match &self.play_mode {
             PlayMode::Lotd => Difficulty::Medium,
-            PlayMode::CustomPack { difficulty, .. } => *difficulty,
+            PlayMode::CustomPack { difficulty, .. } | PlayMode::EditorTest { difficulty } => {
+                *difficulty
+            }
             PlayMode::Campaign => self
                 .save
                 .active_profile()
@@ -216,6 +218,11 @@ impl GameApp {
             } => {
                 self.launch_custom_pack_level(&pack_id, level_idx, difficulty, session_score);
             }
+            PlayMode::EditorTest { .. } => {
+                if let Some(def) = self.editor.as_ref().map(|e| e.draft.clone()) {
+                    self.launch_level_def(def);
+                }
+            }
             PlayMode::Campaign => {
                 self.start_campaign_level(self.current_level_idx, false);
             }
@@ -223,6 +230,10 @@ impl GameApp {
     }
 
     pub(crate) fn return_to_main_menu(&mut self) {
+        if matches!(self.play_mode, PlayMode::EditorTest { .. }) && self.editor.is_some() {
+            self.return_to_editor();
+            return;
+        }
         let was_custom = matches!(self.play_mode, PlayMode::CustomPack { .. });
         self.temp_easy_revert = None;
         if self.play_mode == PlayMode::Campaign {

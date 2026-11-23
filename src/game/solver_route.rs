@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 ddavef aqualux-rs
 
-// Phase 1 solver move router; verified by tests now and used by Editor/Auto-Par in Phase 3.
-#![allow(dead_code)]
-
 use crate::game::awards::Difficulty;
 use crate::game::level_sim::LevelSim;
 use crate::game::path::PathSegment;

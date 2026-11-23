@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 ddavef aqualux-rs
 
-// Phase 1 custom pack store; UI integration will consume these in Phase 2/3.
-#![allow(dead_code)]
-
 use crate::game::MetricResult;
 use crate::game::level_io::{CustomPackFile, MAX_CUSTOM_XML_BYTES, parse_pack_xml, write_pack_xml};
 use crate::save::LevelRecord;

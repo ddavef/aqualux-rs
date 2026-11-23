@@ -7,6 +7,7 @@ use crate::render::{
     Canvas, FontFamily, FontSet, GlowPreset, LOGICAL_H, LOGICAL_W, Rect, TexBank, TextAlign,
 };
 use crate::save::SaveData;
+use crate::ui::editor::{build_level_props_buttons, render_level_props_modal};
 use crate::ui::profiles::{
     build_enter_name_buttons, build_profile_modal_buttons, render_enter_name_modal,
     render_profile_modal,
@@ -48,7 +49,12 @@ pub fn build_pause_buttons() -> Vec<UiButton> {
     ]
 }
 
-pub fn render_pause_menu(canvas: &mut Canvas, fonts: &FontSet, mouse_pos: (f32, f32)) {
+pub fn render_pause_menu(
+    canvas: &mut Canvas,
+    fonts: &FontSet,
+    exit_label: &str,
+    mouse_pos: (f32, f32),
+) {
     canvas.fill_rect_alpha(
         Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32),
         0,
@@ -70,7 +76,7 @@ pub fn render_pause_menu(canvas: &mut Canvas, fonts: &FontSet, mouse_pos: (f32, 
     for (label, y) in [
         ("Resume Game", 260.0),
         ("Options", 300.0),
-        ("Main Menu", 340.0),
+        (exit_label, 340.0),
     ] {
         let r = Rect::new(270.0, y, 260.0, 34.0);
         draw_text_button(
@@ -278,6 +284,7 @@ pub fn build_modal_buttons(
             enabled: true,
             hover_sfx: None,
         }],
+        ModalState::LevelProps(props) => build_level_props_buttons(props),
     }
 }
 
@@ -349,6 +356,9 @@ pub fn render_modal_stack(
             }
             ModalState::Award { kind, .. } => {
                 render_award_modal(canvas, bank, fonts, *kind, mpos);
+            }
+            ModalState::LevelProps(props) => {
+                render_level_props_modal(canvas, bank, fonts, props, mpos);
             }
         }
     }

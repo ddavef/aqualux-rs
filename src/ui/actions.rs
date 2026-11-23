@@ -98,6 +98,38 @@ impl GameApp {
             | UiAction::HubMoveLevelUp
             | UiAction::HubMoveLevelDown
             | UiAction::HubDeleteLevel => self.handle_custom_hub_action(action),
+            UiAction::EditorSelectTool(_)
+            | UiAction::EditorRotateBrushCw
+            | UiAction::EditorSetBehavior(_)
+            | UiAction::EditorToggleFreeze
+            | UiAction::EditorToggleGate
+            | UiAction::EditorToggleMagic
+            | UiAction::EditorSetPortalColor(_)
+            | UiAction::EditorResizeCols(_)
+            | UiAction::EditorResizeRows(_)
+            | UiAction::EditorUndo
+            | UiAction::EditorRedo
+            | UiAction::EditorClearBoard
+            | UiAction::EditorAutoPar
+            | UiAction::EditorToggleSolutionPath
+            | UiAction::EditorOpenProps
+            | UiAction::EditorVerify
+            | UiAction::EditorTest
+            | UiAction::EditorSave
+            | UiAction::EditorBack
+            | UiAction::PropsEditTitle
+            | UiAction::PropsEditDesc
+            | UiAction::PropsCycleBg
+            | UiAction::PropsCycleLiquid
+            | UiAction::PropsAdjustDelay(_)
+            | UiAction::PropsAdjustSpeed(_)
+            | UiAction::PropsCyclePipeColor(_)
+            | UiAction::PropsAutoPar
+            | UiAction::PropsAdjustParMoves(_)
+            | UiAction::PropsAdjustParPipes(_)
+            | UiAction::PropsAdjustParTimeSec(_)
+            | UiAction::PropsCycleTestDiff
+            | UiAction::PropsApply => self.handle_editor_action(action),
             UiAction::OpenMmgNotice => {
                 self.push_notice(
                     "Aqualux Deluxe\nCopyright (C) 2010 Milkman Games, LLC.\nAll Rights Reserved.\naqualux-rs reimplementation by ddavef",
@@ -185,14 +217,17 @@ impl GameApp {
                 self.dispatch_campaign_sim(|s| s.skip_tutorials());
             }
             UiAction::MainMenuPrompt => {
-                let will_save = if self.play_mode == PlayMode::Campaign {
-                    " Your progress will be saved."
-                } else {
-                    ""
+                let msg = match self.play_mode {
+                    PlayMode::Campaign => {
+                        "Return to main menu? \n \n Your progress will be saved.".to_string()
+                    }
+                    PlayMode::CustomPack { .. } => "Return to custom packs?".to_string(),
+                    PlayMode::EditorTest { .. } => "Return to the level editor?".to_string(),
+                    PlayMode::Lotd => "Return to main menu?".to_string(),
                 };
                 self.modals.push(ModalState::Question {
                     id: QuestionId::ConfirmMainMenuFromPause,
-                    message: format!("Return to main menu? \n \n{}", will_save),
+                    message: msg,
                     yes_label: "yes",
                     no_label: Some("no"),
                 });
@@ -201,14 +236,17 @@ impl GameApp {
             UiAction::NextLevel => self.start_summary_hide(SummaryHideAction::NextLevel),
             UiAction::RetryLevel => self.start_summary_hide(SummaryHideAction::RetryLevel),
             UiAction::MainMenuConfirmFromSummary => {
-                let will_save = if self.play_mode == PlayMode::Campaign {
-                    " Your progress will be saved."
-                } else {
-                    ""
+                let msg = match self.play_mode {
+                    PlayMode::Campaign => {
+                        "Return to main menu? \n \n Your progress will be saved.".to_string()
+                    }
+                    PlayMode::CustomPack { .. } => "Return to custom packs?".to_string(),
+                    PlayMode::EditorTest { .. } => "Return to the level editor?".to_string(),
+                    PlayMode::Lotd => "Return to main menu?".to_string(),
                 };
                 self.modals.push(ModalState::Question {
                     id: QuestionId::ConfirmMainMenuFromSummary,
-                    message: format!("Return to main menu? \n \n{}", will_save),
+                    message: msg,
                     yes_label: "yes",
                     no_label: Some("no"),
                 });
@@ -364,7 +402,6 @@ impl GameApp {
         }
     }
 
-    #[allow(dead_code)]
     fn push_notice(&mut self, message: &str) {
         self.modals.push(ModalState::Question {
             id: QuestionId::SimpleNotice,

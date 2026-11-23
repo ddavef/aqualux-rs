@@ -207,6 +207,15 @@ impl GameApp {
                     }
                 }
             }
+            QuestionId::ConfirmDiscardEditor => {
+                self.close_editor_to_hub();
+            }
+            QuestionId::ConfirmClearEditorBoard => {
+                if let Some(ed) = &mut self.editor {
+                    ed.clear_to_blank();
+                    self.audio.play_sfx("SwapTwoSound");
+                }
+            }
             QuestionId::ConfirmDeleteProfile(name) => {
                 if let Some(ModalState::Profile {
                     items, selected, ..

@@ -34,6 +34,7 @@ impl GameApp {
                 *session_score += res.total_score;
                 *session_score
             }
+            PlayMode::EditorTest { .. } => res.total_score,
             PlayMode::Campaign => {
                 if let Some(prof) = self.save.active_profile_mut() {
                     if self.retry_backup.is_none() {
@@ -182,6 +183,11 @@ impl GameApp {
                 } else {
                     self.return_to_main_menu();
                 }
+                return;
+            }
+            PlayMode::EditorTest { .. } => {
+                self.show_status_toast("Playtest complete: back in editor.");
+                self.return_to_editor();
                 return;
             }
             PlayMode::Campaign => {}
@@ -336,6 +342,7 @@ impl GameApp {
         match &self.play_mode {
             PlayMode::Lotd => self.lotd_score,
             PlayMode::CustomPack { session_score, .. } => *session_score,
+            PlayMode::EditorTest { .. } => 0,
             PlayMode::Campaign => self
                 .save
                 .active_profile()
@@ -371,6 +378,7 @@ impl GameApp {
             self.audio.play_sfx("SwapTwoSound");
             let more = match &self.play_mode {
                 PlayMode::Lotd => true,
+                PlayMode::EditorTest { .. } => false,
                 PlayMode::Campaign => {
                     self.current_level_idx + 1 < self.assets.campaign_levels.len()
                 }

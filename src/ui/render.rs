@@ -5,7 +5,7 @@ use crate::render::{BoardAnim, BoardLayout, Canvas, draw_cursor, draw_fx_layers}
 use crate::ui::champion::{build_champion_buttons, render_champion_screen};
 use crate::ui::summary::{build_summary_buttons, render_summary_screen};
 use crate::ui::widgets::UiButton;
-use crate::ui::{GameApp, PlayMode, Screen, custom_hub, hud, modals, splash, title};
+use crate::ui::{GameApp, PlayMode, Screen, custom_hub, editor, hud, modals, splash, title};
 
 impl GameApp {
     pub(crate) fn current_buttons(&self) -> Vec<UiButton> {
@@ -29,6 +29,11 @@ impl GameApp {
             Screen::CustomHub => {
                 custom_hub::build_custom_hub_buttons(&self.custom_packs, &self.custom_hub)
             }
+            Screen::Editor => self
+                .editor
+                .as_ref()
+                .map(editor::build_editor_buttons)
+                .unwrap_or_default(),
             Screen::Playing | Screen::MatchPlaying => hud::build_playing_buttons(
                 self.campaign_sim.as_ref(),
                 self.match_sim.as_ref(),
@@ -89,6 +94,20 @@ impl GameApp {
                 &self.custom_hub,
                 self.mouse_pos,
             );
+        } else if self.screen == Screen::Editor {
+            self.renderer
+                .draw_background(canvas, &self.assets, &self.bg_anim);
+            if let Some(ed) = &self.editor {
+                editor::render_editor(
+                    canvas,
+                    &mut self.renderer,
+                    ed,
+                    self.save.config.color_blind,
+                    self.time,
+                    self.mouse_pos,
+                    !self.modals.is_empty(),
+                );
+            }
         } else if self.screen == Screen::Champion {
             self.renderer
                 .draw_background(canvas, &self.assets, &self.bg_anim);
@@ -113,7 +132,12 @@ impl GameApp {
                 self.render_match(canvas, keep_paused_dim);
             }
             if self.screen == Screen::Paused {
-                modals::render_pause_menu(canvas, &self.renderer.fonts, self.mouse_pos);
+                let exit_label = match self.play_mode {
+                    PlayMode::EditorTest { .. } => "Back to Editor",
+                    PlayMode::CustomPack { .. } => "Custom Packs",
+                    _ => "Main Menu",
+                };
+                modals::render_pause_menu(canvas, &self.renderer.fonts, exit_label, self.mouse_pos);
             } else if self.screen == Screen::Summary
                 && let Some(sum) = &self.summary_state
             {

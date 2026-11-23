@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 ddavef aqualux-rs
 
-use crate::game::{AwardKind, Difficulty, LevelDef};
+use crate::game::{AwardKind, Difficulty, GameColor, LevelDef};
 use crate::render::{Canvas, FontFamily, FontSet, GlowPreset, Rect, TexBank, TextAlign};
+use crate::ui::editor::{EditorTool, LevelPropsDraft, PipeBehavior, PipeColorSlot};
 pub use crate::ui::roller::ScoreRoller;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -13,6 +14,8 @@ pub enum QuestionId {
     ConfirmDeleteProfile(String),
     ConfirmDeletePack(String),
     ConfirmDeleteCustomLevel { pack_id: String, level_idx: usize },
+    ConfirmDiscardEditor,
+    ConfirmClearEditorBoard,
     ConfirmQuit,
     TrophyNeedSave,
     ProfileFull,
@@ -26,6 +29,8 @@ pub enum QuestionId {
 pub enum TextPromptPurpose {
     NewCustomPack,
     RenameCustomPack(String),
+    EditLevelTitle,
+    EditLevelDescription,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +91,7 @@ pub enum ModalState {
         then_ultralux: bool,
         then_unlock_match_level: Option<Box<LevelDef>>,
     },
+    LevelProps(LevelPropsDraft),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,6 +138,40 @@ pub enum UiAction {
     HubMoveLevelUp,
     HubMoveLevelDown,
     HubDeleteLevel,
+
+    // Level Editor & Properties
+    EditorSelectTool(EditorTool),
+    EditorRotateBrushCw,
+    EditorSetBehavior(PipeBehavior),
+    EditorToggleFreeze,
+    EditorToggleGate,
+    EditorToggleMagic,
+    EditorSetPortalColor(GameColor),
+    EditorResizeCols(i8),
+    EditorResizeRows(i8),
+    EditorUndo,
+    EditorRedo,
+    EditorClearBoard,
+    EditorAutoPar,
+    EditorToggleSolutionPath,
+    EditorOpenProps,
+    EditorVerify,
+    EditorTest,
+    EditorSave,
+    EditorBack,
+    PropsEditTitle,
+    PropsEditDesc,
+    PropsCycleBg,
+    PropsCycleLiquid,
+    PropsAdjustDelay(i8),
+    PropsAdjustSpeed(i8),
+    PropsCyclePipeColor(PipeColorSlot),
+    PropsAutoPar,
+    PropsAdjustParMoves(i32),
+    PropsAdjustParPipes(i32),
+    PropsAdjustParTimeSec(i32),
+    PropsCycleTestDiff,
+    PropsApply,
 
     // Playing & Pause
     PauseGame,

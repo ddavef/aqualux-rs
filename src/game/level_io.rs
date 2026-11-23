@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 ddavef aqualux-rs
 
-// Phase 1 backend module; UI wiring in Phase 2/3 will consume all exports.
-#![allow(dead_code)]
-
 use crate::game::levels::parse_levels_xml;
 use crate::game::types::{GameColor, LevelDef, PieceShape, PieceType, TileDef};
 use std::fmt::Write as _;

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 ddavef aqualux-rs
 
 use crate::render::{BoardLayout, CursorKind, Rect};
+use crate::ui::editor::{EditorTool, build_editor_buttons, editor_board_area};
 use crate::ui::hud;
 use crate::ui::modals::{OPTIONS_FX_Y, OPTIONS_MUSIC_Y, OPTIONS_SLIDER_X};
 use crate::ui::title::TitleSubmenu;
@@ -17,6 +18,9 @@ impl GameApp {
                 DragSlider::Music => self.trigger_action(UiAction::SetMusicVol(v)),
                 DragSlider::Sfx => self.trigger_action(UiAction::SetSfxVol(v)),
             }
+        }
+        if self.screen == Screen::Editor && self.modals.is_empty() {
+            self.editor_mouse_move(x, y);
         }
         self.update_hover_sounds(x, y);
     }
@@ -111,6 +115,11 @@ impl GameApp {
             return;
         }
 
+        if self.screen == Screen::Editor {
+            self.editor_mouse_down(x, y);
+            return;
+        }
+
         if self.screen == Screen::Playing {
             if let Some(sim) = &mut self.campaign_sim {
                 if let Some(tut) = sim.active_tutorial()
@@ -144,6 +153,9 @@ impl GameApp {
     pub fn on_mouse_up(&mut self, x: f32, y: f32) {
         self.mouse_pos = (x, y);
         self.dragging_slider = None;
+        if self.screen == Screen::Editor {
+            self.editor_mouse_up();
+        }
         let Some(start) = self.drag_start_tile.take() else {
             return;
         };
@@ -239,6 +251,7 @@ impl GameApp {
         }
         match self.screen {
             Screen::CustomHub => self.trigger_action(UiAction::HubBackToTitle),
+            Screen::Editor => self.trigger_action(UiAction::EditorBack),
             Screen::Playing | Screen::MatchPlaying => self.trigger_action(UiAction::PauseGame),
             Screen::Paused => self.trigger_action(UiAction::ResumeGame),
             Screen::Title => {
@@ -257,6 +270,21 @@ impl GameApp {
             return CursorKind::Arrow;
         }
         let (mx, my) = self.mouse_pos;
+        if self.screen == Screen::Editor {
+            let Some(ed) = self.editor.as_ref() else {
+                return CursorKind::Arrow;
+            };
+            for b in build_editor_buttons(ed) {
+                if b.enabled && b.rect.contains(mx, my) {
+                    return CursorKind::Arrow;
+                }
+            }
+            let layout = BoardLayout::compute(ed.draft.cols, ed.draft.rows, editor_board_area());
+            if layout.hit_test(mx, my).is_some() && ed.tool == EditorTool::Rotate {
+                return CursorKind::Rotate;
+            }
+            return CursorKind::Arrow;
+        }
         if self.screen == Screen::Playing {
             let Some(sim) = self.campaign_sim.as_ref() else {
                 return CursorKind::Arrow;

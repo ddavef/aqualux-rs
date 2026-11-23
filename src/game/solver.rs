@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 ddavef aqualux-rs
 
-// Phase 1 solver; verified by tests now and used by Editor/Verify/Auto-Par in Phase 3.
-#![allow(dead_code)]
-
 use crate::game::level_io::{MAX_GRID_COLS, MAX_GRID_ROWS, MIN_GRID_DIM};
 use crate::game::path::PathSegment;
 use crate::game::solver_route::{RouteCtx, route_and_verify};
