@@ -37,8 +37,6 @@ jobs:
     needs: verify-tag
     if: needs.verify-tag.outputs.on_main == 'true'
     uses: ./.github/workflows/build.yml
-    with:
-      version: ${{ github.ref_name }}
 
   release:
     name: Publish GitHub Release
@@ -49,12 +47,22 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          path: release-assets
-          merge-multiple: true
+          path: artifacts
 
-      - name: Generate SHA256 checksums
+      - name: Package release archives and checksums
         shell: bash
         run: |
+          mkdir -p release-assets
+          for dir in artifacts/aqualux-rs-*; do
+            platform="${dir#artifacts/aqualux-rs-}"
+            archive_base="aqualux-rs-${GITHUB_REF_NAME}-${platform}"
+            if [[ "${platform}" == windows-* ]]; then
+              (cd "$dir" && zip -q -r "../../release-assets/${archive_base}.zip" .)
+            else
+              chmod +x "$dir/aqualux-rs"
+              tar -czf "release-assets/${archive_base}.tar.gz" -C "$dir" .
+            fi
+          done
           (cd release-assets && sha256sum aqualux-rs-* > SHA256SUMS.txt)
 
       - name: Create GitHub Release

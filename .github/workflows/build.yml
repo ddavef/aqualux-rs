@@ -9,12 +9,6 @@ on:
         type: string
         default: ""
   workflow_call:
-    inputs:
-      version:
-        description: "Version string used in release archive filenames"
-        required: false
-        type: string
-        default: ""
 
 permissions:
   contents: read
@@ -31,7 +25,6 @@ jobs:
             target: i686-unknown-linux-gnu
             platform: linux-x86
             bin: aqualux-rs
-            ext: tar.gz
             deb_arch: i386
             gcc_pkg: gcc-i686-linux-gnu
             linker: i686-linux-gnu-gcc
@@ -42,12 +35,10 @@ jobs:
             target: x86_64-unknown-linux-gnu
             platform: linux-x86_64
             bin: aqualux-rs
-            ext: tar.gz
           - os: ubuntu-24.04
             target: armv7-unknown-linux-gnueabihf
             platform: linux-arm32
             bin: aqualux-rs
-            ext: tar.gz
             deb_arch: armhf
             gcc_pkg: gcc-arm-linux-gnueabihf
             linker: arm-linux-gnueabihf-gcc
@@ -58,7 +49,6 @@ jobs:
             target: aarch64-unknown-linux-gnu
             platform: linux-arm64
             bin: aqualux-rs
-            ext: tar.gz
             deb_arch: arm64
             gcc_pkg: gcc-aarch64-linux-gnu
             linker: aarch64-linux-gnu-gcc
@@ -69,33 +59,25 @@ jobs:
             target: i686-pc-windows-msvc
             platform: windows-x86
             bin: aqualux-rs.exe
-            ext: zip
             msvc_arch: amd64_x86
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             platform: windows-x86_64
             bin: aqualux-rs.exe
-            ext: zip
             msvc_arch: amd64
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             platform: windows-arm64
             bin: aqualux-rs.exe
-            ext: zip
             msvc_arch: amd64_arm64
           - os: macos-15
             target: x86_64-apple-darwin
             platform: macos-x86_64
             bin: aqualux-rs
-            ext: tar.gz
           - os: macos-15
             target: aarch64-apple-darwin
             platform: macos-arm64
             bin: aqualux-rs
-            ext: tar.gz
-
-    env:
-      ARCHIVE_NAME: ${{ inputs.version != '' && format('aqualux-rs-{0}-{1}.{2}', inputs.version, matrix.platform, matrix.ext) || format('aqualux-rs-{0}.{1}', matrix.platform, matrix.ext) }}
 
     steps:
       - name: Checkout repository
@@ -143,6 +125,7 @@ jobs:
           sudo apt-get -o Dir::Etc::sourcelist=/dev/null -o Dir::Etc::sourceparts=/tmp/cross-sources install -y --no-install-recommends \
             pkg-config \
             "${{ matrix.gcc_pkg }}" \
+            "libc6-dev-${{ matrix.deb_arch }}-cross" \
             "libasound2-dev:${{ matrix.deb_arch }}"
 
           {
@@ -172,27 +155,25 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked --target ${{ matrix.target }}
 
-      - name: Package release archive (Unix)
+      - name: Stage build artifacts (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           rm -rf dist
           mkdir -p dist
           cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" LICENSE README.md dist/
-          tar -czf "${ARCHIVE_NAME}" -C dist .
 
-      - name: Package release archive (Windows)
+      - name: Stage build artifacts (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           if (Test-Path dist) { Remove-Item -Recurse -Force dist }
           New-Item -ItemType Directory -Path dist | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.bin }}", "LICENSE", "README.md" -Destination dist/
-          Compress-Archive -Path dist/* -DestinationPath $env:ARCHIVE_NAME -Force
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: aqualux-rs-${{ matrix.platform }}
-          path: ${{ env.ARCHIVE_NAME }}
+          path: dist/
           if-no-files-found: error
