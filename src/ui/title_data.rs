@@ -44,8 +44,10 @@ pub fn menu_entries(submenu: TitleSubmenu, save: &SaveData) -> Vec<MenuEntry> {
             MenuEntry {
                 id: "btn_levelmaker",
                 label: "levelmaker",
-                info: "Create your own levels to share with \n aqualuxers around the world! \n \n *internet connection required",
-                action: Some(UiAction::OpenLevelmakerNotice),
+                info: "Create, edit, and manage custom level\npacks offline as standard .xml files!",
+                action: Some(UiAction::OpenCustomHub {
+                    play_focused: false,
+                }),
             },
             MenuEntry {
                 id: "btn_trophy",
@@ -87,6 +89,12 @@ pub fn menu_entries(submenu: TitleSubmenu, save: &SaveData) -> Vec<MenuEntry> {
                         info: "Play levels created by other aqualuxers - \n new levels added all the time! \n \n *internet connection required",
                         action: Some(UiAction::PlayLotd),
                     },
+                    MenuEntry {
+                        id: "btn_custom_packs",
+                        label: "custom packs",
+                        info: "Play custom level packs created in\nthe Levelmaker or imported from .xml.",
+                        action: Some(UiAction::OpenCustomHub { play_focused: true }),
+                    },
                 ]
             } else {
                 vec![
@@ -101,6 +109,12 @@ pub fn menu_entries(submenu: TitleSubmenu, save: &SaveData) -> Vec<MenuEntry> {
                         label: "levels of the day",
                         info: "Play levels created by other aqualuxers - \n new levels added all the time! \n \n *internet connection required",
                         action: Some(UiAction::PlayLotd),
+                    },
+                    MenuEntry {
+                        id: "btn_custom_packs",
+                        label: "custom packs",
+                        info: "Play custom level packs created in\nthe Levelmaker or imported from .xml.",
+                        action: Some(UiAction::OpenCustomHub { play_focused: true }),
                     },
                 ]
             };

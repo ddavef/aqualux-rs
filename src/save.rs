@@ -6,7 +6,7 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -145,7 +145,14 @@ impl SaveData {
     pub fn save_path() -> PathBuf {
         if let Some(proj) = ProjectDirs::from("com", "aqualux-rs", "aqualux-rs") {
             let dir = proj.data_local_dir();
-            if fs::create_dir_all(dir).is_ok() {
+            let dir_ok = match fs::symlink_metadata(dir) {
+                Ok(meta) => !meta.file_type().is_symlink() && meta.file_type().is_dir(),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    fs::create_dir_all(dir).is_ok()
+                }
+                Err(_) => false,
+            };
+            if dir_ok {
                 return dir.join("save.json");
             }
         }
@@ -162,17 +169,57 @@ impl SaveData {
         Self::default()
     }
 
+    pub(crate) fn write_save_to_path(&self, path: &Path) -> Result<(), String> {
+        if path.as_os_str().is_empty()
+            || path.file_name().is_none()
+            || path.components().any(|c| matches!(c, Component::ParentDir))
+            || !matches!(path.components().next_back(), Some(Component::Normal(_)))
+        {
+            return Err(format!("Refusing unsafe save path '{}'", path.display()));
+        }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            if let Ok(meta) = fs::symlink_metadata(parent)
+                && (meta.file_type().is_symlink() || !meta.file_type().is_dir())
+            {
+                return Err(format!(
+                    "Refusing symlink or non-directory save parent '{}'",
+                    parent.display()
+                ));
+            }
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create '{}': {}", parent.display(), e))?;
+            let meta = fs::symlink_metadata(parent)
+                .map_err(|e| format!("Cannot inspect '{}': {}", parent.display(), e))?;
+            if meta.file_type().is_symlink() || !meta.file_type().is_dir() {
+                return Err(format!(
+                    "Refusing symlink or non-directory save parent '{}'",
+                    parent.display()
+                ));
+            }
+        }
+        match fs::symlink_metadata(path) {
+            Ok(meta) if meta.file_type().is_symlink() || !meta.file_type().is_file() => {
+                return Err(format!(
+                    "Refusing to overwrite symlink or non-file '{}'",
+                    path.display()
+                ));
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("Cannot inspect '{}': {}", path.display(), e)),
+        }
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| format!("Failed to serialize save data: {}", e))?;
+        fs::write(path, json).map_err(|e| format!("Failed to write '{}': {}", path.display(), e))
+    }
+
     pub fn save(&self) {
         if cfg!(test) {
             return;
         }
-        let path = Self::save_path();
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = fs::write(path, json);
-        }
+        let _ = self.write_save_to_path(&Self::save_path());
     }
 
     pub fn has_profile(&self) -> bool {

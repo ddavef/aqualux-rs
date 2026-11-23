@@ -7,7 +7,7 @@ use crate::ui::hud;
 use crate::ui::summary::SummaryHideAction;
 use crate::ui::title::TitleSubmenu;
 use crate::ui::widgets::{LaunchSource, ModalState, QuestionId, UiAction};
-use crate::ui::{GameApp, Screen};
+use crate::ui::{GameApp, PlayMode, Screen};
 
 const FPS_CYCLE: &[u32] = &[30, 60, 120, 144, 240, 0];
 
@@ -67,9 +67,37 @@ impl GameApp {
             UiAction::StartMirrorMatch => {
                 self.start_title_hide(LaunchSource::Match { mirror: true })
             }
-            UiAction::OpenLevelmakerNotice => {
-                self.push_notice("The Milkman Games Levelmaker online service is no longer active.\n\nCampaign and Match Modes remain playable offline.");
+            UiAction::OpenCustomHub { play_focused } => {
+                if self.screen == Screen::Title {
+                    self.start_title_hide(LaunchSource::CustomHub { play_focused });
+                } else {
+                    self.open_custom_hub(play_focused);
+                }
             }
+            UiAction::SubmitTextPrompt => self.handle_submit_text_prompt(),
+            UiAction::HubBackToTitle
+            | UiAction::HubOpenFolder
+            | UiAction::HubReloadPacks
+            | UiAction::HubSelectPack(_)
+            | UiAction::HubPackPrevPage
+            | UiAction::HubPackNextPage
+            | UiAction::HubNewPack
+            | UiAction::HubRenamePack
+            | UiAction::HubDeletePack
+            | UiAction::HubCloneEditable
+            | UiAction::HubCycleDifficulty
+            | UiAction::HubPlayPack
+            | UiAction::HubSelectLevel(_)
+            | UiAction::HubLevelPrevPage
+            | UiAction::HubLevelNextPage
+            | UiAction::HubPlayLevel
+            | UiAction::HubEditLevel
+            | UiAction::HubNewLevel
+            | UiAction::HubGenerateLevel
+            | UiAction::HubDuplicateLevel
+            | UiAction::HubMoveLevelUp
+            | UiAction::HubMoveLevelDown
+            | UiAction::HubDeleteLevel => self.handle_custom_hub_action(action),
             UiAction::OpenMmgNotice => {
                 self.push_notice(
                     "Aqualux Deluxe\nCopyright (C) 2010 Milkman Games, LLC.\nAll Rights Reserved.\naqualux-rs reimplementation by ddavef",
@@ -100,7 +128,9 @@ impl GameApp {
                         .save
                         .active_profile()
                         .is_some_and(|p| p.has_saved_game()),
-                    Screen::Paused => self.match_sim.is_none() && !self.is_lotd_mode,
+                    Screen::Paused => {
+                        self.match_sim.is_none() && self.play_mode == PlayMode::Campaign
+                    }
                     _ => false,
                 };
                 self.modals.push(ModalState::Options {
@@ -155,10 +185,10 @@ impl GameApp {
                 self.dispatch_campaign_sim(|s| s.skip_tutorials());
             }
             UiAction::MainMenuPrompt => {
-                let will_save = if self.is_lotd_mode {
-                    ""
-                } else {
+                let will_save = if self.play_mode == PlayMode::Campaign {
                     " Your progress will be saved."
+                } else {
+                    ""
                 };
                 self.modals.push(ModalState::Question {
                     id: QuestionId::ConfirmMainMenuFromPause,
@@ -171,10 +201,10 @@ impl GameApp {
             UiAction::NextLevel => self.start_summary_hide(SummaryHideAction::NextLevel),
             UiAction::RetryLevel => self.start_summary_hide(SummaryHideAction::RetryLevel),
             UiAction::MainMenuConfirmFromSummary => {
-                let will_save = if self.is_lotd_mode {
-                    ""
-                } else {
+                let will_save = if self.play_mode == PlayMode::Campaign {
                     " Your progress will be saved."
+                } else {
+                    ""
                 };
                 self.modals.push(ModalState::Question {
                     id: QuestionId::ConfirmMainMenuFromSummary,
@@ -334,6 +364,7 @@ impl GameApp {
         }
     }
 
+    #[allow(dead_code)]
     fn push_notice(&mut self, message: &str) {
         self.modals.push(ModalState::Question {
             id: QuestionId::SimpleNotice,

@@ -4,6 +4,8 @@
 pub mod actions;
 pub mod campaign_end;
 pub mod champion;
+pub mod custom_hub;
+pub mod custom_hub_actions;
 pub mod flows;
 pub mod hud;
 pub mod input;
@@ -21,13 +23,16 @@ pub mod widgets;
 
 use crate::assets::AssetBundle;
 use crate::audio::AudioEngine;
+use crate::custom::CustomPackStore;
 use crate::game::{Difficulty, LevelSim, MatchSim};
 use crate::render::{
     BgAnimState, BoardLayout, FireworkBurst, GpuCore, LeakEmitter, Renderer, ScoreBlurbFx,
 };
 use crate::save::{LevelRecord, SaveData};
 use champion::ChampionState;
+use custom_hub::CustomHubState;
 use rand::rngs::StdRng;
+use std::path::Path;
 use std::sync::Arc;
 use summary::SummaryState;
 use title::TitleSubmenu;
@@ -37,11 +42,25 @@ use widgets::{LaunchSource, ModalState, ScoreRoller};
 pub enum Screen {
     Splash,
     Title,
+    CustomHub,
     Playing,
     MatchPlaying,
     Paused,
     Summary,
     Champion,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum PlayMode {
+    #[default]
+    Campaign,
+    Lotd,
+    CustomPack {
+        pack_id: String,
+        level_idx: usize,
+        session_score: u32,
+        difficulty: Difficulty,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,9 +105,11 @@ pub struct GameApp {
     pub info_banner: Option<InfoBanner>,
     pub status_toast: Option<(String, f32)>,
     pub current_level_idx: usize,
-    pub is_lotd_mode: bool,
+    pub play_mode: PlayMode,
     pub lotd_index: usize,
     pub lotd_score: u32,
+    pub custom_packs: CustomPackStore,
+    pub custom_hub: CustomHubState,
     pub fail_count: u32,
     pub is_retrying_level: bool,
     pub retry_backup: Option<LevelRecord>,
@@ -122,10 +143,20 @@ impl GameApp {
         fps_override: Option<u32>,
         gpu: Arc<GpuCore>,
     ) -> Result<Self, String> {
+        Self::new_with_custom_dir(assets, fps_override, None, gpu)
+    }
+
+    pub fn new_with_custom_dir(
+        assets: AssetBundle,
+        fps_override: Option<u32>,
+        custom_levels_dir: Option<&Path>,
+        gpu: Arc<GpuCore>,
+    ) -> Result<Self, String> {
         let mut save = SaveData::load();
         if let Some(fps) = fps_override {
             save.config.target_fps = fps;
         }
+        let custom_packs = CustomPackStore::load(custom_levels_dir);
         let renderer = Renderer::new(gpu, &assets)?;
         let audio = AudioEngine::new(
             assets.sounds.clone(),
@@ -154,9 +185,11 @@ impl GameApp {
             info_banner: None,
             status_toast: None,
             current_level_idx: 0,
-            is_lotd_mode: false,
+            play_mode: PlayMode::Campaign,
             lotd_index: 0,
             lotd_score: 0,
+            custom_packs,
+            custom_hub: CustomHubState::default(),
             fail_count: 0,
             is_retrying_level: false,
             retry_backup: None,
@@ -253,10 +286,9 @@ impl GameApp {
         if self.screen == Screen::Title {
             self.title_age += dt;
             self.title_submenu_age += dt;
-            if let Some((elapsed, src)) = self.title_hiding {
+            if let Some((elapsed, src)) = self.title_hiding.take() {
                 let next_e = elapsed + dt;
                 if next_e >= 1.5 {
-                    self.title_hiding = None;
                     self.execute_launch(src);
                 } else {
                     self.title_hiding = Some((next_e, src));

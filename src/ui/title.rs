@@ -15,6 +15,16 @@ use crate::ui::widgets::{UiAction, UiButton, draw_text_button, draw_text_button_
 
 pub use crate::ui::title_data::TitleSubmenu;
 
+pub fn title_menu_metrics(entry_count: usize) -> (f32, f32, f32) {
+    if entry_count <= 6 {
+        (BUTTON_Y, BUTTON_SPACING, 31.0)
+    } else if entry_count == 7 {
+        (266.0, 28.0, 30.0)
+    } else {
+        (256.0, 27.0, 28.0)
+    }
+}
+
 pub fn build_title_buttons(
     submenu: TitleSubmenu,
     save: &SaveData,
@@ -24,7 +34,9 @@ pub fn build_title_buttons(
     if hiding_age.is_some() || title_age < 4.5 {
         return Vec::new();
     }
-    let mut out: Vec<UiButton> = menu_entries(submenu, save)
+    let entries = menu_entries(submenu, save);
+    let (base_y, spacing, _) = title_menu_metrics(entries.len());
+    let mut out: Vec<UiButton> = entries
         .into_iter()
         .enumerate()
         .filter_map(|(i, e)| {
@@ -33,9 +45,9 @@ pub fn build_title_buttons(
                 id: e.id,
                 rect: Rect::new(
                     BUTTON_RIGHT - 320.0,
-                    BUTTON_Y + i as f32 * BUTTON_SPACING,
+                    base_y + i as f32 * spacing,
                     320.0,
-                    BUTTON_SPACING,
+                    spacing,
                 ),
                 action: act,
                 enabled: true,
@@ -117,14 +129,15 @@ pub fn render_title_screen(
     draw_sprite_title(canvas, assets, bank, title_x, 200.0, title_age);
 
     let entries = menu_entries(submenu, save);
+    let (base_y, spacing, font_size) = title_menu_metrics(entries.len());
     let mut hovered_info: Option<&str> = None;
     let is_settled = hiding_age.is_none() && title_age >= 4.5;
     for (i, entry) in entries.iter().enumerate() {
         if entry.label.is_empty() {
             continue;
         }
-        let y = BUTTON_Y + i as f32 * BUTTON_SPACING;
-        let hit = Rect::new(BUTTON_RIGHT - 320.0, y, 320.0, BUTTON_SPACING);
+        let y = base_y + i as f32 * spacing;
+        let hit = Rect::new(BUTTON_RIGHT - 320.0, y, 320.0, spacing);
         let hovered = is_settled && hit.contains(mouse_pos.0, mouse_pos.1);
         if hovered && !entry.info.is_empty() {
             hovered_info = Some(entry.info);
@@ -160,7 +173,7 @@ pub fn render_title_screen(
             fonts,
             bx,
             y,
-            31.0,
+            font_size,
             TextAlign::Right,
             entry.label,
             hovered,
@@ -171,7 +184,7 @@ pub fn render_title_screen(
     }
 
     if let Some(info) = hovered_info {
-        let info_y = (entries.len() as f32 * BUTTON_SPACING + BUTTON_Y + INFO_GUTTER).min(486.0);
+        let info_y = (base_y + entries.len() as f32 * spacing + INFO_GUTTER).min(484.0);
         fonts.draw_multiline(
             canvas,
             FontFamily::Neuropol,

@@ -228,6 +228,15 @@ pub fn build_modal_buttons(
             allow_cancel,
             ..
         } => build_enter_name_buttons(fonts, prompt, *allow_cancel),
+        ModalState::TextPrompt { prompt, .. } => build_enter_name_buttons(fonts, prompt, true)
+            .into_iter()
+            .map(|mut b| {
+                if b.action == UiAction::SubmitName {
+                    b.action = UiAction::SubmitTextPrompt;
+                }
+                b
+            })
+            .collect(),
         ModalState::Question {
             message, no_label, ..
         } => {
@@ -326,6 +335,9 @@ pub fn render_modal_stack(
                     time,
                     mpos,
                 );
+            }
+            ModalState::TextPrompt { prompt, input, .. } => {
+                render_enter_name_modal(canvas, bank, fonts, prompt, input, true, time, mpos);
             }
             ModalState::Question {
                 message,

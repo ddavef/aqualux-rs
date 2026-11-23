@@ -11,6 +11,8 @@ pub enum QuestionId {
     ConfirmMainMenuFromPause,
     ConfirmMainMenuFromSummary,
     ConfirmDeleteProfile(String),
+    ConfirmDeletePack(String),
+    ConfirmDeleteCustomLevel { pack_id: String, level_idx: usize },
     ConfirmQuit,
     TrophyNeedSave,
     ProfileFull,
@@ -20,11 +22,18 @@ pub enum QuestionId {
     SimpleNotice,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TextPromptPurpose {
+    NewCustomPack,
+    RenameCustomPack(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LaunchSource {
     NewCampaign(Difficulty),
     ContinueCampaign,
     Lotd,
+    CustomHub { play_focused: bool },
     Match { mirror: bool },
     RetryTrophy { idx: usize, difficulty: Difficulty },
 }
@@ -59,6 +68,12 @@ pub enum ModalState {
         creating_for_profile_list: bool,
         pending_launch_after: bool,
     },
+    TextPrompt {
+        purpose: TextPromptPurpose,
+        prompt: String,
+        input: String,
+        max_len: usize,
+    },
     Question {
         id: QuestionId,
         message: String,
@@ -85,12 +100,38 @@ pub enum UiAction {
     PlayLotd,
     StartMatch,
     StartMirrorMatch,
-    OpenLevelmakerNotice,
+    OpenCustomHub { play_focused: bool },
     OpenTrophyRoom,
     OpenOptions,
     OpenProfileModal,
     OpenMmgNotice,
     QuitPrompt,
+
+    // Custom Packs Hub
+    SubmitTextPrompt,
+    HubBackToTitle,
+    HubOpenFolder,
+    HubReloadPacks,
+    HubSelectPack(usize),
+    HubPackPrevPage,
+    HubPackNextPage,
+    HubNewPack,
+    HubRenamePack,
+    HubDeletePack,
+    HubCloneEditable,
+    HubCycleDifficulty,
+    HubPlayPack,
+    HubSelectLevel(usize),
+    HubLevelPrevPage,
+    HubLevelNextPage,
+    HubPlayLevel,
+    HubEditLevel,
+    HubNewLevel,
+    HubGenerateLevel,
+    HubDuplicateLevel,
+    HubMoveLevelUp,
+    HubMoveLevelDown,
+    HubDeleteLevel,
 
     // Playing & Pause
     PauseGame,

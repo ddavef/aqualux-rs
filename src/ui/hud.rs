@@ -90,6 +90,7 @@ pub fn render_campaign_hud(
     tut_age: f32,
     mouse_pos: (f32, f32),
     hiding_board: bool,
+    allow_ff_hint: bool,
 ) {
     if !hiding_board && sim.is_started && !sim.finished && sim.active_tutorial().is_none() {
         draw_icon(
@@ -144,7 +145,12 @@ pub fn render_campaign_hud(
                 tut_age,
             );
         }
-    } else if sim.is_started && !sim.is_accelerated && sim.path_complete && sim.level.index <= 4 {
+    } else if allow_ff_hint
+        && sim.is_started
+        && !sim.is_accelerated
+        && sim.path_complete
+        && sim.level.index <= 4
+    {
         let hint = if sim.difficulty == Difficulty::Easy {
             "Now click here to finish the puzzle!"
         } else {

@@ -181,24 +181,43 @@ impl GameApp {
         }
     }
 
+    pub fn has_text_modal(&self) -> bool {
+        matches!(
+            self.modals.last(),
+            Some(ModalState::EnterName { .. } | ModalState::TextPrompt { .. })
+        )
+    }
+
     pub fn on_text_char(&mut self, ch: char) {
-        let Some(ModalState::EnterName { input, .. }) = self.modals.last_mut() else {
+        if ch.is_control() {
             return;
-        };
-        if !ch.is_control() && input.chars().count() < 32 {
-            input.push(ch);
+        }
+        match self.modals.last_mut() {
+            Some(ModalState::EnterName { input, .. }) if input.chars().count() < 32 => {
+                input.push(ch);
+            }
+            Some(ModalState::TextPrompt { input, max_len, .. })
+                if input.chars().count() < *max_len =>
+            {
+                input.push(ch);
+            }
+            _ => {}
         }
     }
 
     pub fn on_key_backspace(&mut self) {
-        if let Some(ModalState::EnterName { input, .. }) = self.modals.last_mut() {
+        if let Some(ModalState::EnterName { input, .. } | ModalState::TextPrompt { input, .. }) =
+            self.modals.last_mut()
+        {
             input.pop();
         }
     }
 
     pub fn on_key_enter(&mut self) {
-        if matches!(self.modals.last(), Some(ModalState::EnterName { .. })) {
-            self.trigger_action(UiAction::SubmitName);
+        match self.modals.last() {
+            Some(ModalState::EnterName { .. }) => self.trigger_action(UiAction::SubmitName),
+            Some(ModalState::TextPrompt { .. }) => self.trigger_action(UiAction::SubmitTextPrompt),
+            _ => {}
         }
     }
 
@@ -219,6 +238,7 @@ impl GameApp {
             }
         }
         match self.screen {
+            Screen::CustomHub => self.trigger_action(UiAction::HubBackToTitle),
             Screen::Playing | Screen::MatchPlaying => self.trigger_action(UiAction::PauseGame),
             Screen::Paused => self.trigger_action(UiAction::ResumeGame),
             Screen::Title => {

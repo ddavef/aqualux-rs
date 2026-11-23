@@ -14,7 +14,7 @@ use crate::ui::hud;
 use crate::ui::summary::{SummaryState, build_summary_buttons, render_summary_screen};
 use crate::ui::title_data::{TitleSubmenu, menu_entries};
 use crate::ui::widgets::{LaunchSource, ModalState, UiAction};
-use crate::ui::{GameApp, Screen};
+use crate::ui::{GameApp, PlayMode, Screen};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
@@ -129,7 +129,7 @@ fn options_difficulty_visibility_and_lotd_medium_parity() {
         }
         app.screen = Screen::Title;
         app.execute_launch(LaunchSource::Lotd);
-        assert!(app.is_lotd_mode);
+        assert_eq!(app.play_mode, PlayMode::Lotd);
         {
             let sim = app.campaign_sim.as_mut().unwrap();
             assert_eq!(sim.level.title, "Think Fast");
@@ -160,7 +160,7 @@ fn options_difficulty_visibility_and_lotd_medium_parity() {
         assert!((source_timer_remaining(&app).unwrap() - 24.0).abs() < 1e-4);
 
         app.return_to_main_menu();
-        assert!(!app.is_lotd_mode);
+        assert_eq!(app.play_mode, PlayMode::Campaign);
         let prof = app.save.active_profile().unwrap();
         assert_eq!(prof.difficulty, camp_diff);
         assert_eq!(prof.savable_difficulty, camp_diff);
@@ -360,6 +360,7 @@ fn animated_text_and_counters_do_not_thrash_font_cache() {
             1.0,
             (0.0, 0.0),
             false,
+            true,
         );
         render_summary_screen(
             &mut canvas,

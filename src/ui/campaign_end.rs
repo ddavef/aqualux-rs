@@ -6,7 +6,7 @@ use crate::render::FireworkBurst;
 use crate::ui::champion::ChampionState;
 use crate::ui::summary::{SummaryHideAction, SummaryState};
 use crate::ui::widgets::{ModalState, QuestionId};
-use crate::ui::{GameApp, HideAfterBoard, InfoBanner, Screen};
+use crate::ui::{GameApp, HideAfterBoard, InfoBanner, PlayMode, Screen};
 use rand::RngExt;
 
 impl GameApp {
@@ -18,19 +18,35 @@ impl GameApp {
             .unwrap_or((0, 0, 5, 5));
 
         let old_total = self.display_base_score();
-        let new_total = if self.is_lotd_mode {
-            self.lotd_score += res.total_score;
-            self.lotd_score
-        } else if let Some(prof) = self.save.active_profile_mut() {
-            if self.retry_backup.is_none() {
-                self.retry_backup = prof.records.get(&self.current_level_idx).cloned();
+        let new_total = match &mut self.play_mode {
+            PlayMode::Lotd => {
+                self.lotd_score += res.total_score;
+                self.lotd_score
             }
-            prof.record_win(self.current_level_idx, res, moves, time_ms);
-            prof.savable_level_index = (self.current_level_idx + 1)
-                .min(self.assets.campaign_levels.len().saturating_sub(1));
-            prof.total_score()
-        } else {
-            res.total_score
+            PlayMode::CustomPack {
+                pack_id,
+                level_idx,
+                session_score,
+                ..
+            } => {
+                self.custom_packs
+                    .record_win(pack_id, *level_idx, res, moves, time_ms);
+                *session_score += res.total_score;
+                *session_score
+            }
+            PlayMode::Campaign => {
+                if let Some(prof) = self.save.active_profile_mut() {
+                    if self.retry_backup.is_none() {
+                        self.retry_backup = prof.records.get(&self.current_level_idx).cloned();
+                    }
+                    prof.record_win(self.current_level_idx, res, moves, time_ms);
+                    prof.savable_level_index = (self.current_level_idx + 1)
+                        .min(self.assets.campaign_levels.len().saturating_sub(1));
+                    prof.total_score()
+                } else {
+                    res.total_score
+                }
+            }
         };
 
         let drop_dur = (0.15 * (rows * cols) as f32).min(1.8) + 1.2;
@@ -41,7 +57,7 @@ impl GameApp {
         self.summary_state = Some(SummaryState::new(res, old_total, new_total));
         self.screen = Screen::Summary;
 
-        if !self.is_lotd_mode {
+        if self.play_mode == PlayMode::Campaign {
             let total_lvls = self.assets.campaign_levels.len();
             if let Some(prof) = self.save.active_profile_mut()
                 && !prof.awards[3]
@@ -88,7 +104,9 @@ impl GameApp {
             .active_profile()
             .map(|p| p.difficulty)
             .unwrap_or(Difficulty::Medium);
-        let offer_easy = self.fail_count == 2 && diff != Difficulty::Easy && !self.is_lotd_mode;
+        let offer_easy = self.fail_count == 2
+            && diff != Difficulty::Easy
+            && self.play_mode == PlayMode::Campaign;
         self.board_hide = Some((
             0.0,
             1.0,
@@ -128,16 +146,45 @@ impl GameApp {
         }
         self.revert_retry_if_needed();
 
-        if self.is_lotd_mode {
-            self.lotd_index += 1;
-            if self.lotd_index >= self.assets.lotd_levels.len() {
-                self.show_status_toast("Check back soon for new levels of the day!");
-                self.return_to_main_menu();
-            } else {
-                let def = self.assets.lotd_levels[self.lotd_index].clone();
-                self.launch_level_def(def);
+        match self.play_mode.clone() {
+            PlayMode::Lotd => {
+                self.lotd_index += 1;
+                if self.lotd_index >= self.assets.lotd_levels.len() {
+                    self.show_status_toast("Check back soon for new levels of the day!");
+                    self.return_to_main_menu();
+                } else {
+                    let def = self.assets.lotd_levels[self.lotd_index].clone();
+                    self.launch_level_def(def);
+                }
+                return;
             }
-            return;
+            PlayMode::CustomPack {
+                pack_id,
+                level_idx,
+                session_score,
+                difficulty,
+            } => {
+                let next = level_idx + 1;
+                let pack_info = self
+                    .custom_packs
+                    .packs
+                    .iter()
+                    .find(|p| p.id == pack_id)
+                    .map(|p| (p.pack.meta.name.clone(), p.pack.levels.len()));
+                if let Some((pack_name, len)) = pack_info {
+                    if next < len {
+                        self.bg_anim.lighten(0.0);
+                        self.launch_custom_pack_level(&pack_id, next, difficulty, session_score);
+                    } else {
+                        self.show_status_toast(&format!("Completed pack '{}'!", pack_name));
+                        self.return_to_main_menu();
+                    }
+                } else {
+                    self.return_to_main_menu();
+                }
+                return;
+            }
+            PlayMode::Campaign => {}
         }
 
         let total = self.assets.campaign_levels.len();
@@ -286,13 +333,14 @@ impl GameApp {
     }
 
     pub(crate) fn display_base_score(&self) -> u32 {
-        if self.is_lotd_mode {
-            self.lotd_score
-        } else {
-            self.save
+        match &self.play_mode {
+            PlayMode::Lotd => self.lotd_score,
+            PlayMode::CustomPack { session_score, .. } => *session_score,
+            PlayMode::Campaign => self
+                .save
                 .active_profile()
                 .map(|p| p.total_score())
-                .unwrap_or(0)
+                .unwrap_or(0),
         }
     }
 
@@ -321,8 +369,20 @@ impl GameApp {
         }
         if !already {
             self.audio.play_sfx("SwapTwoSound");
-            let more =
-                self.is_lotd_mode || self.current_level_idx + 1 < self.assets.campaign_levels.len();
+            let more = match &self.play_mode {
+                PlayMode::Lotd => true,
+                PlayMode::Campaign => {
+                    self.current_level_idx + 1 < self.assets.campaign_levels.len()
+                }
+                PlayMode::CustomPack {
+                    pack_id, level_idx, ..
+                } => self
+                    .custom_packs
+                    .packs
+                    .iter()
+                    .find(|p| p.id == *pack_id)
+                    .is_some_and(|p| level_idx + 1 < p.pack.levels.len()),
+            };
             if action == SummaryHideAction::RetryLevel
                 || (action == SummaryHideAction::NextLevel && more)
             {

@@ -307,9 +307,7 @@ fn main() {
         return;
     }
 
-    let _custom_levels_dir = cli.custom_levels_dir;
-
-    if let Err(e) = window::run_window(bundle, cli.fps_override) {
+    if let Err(e) = window::run_window(bundle, cli.fps_override, cli.custom_levels_dir) {
         eprintln!("Runtime error: {}", e);
         std::process::exit(1);
     }

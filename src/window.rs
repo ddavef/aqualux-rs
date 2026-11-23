@@ -5,6 +5,7 @@ use crate::assets::AssetBundle;
 use crate::render::{Canvas, GpuCore, LOGICAL_H, LOGICAL_W};
 use crate::save::SaveData;
 use crate::ui::GameApp;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use wgpu::{
@@ -27,7 +28,7 @@ struct WindowState {
 }
 
 struct Runner {
-    pending: Option<(AssetBundle, Option<u32>, bool)>,
+    pending: Option<(AssetBundle, Option<u32>, Option<PathBuf>, bool)>,
     app: Option<GameApp>,
     canvas: Canvas,
     win_state: Option<WindowState>,
@@ -157,7 +158,7 @@ impl ApplicationHandler for Runner {
         if self.win_state.is_some() {
             return;
         }
-        let Some((assets, fps_override, init_full)) = self.pending.take() else {
+        let Some((assets, fps_override, custom_levels_dir, init_full)) = self.pending.take() else {
             return;
         };
         let mut attrs = Window::default_attributes()
@@ -184,8 +185,13 @@ impl ApplicationHandler for Runner {
             GpuCore::new_for_surface(&instance, &surface)
                 .expect("Failed to initialize GPU backend"),
         );
-        let app = GameApp::new(assets, fps_override, gpu.clone())
-            .expect("Failed to initialize game state");
+        let app = GameApp::new_with_custom_dir(
+            assets,
+            fps_override,
+            custom_levels_dir.as_deref(),
+            gpu.clone(),
+        )
+        .expect("Failed to initialize game state");
 
         let sz = window.inner_size();
         self.win_size = (sz.width, sz.height);
@@ -280,6 +286,19 @@ impl ApplicationHandler for Runner {
                     }
                 }
             }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Right,
+                ..
+            } => {
+                let (lx, ly) = self.map_cursor(self.cursor_phys.0, self.cursor_phys.1);
+                if let Some(a) = &mut self.app {
+                    a.on_right_click(lx, ly);
+                }
+            }
+            WindowEvent::DroppedFile(path) => {
+                app.on_dropped_file(&path);
+            }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 let toggle_full = matches!(event.logical_key, Key::Named(NamedKey::F11))
                     || (matches!(event.logical_key, Key::Named(NamedKey::Enter))
@@ -290,16 +309,26 @@ impl ApplicationHandler for Runner {
                     app.save.save();
                     self.apply_fullscreen(want);
                 } else {
+                    let ctrl = self.modifiers.control_key() || self.modifiers.super_key();
                     match &event.logical_key {
                         Key::Named(NamedKey::Escape) => app.on_key_escape(),
                         Key::Named(NamedKey::Backspace) => app.on_key_backspace(),
                         Key::Named(NamedKey::Enter) => app.on_key_enter(),
                         Key::Named(NamedKey::Space) => app.on_text_char(' '),
+                        Key::Character(s) if ctrl => {
+                            if let Some(ch) = s.chars().next() {
+                                app.on_shortcut(ch, true, self.modifiers.shift_key());
+                            }
+                        }
                         Key::Character(s)
                             if !self.modifiers.control_key() && !self.modifiers.alt_key() =>
                         {
-                            for ch in s.chars() {
-                                app.on_text_char(ch);
+                            if app.has_text_modal() {
+                                for ch in s.chars() {
+                                    app.on_text_char(ch);
+                                }
+                            } else if let Some(ch) = s.chars().next() {
+                                app.on_shortcut(ch, false, self.modifiers.shift_key());
                             }
                         }
                         _ => {}
@@ -361,12 +390,16 @@ impl ApplicationHandler for Runner {
     }
 }
 
-pub fn run_window(bundle: AssetBundle, fps_override: Option<u32>) -> Result<(), String> {
+pub fn run_window(
+    bundle: AssetBundle,
+    fps_override: Option<u32>,
+    custom_levels_dir: Option<PathBuf>,
+) -> Result<(), String> {
     let init_full = SaveData::load().config.fullscreen;
     let event_loop = EventLoop::new().map_err(|e| format!("Failed to create EventLoop: {}", e))?;
     let now = Instant::now();
     let mut runner = Runner {
-        pending: Some((bundle, fps_override, init_full)),
+        pending: Some((bundle, fps_override, custom_levels_dir, init_full)),
         app: None,
         canvas: Canvas::new(),
         win_state: None,

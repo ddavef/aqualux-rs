@@ -6,7 +6,7 @@ use crate::game::{AwardKind, Difficulty, LevelDef, LevelSim, MatchSim, SimEvent}
 use crate::render::{BoardLayout, LeakEmitter, ScoreBlurbFx};
 use crate::ui::title::TitleSubmenu;
 use crate::ui::widgets::{LaunchSource, ModalState, ScoreRoller};
-use crate::ui::{GameApp, InfoBanner, Screen};
+use crate::ui::{GameApp, InfoBanner, PlayMode, Screen};
 
 impl GameApp {
     pub(crate) fn execute_launch(&mut self, source: LaunchSource) {
@@ -17,7 +17,7 @@ impl GameApp {
 
         match source {
             LaunchSource::NewCampaign(diff) => {
-                self.is_lotd_mode = false;
+                self.play_mode = PlayMode::Campaign;
                 if let Some(prof) = self.save.active_profile_mut() {
                     prof.reset_campaign();
                     prof.difficulty = diff;
@@ -27,7 +27,7 @@ impl GameApp {
                 self.start_campaign_level(0, true);
             }
             LaunchSource::ContinueCampaign => {
-                self.is_lotd_mode = false;
+                self.play_mode = PlayMode::Campaign;
                 let idx = if let Some(prof) = self.save.active_profile_mut() {
                     prof.difficulty = prof.savable_difficulty;
                     let len = self.assets.campaign_levels.len();
@@ -46,7 +46,7 @@ impl GameApp {
                 self.start_campaign_level(idx, true);
             }
             LaunchSource::Lotd => {
-                self.is_lotd_mode = true;
+                self.play_mode = PlayMode::Lotd;
                 self.lotd_index = 0;
                 self.lotd_score = 0;
                 self.show_status_toast(
@@ -55,8 +55,11 @@ impl GameApp {
                 let def = self.assets.lotd_levels[0].clone();
                 self.launch_level_def(def);
             }
+            LaunchSource::CustomHub { play_focused } => {
+                self.open_custom_hub(play_focused);
+            }
             LaunchSource::Match { mirror } => {
-                self.is_lotd_mode = false;
+                self.play_mode = PlayMode::Campaign;
                 let idx = self
                     .save
                     .active_profile()
@@ -71,7 +74,7 @@ impl GameApp {
                 self.start_match_level(idx, mirror, true);
             }
             LaunchSource::RetryTrophy { idx, difficulty } => {
-                self.is_lotd_mode = false;
+                self.play_mode = PlayMode::Campaign;
                 self.is_retrying_level = true;
                 if let Some(prof) = self.save.active_profile_mut() {
                     self.retry_backup = prof.records.get(&idx).cloned();
@@ -93,7 +96,7 @@ impl GameApp {
         let def = self.assets.campaign_levels[clamped].clone();
 
         if notify_allowed
-            && !self.is_lotd_mode
+            && self.play_mode == PlayMode::Campaign
             && clamped == 25
             && let Some(prof) = self.save.active_profile_mut()
             && prof.records.len() >= 25
@@ -115,13 +118,14 @@ impl GameApp {
     }
 
     pub fn launch_level_def(&mut self, def: LevelDef) {
-        let diff = if self.is_lotd_mode {
-            Difficulty::Medium
-        } else {
-            self.save
+        let diff = match &self.play_mode {
+            PlayMode::Lotd => Difficulty::Medium,
+            PlayMode::CustomPack { difficulty, .. } => *difficulty,
+            PlayMode::Campaign => self
+                .save
                 .active_profile()
                 .map(|p| p.difficulty)
-                .unwrap_or(Difficulty::Medium)
+                .unwrap_or(Difficulty::Medium),
         };
         self.bg_anim.load(&def.background_id);
         self.audio.clear_delayed();
@@ -199,17 +203,29 @@ impl GameApp {
     }
 
     pub(crate) fn repeat_current_level(&mut self) {
-        if self.is_lotd_mode {
-            let def = self.assets.lotd_levels[self.lotd_index].clone();
-            self.launch_level_def(def);
-        } else {
-            self.start_campaign_level(self.current_level_idx, false);
+        match self.play_mode.clone() {
+            PlayMode::Lotd => {
+                let def = self.assets.lotd_levels[self.lotd_index].clone();
+                self.launch_level_def(def);
+            }
+            PlayMode::CustomPack {
+                pack_id,
+                level_idx,
+                difficulty,
+                session_score,
+            } => {
+                self.launch_custom_pack_level(&pack_id, level_idx, difficulty, session_score);
+            }
+            PlayMode::Campaign => {
+                self.start_campaign_level(self.current_level_idx, false);
+            }
         }
     }
 
     pub(crate) fn return_to_main_menu(&mut self) {
+        let was_custom = matches!(self.play_mode, PlayMode::CustomPack { .. });
         self.temp_easy_revert = None;
-        if !self.is_lotd_mode {
+        if self.play_mode == PlayMode::Campaign {
             self.revert_retry_if_needed();
             if let Some(prof) = self.save.active_profile_mut() {
                 prof.level_index = prof.savable_level_index;
@@ -217,7 +233,7 @@ impl GameApp {
             }
             self.save.save();
         }
-        self.is_lotd_mode = false;
+        self.play_mode = PlayMode::Campaign;
         self.campaign_sim = None;
         self.match_sim = None;
         self.summary_state = None;
@@ -233,11 +249,16 @@ impl GameApp {
         self.audio.clear_delayed();
         self.audio.stop_music();
         self.audio.play_music("LittleRayMusic", true);
-        self.title_submenu = TitleSubmenu::Main;
-        self.title_age = 0.0;
-        self.title_submenu_age = 0.0;
-        self.title_hiding = None;
-        self.screen = Screen::Title;
+        if was_custom {
+            self.custom_hub.clamp_selection(&self.custom_packs);
+            self.screen = Screen::CustomHub;
+        } else {
+            self.title_submenu = TitleSubmenu::Main;
+            self.title_age = 0.0;
+            self.title_submenu_age = 0.0;
+            self.title_hiding = None;
+            self.screen = Screen::Title;
+        }
     }
 
     pub(crate) fn handle_sim_events(&mut self, events: Vec<SimEvent>, layout: BoardLayout) {

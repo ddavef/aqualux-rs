@@ -7,14 +7,60 @@ use std::io::Cursor;
 use std::path::{Component, Path};
 
 fn validate_out_dir(out_dir: &Path) -> Result<(), String> {
-    if out_dir.as_os_str().is_empty() || out_dir.parent().is_none() || out_dir.file_name().is_none()
+    if out_dir.as_os_str().is_empty()
+        || out_dir.parent().is_none()
+        || out_dir.file_name().is_none()
+        || out_dir
+            .components()
+            .any(|c| matches!(c, Component::ParentDir))
+        || !matches!(out_dir.components().next_back(), Some(Component::Normal(_)))
     {
         return Err(format!(
             "Refusing unsafe output directory '{}'",
             out_dir.display()
         ));
     }
+    if let Ok(meta) = fs::symlink_metadata(out_dir)
+        && (meta.file_type().is_symlink() || !meta.file_type().is_dir())
+    {
+        return Err(format!(
+            "Refusing symlink or non-directory output path '{}'",
+            out_dir.display()
+        ));
+    }
     Ok(())
+}
+
+fn ensure_safe_dir(dir: &Path) -> Result<(), String> {
+    if let Ok(meta) = fs::symlink_metadata(dir)
+        && (meta.file_type().is_symlink() || !meta.file_type().is_dir())
+    {
+        return Err(format!(
+            "Refusing symlink or non-directory path '{}'",
+            dir.display()
+        ));
+    }
+    fs::create_dir_all(dir).map_err(|e| format!("mkdir error: {}", e))?;
+    let meta = fs::symlink_metadata(dir).map_err(|e| format!("stat error: {}", e))?;
+    if meta.file_type().is_symlink() || !meta.file_type().is_dir() {
+        return Err(format!(
+            "Refusing symlink or non-directory path '{}'",
+            dir.display()
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_safe_output_file(path: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() || !meta.file_type().is_file() => Err(format!(
+            "Refusing to overwrite symlink or non-file '{}'",
+            path.display()
+        )),
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("stat error '{}': {}", path.display(), e)),
+    }
 }
 
 fn validate_asset_name(name: &str) -> Result<&str, String> {
@@ -30,16 +76,18 @@ fn validate_asset_name(name: &str) -> Result<&str, String> {
 
 pub fn extract_assets_to_dir(bundle: &AssetBundle, out_dir: &Path) -> Result<(), String> {
     validate_out_dir(out_dir)?;
+    ensure_safe_dir(out_dir)?;
     let img_dir = out_dir.join("images");
     let snd_dir = out_dir.join("sounds");
     let lvl_dir = out_dir.join("levels");
-    fs::create_dir_all(&img_dir).map_err(|e| format!("mkdir error: {}", e))?;
-    fs::create_dir_all(&snd_dir).map_err(|e| format!("mkdir error: {}", e))?;
-    fs::create_dir_all(&lvl_dir).map_err(|e| format!("mkdir error: {}", e))?;
+    ensure_safe_dir(&img_dir)?;
+    ensure_safe_dir(&snd_dir)?;
+    ensure_safe_dir(&lvl_dir)?;
 
     for (name, img) in &bundle.images {
         let safe = validate_asset_name(name)?;
         let path = img_dir.join(format!("{}.png", safe));
+        ensure_safe_output_file(&path)?;
         let Some(ibuf) = image::RgbaImage::from_raw(img.width, img.height, img.data.clone()) else {
             return Err(format!("invalid RGBA buffer size for '{}'", name));
         };
@@ -49,11 +97,13 @@ pub fn extract_assets_to_dir(bundle: &AssetBundle, out_dir: &Path) -> Result<(),
     for (name, mp3) in &bundle.sounds {
         let safe = validate_asset_name(name)?;
         let path = snd_dir.join(format!("{}.mp3", safe));
+        ensure_safe_output_file(&path)?;
         fs::write(&path, mp3).map_err(|e| format!("write {:?}: {}", path, e))?;
     }
     for (name, xml) in &bundle.raw_xmls {
         let safe = validate_asset_name(name)?;
         let path = lvl_dir.join(format!("{}.xml", safe));
+        ensure_safe_output_file(&path)?;
         fs::write(&path, xml).map_err(|e| format!("write {:?}: {}", path, e))?;
     }
     Ok(())
@@ -130,8 +180,22 @@ mod tests {
         assert!(validate_out_dir(Path::new("/")).is_err());
         assert!(validate_out_dir(Path::new(".")).is_err());
         assert!(validate_out_dir(Path::new("..")).is_err());
+        assert!(validate_out_dir(Path::new("foo/../bar")).is_err());
         assert!(validate_out_dir(Path::new("extracted_assets")).is_ok());
         assert!(validate_out_dir(Path::new("/tmp/aqualux_extracted")).is_ok());
+
+        #[cfg(unix)]
+        {
+            let root =
+                std::env::temp_dir().join(format!("aqualux_dir_guard_{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            let real = root.join("real");
+            let link = root.join("link");
+            std::fs::create_dir_all(&real).unwrap();
+            std::os::unix::fs::symlink(&real, &link).unwrap();
+            assert!(validate_out_dir(&link).is_err());
+            let _ = std::fs::remove_dir_all(&root);
+        }
 
         for bad in [
             "",

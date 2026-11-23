@@ -2,10 +2,10 @@
 // Copyright (C) 2026 ddavef aqualux-rs
 
 use crate::game::AwardKind;
-use crate::ui::GameApp;
 use crate::ui::summary::SummaryHideAction;
 use crate::ui::title::TitleSubmenu;
 use crate::ui::widgets::{ModalState, QuestionId, UiAction};
+use crate::ui::{GameApp, PlayMode};
 
 impl GameApp {
     pub(crate) fn open_profile_modal(&mut self) {
@@ -159,7 +159,7 @@ impl GameApp {
                 self.return_to_main_menu();
             }
             QuestionId::ConfirmMainMenuFromSummary => {
-                if !self.is_lotd_mode {
+                if self.play_mode == PlayMode::Campaign {
                     let len = self.assets.campaign_levels.len();
                     if let Some(prof) = self.save.active_profile_mut() {
                         prof.level_index = (self.current_level_idx + 1) % len.max(1);
@@ -167,6 +167,45 @@ impl GameApp {
                     }
                 }
                 self.start_summary_hide(SummaryHideAction::MainMenu);
+            }
+            QuestionId::ConfirmDeletePack(pack_id) => {
+                match self.custom_packs.delete_pack(&pack_id) {
+                    Ok(()) => {
+                        self.custom_hub.clamp_selection(&self.custom_packs);
+                        self.show_status_toast("Deleted custom pack.");
+                    }
+                    Err(e) => self.show_status_toast(&e),
+                }
+            }
+            QuestionId::ConfirmDeleteCustomLevel { pack_id, level_idx } => {
+                let Some(entry) = self
+                    .custom_packs
+                    .packs
+                    .iter()
+                    .find(|p| p.id == pack_id)
+                    .cloned()
+                else {
+                    return;
+                };
+                if entry.writable
+                    && entry.pack.levels.len() > 1
+                    && level_idx < entry.pack.levels.len()
+                {
+                    let mut pack = entry.pack;
+                    pack.levels.remove(level_idx);
+                    for (i, l) in pack.levels.iter_mut().enumerate() {
+                        l.index = i;
+                    }
+                    match self.custom_packs.save_pack(&pack_id, pack) {
+                        Ok(_) => {
+                            self.select_pack_by_id(&pack_id);
+                            self.custom_hub.selected_level = level_idx.saturating_sub(1);
+                            self.custom_hub.clamp_selection(&self.custom_packs);
+                            self.custom_hub.sync_pages_to_selection();
+                        }
+                        Err(e) => self.show_status_toast(&e),
+                    }
+                }
             }
             QuestionId::ConfirmDeleteProfile(name) => {
                 if let Some(ModalState::Profile {

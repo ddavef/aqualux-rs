@@ -5,7 +5,7 @@ use crate::render::{BoardAnim, BoardLayout, Canvas, draw_cursor, draw_fx_layers}
 use crate::ui::champion::{build_champion_buttons, render_champion_screen};
 use crate::ui::summary::{build_summary_buttons, render_summary_screen};
 use crate::ui::widgets::UiButton;
-use crate::ui::{GameApp, Screen, hud, modals, splash, title};
+use crate::ui::{GameApp, PlayMode, Screen, custom_hub, hud, modals, splash, title};
 
 impl GameApp {
     pub(crate) fn current_buttons(&self) -> Vec<UiButton> {
@@ -24,8 +24,11 @@ impl GameApp {
                 self.title_submenu,
                 &self.save,
                 self.title_age,
-                self.title_hiding.map(|h| h.0),
+                self.title_hiding.as_ref().map(|h| h.0),
             ),
+            Screen::CustomHub => {
+                custom_hub::build_custom_hub_buttons(&self.custom_packs, &self.custom_hub)
+            }
             Screen::Playing | Screen::MatchPlaying => hud::build_playing_buttons(
                 self.campaign_sim.as_ref(),
                 self.match_sim.as_ref(),
@@ -72,7 +75,18 @@ impl GameApp {
                 self.title_submenu,
                 self.title_age,
                 self.title_submenu_age,
-                self.title_hiding.map(|h| h.0),
+                self.title_hiding.as_ref().map(|h| h.0),
+                self.mouse_pos,
+            );
+        } else if self.screen == Screen::CustomHub {
+            self.renderer
+                .draw_background(canvas, &self.assets, &self.bg_anim);
+            custom_hub::render_custom_hub(
+                canvas,
+                &self.renderer.bank,
+                &self.renderer.fonts,
+                &self.custom_packs,
+                &self.custom_hub,
                 self.mouse_pos,
             );
         } else if self.screen == Screen::Champion {
@@ -225,6 +239,7 @@ impl GameApp {
                 self.tut_age,
                 self.mouse_pos,
                 self.is_board_busy(),
+                self.play_mode == PlayMode::Campaign,
             );
         }
     }
