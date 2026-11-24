@@ -160,6 +160,9 @@ impl SaveData {
     }
 
     pub fn load() -> Self {
+        if cfg!(test) {
+            return Self::default();
+        }
         let path = Self::save_path();
         if let Ok(raw) = fs::read_to_string(&path)
             && let Ok(parsed) = serde_json::from_str::<SaveData>(&raw)

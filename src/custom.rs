@@ -277,6 +277,29 @@ fn normalized_dir_key(p: &Path) -> PathBuf {
 
 impl CustomPackStore {
     pub fn load(cli_override: Option<&Path>) -> Self {
+        if cfg!(test) {
+            return if let Some(dir) = cli_override {
+                let mut store = Self::load_with_dirs(
+                    dir.to_path_buf(),
+                    Vec::new(),
+                    dir.join("custom_progress.json"),
+                );
+                for p in &mut store.packs {
+                    if p.writable {
+                        p.source = PackSource::CliDir;
+                    }
+                }
+                store
+            } else {
+                Self {
+                    primary_dir: PathBuf::from("custom_packs"),
+                    extra_dirs: Vec::new(),
+                    packs: Vec::new(),
+                    progress: CustomProgress::default(),
+                    progress_path: PathBuf::from("custom_progress.json"),
+                }
+            };
+        }
         let (primary_dir, extra_dirs, progress_path) = resolve_dirs(cli_override);
         let mut store = Self::load_with_dirs(primary_dir, extra_dirs, progress_path);
         if cli_override.is_some() {

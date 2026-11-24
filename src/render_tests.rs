@@ -250,3 +250,95 @@ fn pipe_filters_and_sign_parity() {
         ("DrainPipeClearBitmap", "DrainPipeFullBitmap")
     );
 }
+
+#[test]
+fn night_hills_starlight_matches_original_spec() {
+    use crate::render::BgAnimState;
+    use crate::render::backgrounds::NightStar;
+
+    let mut rng = StdRng::seed_from_u64(42);
+    let stars = NightStar::generate_layer(&mut rng);
+    assert_eq!(stars.len(), 18);
+    for s in &stars {
+        assert!((25.0..=774.0).contains(&s.x) && s.x.fract() == 0.0);
+        assert!((25.0..=424.0).contains(&s.y) && s.y.fract() == 0.0);
+        assert!((0.0..=15.0).contains(&s.radius) && s.radius.fract() == 0.0);
+        let expected_alpha = ((1.0 - s.y / 400.0) * 0.4 + 0.25).clamp(0.0, 1.0);
+        assert!((s.alpha - expected_alpha).abs() < 1e-6);
+    }
+
+    // Verify exact 75ms step curve & 12-tick (0.90s) cycle across all initial values 0.2..=1.9
+    let sample = NightStar {
+        x: 100.0,
+        y: 100.0,
+        radius: 10.0,
+        alpha: 0.55,
+        scales: NightStar::build_scales(1.9, 1.0),
+    };
+    let expected_first_13 = [
+        1.0, 1.0, 1.0, 1.0, 1.0, 0.8, 0.5, 0.2, 0.5, 0.8, 1.0, 1.0, 1.0,
+    ];
+    for (i, &exp) in expected_first_13.iter().enumerate() {
+        let t_mid = (i as f32 + 0.5) * 0.075;
+        assert!(
+            (sample.scale_at_age(t_mid) - exp).abs() < 1e-5,
+            "tick {i}: got {}, expected {exp}",
+            sample.scale_at_age(t_mid)
+        );
+        if i >= 6 {
+            let t_next = (i as f32 + 12.5) * 0.075;
+            assert!((sample.scale_at_age(t_next) - exp).abs() < 1e-5);
+        }
+    }
+    assert_eq!(sample.scale_at_age(0.01), sample.scale_at_age(0.06));
+    for k in 2..=19 {
+        let scales = NightStar::build_scales(f64::from(k) / 10.0, 1.0);
+        let star = NightStar {
+            x: 100.0,
+            y: 100.0,
+            radius: 10.0,
+            alpha: 0.55,
+            scales,
+        };
+        for tick in 6..18 {
+            let a = star.scale_at_age(tick as f32 * 0.075 + 0.01);
+            let b = star.scale_at_age((tick + 12) as f32 * 0.075 + 0.01);
+            assert!((a - b).abs() < 1e-5, "init={k} tick={tick}: {a} vs {b}");
+        }
+    }
+
+    // Verify BgAnimState::load preserves stars when already on NightHills and regenerates on switch
+    let mut anim = BgAnimState::new("NightHills");
+    let initial = anim.stars.clone();
+    anim.load("NightHills");
+    assert_eq!(anim.stars, initial);
+    anim.load("DaySky");
+    assert_eq!(anim.bg_id, "DaySky");
+    assert_eq!(anim.stars, initial);
+    anim.load("NightHills");
+    assert_eq!(anim.stars.len(), 18);
+    assert_ne!(anim.stars, initial);
+
+    // GPU verification: radial 5-stop gradient matches StarSprite (alpha 0.60 at center, 0 outside radius)
+    let gpu = test_gpu();
+    let bank = TexBank::new(gpu.clone(), &empty_bundle());
+    let mut c = Canvas::new();
+    c.clear((0, 0, 0));
+    c.draw_star_glow(400.5, 300.5, 15.0, 0.6);
+    let px = gpu.render_to_rgba(&c, &bank, 800, 600);
+    let at = |x: usize, y: usize| -> [u8; 4] {
+        let i = (y * 800 + x) * 4;
+        [px[i], px[i + 1], px[i + 2], px[i + 3]]
+    };
+    let center = at(400, 300);
+    assert_eq!(center[0], center[1]);
+    assert_eq!(center[1], center[2]);
+    assert!(
+        (88..=96).contains(&center[0]),
+        "expected ~92 at center, got {:?}",
+        center
+    );
+    let mid = at(406, 300);
+    assert!(mid[0] > 0 && mid[0] < center[0], "mid pixel {:?}", mid);
+    assert_eq!(at(420, 300), [0, 0, 0, 255]);
+}

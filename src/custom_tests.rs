@@ -1094,6 +1094,7 @@ fn editor_playtest_round_trip_and_unsaved_guard() {
         .save
         .active_profile()
         .map(|p| (p.records.len(), p.total_score()));
+    let pack_progress_before = serde_json::to_string(&app.custom_packs.progress).unwrap();
 
     app.open_custom_hub(false);
     app.trigger_action(UiAction::HubEditLevel);
@@ -1114,6 +1115,10 @@ fn editor_playtest_round_trip_and_unsaved_guard() {
     app.on_campaign_win(res);
     assert_eq!(app.screen, Screen::Summary);
     assert!(app.custom_packs.progress.packs.is_empty());
+    assert_eq!(
+        serde_json::to_string(&app.custom_packs.progress).unwrap(),
+        pack_progress_before
+    );
     assert_eq!(
         app.save
             .active_profile()

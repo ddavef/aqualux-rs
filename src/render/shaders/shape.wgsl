@@ -170,22 +170,24 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
     if kind == 3u {
         let dist = length(p - in.p0.xy);
-        if extra > 1.5 {
+        if extra > 0.5 {
             let t = clamp(dist / max(radius, 1e-4), 0.0, 1.0);
             let s1 = 35.0 / 255.0;
             let s2 = 95.0 / 255.0;
             let s3 = 145.0 / 255.0;
             let s4 = 250.0 / 255.0;
+            let a0 = select(0.60, 1.0, extra > 1.5);
+            let a1 = select(0.44, 0.54, extra > 1.5);
             var g = 1.0;
             var a = 0.0;
             if t < s1 {
                 let u = t / s1;
                 g = mix(1.0, 0.8, u);
-                a = mix(1.0, 0.54, u);
+                a = mix(a0, a1, u);
             } else if t < s2 {
                 let u = (t - s1) / (s2 - s1);
                 g = mix(0.8, 0.733333, u);
-                a = mix(0.54, 0.23, u);
+                a = mix(a1, 0.23, u);
             } else if t < s3 {
                 let u = (t - s2) / (s3 - s2);
                 g = 0.733333;
@@ -198,13 +200,6 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             let edge = clamp(0.5 - (dist - radius) / aa, 0.0, 1.0);
             let fa = a * edge * in.fill.a;
             return vec4<f32>(g * fa, g * fa, g * fa, fa);
-        }
-        if extra > 0.5 {
-            let c1 = premul(vec4<f32>(215.0 / 255.0, 235.0 / 255.0, 1.0, (95.0 / 255.0) * in.fill.a))
-                * clamp(0.5 - (dist - radius * 1.9) / aa, 0.0, 1.0);
-            let c2 = premul(vec4<f32>(1.0, 1.0, 1.0, (230.0 / 255.0) * in.fill.a))
-                * clamp(0.5 - (dist - radius * 0.85) / aa, 0.0, 1.0);
-            return over_pm(c2, c1);
         }
         let d = dist - radius;
         if stroke_w > 0.0 {

@@ -5,14 +5,89 @@ use crate::assets::AssetBundle;
 use crate::render::bg_sprites::draw_popup_sprite;
 use crate::render::canvas::{Canvas, LOGICAL_H, LOGICAL_W, Rect};
 use crate::render::tex_bank::TexBank;
+use rand::RngExt;
+use rand::rngs::StdRng;
 
-struct StarDef {
-    x: f32,
-    y: f32,
-    base_scale: f32,
-    base_alpha: f32,
-    phase: f32,
-    speed: f32,
+const STAR_COUNT: usize = 18;
+const STAR_RECT_X: f32 = 25.0;
+const STAR_RECT_Y: f32 = 25.0;
+const STAR_RECT_W: f32 = 750.0;
+const STAR_RECT_H: f32 = 400.0;
+const STAR_MIN_SIZE: f32 = 4.0;
+const STAR_MAX_SIZE: f32 = 16.0;
+const STAR_MAX_ALPHA: f32 = 0.9;
+const STAR_MIN_ALPHA: f32 = 0.5;
+const STAR_TICK_SECS: f32 = 0.075;
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct NightStar {
+    pub x: f32,
+    pub y: f32,
+    pub radius: f32,
+    pub alpha: f32,
+    pub scales: [f32; 18],
+}
+
+impl NightStar {
+    /// Precomputes the exact 75ms `StarSprite.updateSparkle()` scale timeline in IEEE-754 `f64`:
+    /// ticks `0..6` settle into a 12-tick (`0.90s`) cycle stored in `scales[6..18]`.
+    pub(crate) fn build_scales(mut value: f64, init_scale: f32) -> [f32; 18] {
+        let mut scales = [0.0f32; 18];
+        scales[0] = init_scale;
+        let mut is_growing = true;
+        for slot in &mut scales[1..] {
+            if is_growing {
+                value += 0.3;
+            } else {
+                value -= 0.3;
+            }
+            let sx = value.clamp(0.2, 1.0);
+            if value >= 2.0 {
+                value = 2.0;
+                is_growing = false;
+            }
+            if sx <= 0.2 {
+                is_growing = true;
+            }
+            *slot = sx as f32;
+        }
+        scales
+    }
+
+    pub(crate) fn scale_at_age(&self, age: f32) -> f32 {
+        let tick = (age.max(0.0) / STAR_TICK_SECS).floor() as usize;
+        if tick < 6 {
+            self.scales[tick]
+        } else {
+            self.scales[6 + (tick - 6) % 12]
+        }
+    }
+
+    pub(crate) fn generate_layer(rng: &mut impl RngExt) -> Vec<Self> {
+        (0..STAR_COUNT)
+            .map(|_| {
+                let x = (STAR_RECT_X + rng.random_range(0.0..1.0) * STAR_RECT_W).floor();
+                let y = (STAR_RECT_Y + rng.random_range(0.0..1.0) * STAR_RECT_H).floor();
+                let radius =
+                    (rng.random_range(0.0..1.0) * (STAR_MAX_SIZE + STAR_MIN_SIZE) - STAR_MIN_SIZE)
+                        .floor()
+                        .abs();
+                let init_value = ((rng.random_range(0.0f64..1.0) * 18.0).floor() + 2.0) / 10.0;
+                let dist_from_bottom = 1.0 - y / STAR_RECT_H;
+                let alpha = (dist_from_bottom * (STAR_MAX_ALPHA - STAR_MIN_ALPHA)
+                    + STAR_MIN_ALPHA * 0.5)
+                    .clamp(0.0, 1.0);
+                let init_scale = (rng.random_range(0.0f32..1.0) + 0.2).min(1.0);
+                Self {
+                    x,
+                    y,
+                    radius,
+                    alpha,
+                    scales: Self::build_scales(init_value, init_scale),
+                }
+            })
+            .collect()
+    }
 }
 
 pub struct BgAnimState {
@@ -21,16 +96,19 @@ pub struct BgAnimState {
     pub darken: f32,
     pub target_darken: f32,
     pub darken_delay: f32,
+    pub(crate) stars: Vec<NightStar>,
 }
 
 impl BgAnimState {
     pub fn new(bg_id: &str) -> Self {
+        let mut rng: StdRng = rand::make_rng();
         Self {
             bg_id: bg_id.to_string(),
             age: 0.0,
             darken: 0.0,
             target_darken: 0.0,
             darken_delay: 0.0,
+            stars: NightStar::generate_layer(&mut rng),
         }
     }
 
@@ -43,6 +121,10 @@ impl BgAnimState {
         if self.bg_id != norm {
             self.bg_id = norm.to_string();
             self.age = 0.0;
+            if !matches!(norm, "DaySky" | "OuterSpace" | "SnowyHills") {
+                let mut rng: StdRng = rand::make_rng();
+                self.stars = NightStar::generate_layer(&mut rng);
+            }
         }
         self.darken = 0.0;
         self.target_darken = 0.0;
@@ -74,36 +156,11 @@ impl BgAnimState {
     }
 }
 
-pub struct BackgroundRenderer {
-    stars: Vec<StarDef>,
-}
+pub struct BackgroundRenderer;
 
 impl BackgroundRenderer {
     pub fn new() -> Self {
-        let mut stars = Vec::with_capacity(18);
-        let mut seed: u32 = 0x517CC1B7;
-        let mut next_f = || -> f32 {
-            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
-            (seed >> 16) as f32 / 65535.0
-        };
-        for _ in 0..18 {
-            let x = 25.0 + next_f() * 750.0;
-            let y = 25.0 + next_f() * 400.0;
-            let inv_y = 1.0 - y / 400.0;
-            let base_alpha = (inv_y * (0.9 - 0.5) + 0.25).clamp(0.25, 0.9);
-            let base_scale = (next_f() + 0.2).min(1.0);
-            let phase = next_f() * std::f32::consts::TAU;
-            let speed = 1.5 + next_f() * 2.0;
-            stars.push(StarDef {
-                x,
-                y,
-                base_scale,
-                base_alpha,
-                phase,
-                speed,
-            });
-        }
-        Self { stars }
+        Self
     }
 
     pub fn draw_background(
@@ -149,7 +206,7 @@ impl BackgroundRenderer {
         if wash_alpha > 0.004 {
             self.draw_full_bitmap(canvas, bank, "CombinedBgBitmap", wash_alpha);
         }
-        self.draw_stars(canvas, anim.age);
+        self.draw_stars(canvas, anim);
         if let Some(items) = assets.sprites.get("TitleBgAssetsSprite") {
             draw_popup_sprite(canvas, bank, items, anim, false, |layer| {
                 !matches!(layer, Some("frontHillsLayer") | Some("frontCloudsLayer"))
@@ -202,12 +259,12 @@ impl BackgroundRenderer {
         }
     }
 
-    fn draw_stars(&self, canvas: &mut Canvas, time: f32) {
-        for s in &self.stars {
-            let pulse = 0.2 + 0.8 * (0.5 + 0.5 * (time * s.speed + s.phase).sin());
-            let rad = (s.base_scale * pulse * 4.2).max(1.2);
-            let opacity = (s.base_alpha * pulse).clamp(0.0, 1.0);
-            canvas.draw_star_glow(s.x, s.y, rad, opacity);
+    fn draw_stars(&self, canvas: &mut Canvas, anim: &BgAnimState) {
+        for s in &anim.stars {
+            let rad = s.radius * s.scale_at_age(anim.age);
+            if rad > 0.0 {
+                canvas.draw_star_glow(s.x, s.y, rad, s.alpha);
+            }
         }
     }
 }

@@ -153,7 +153,7 @@ impl Canvas {
         if radius <= 0.0 || op <= 0.004 {
             return;
         }
-        let p = radius * 1.9 + 2.0;
+        let p = radius + 2.0;
         self.cmds.push(DrawCmd::Shape(ShapeInstance {
             bounds: [cx - p, cy - p, p * 2.0, p * 2.0],
             p0: [cx, cy, 0.0, 0.0],
