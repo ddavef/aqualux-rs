@@ -229,6 +229,9 @@ impl GameApp {
         match self.modals.last() {
             Some(ModalState::EnterName { .. }) => self.trigger_action(UiAction::SubmitName),
             Some(ModalState::TextPrompt { .. }) => self.trigger_action(UiAction::SubmitTextPrompt),
+            Some(ModalState::EndlessSetup(cfg)) if cfg.any_enabled() => {
+                self.trigger_action(UiAction::StartEndlessRun)
+            }
             _ => {}
         }
     }

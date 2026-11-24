@@ -3,10 +3,13 @@
 
 use crate::assets::AssetBundle;
 use crate::custom::{CustomPackStore, LoadedPack, PackSource, sanitize_pack_id, validate_pack_dir};
-use crate::game::generator::{GenDifficulty, generate_custom_level};
+use crate::game::generator::{
+    GenDifficulty, MIN_GEN_COLS, MIN_GEN_ROWS, generate_custom_level,
+    generate_custom_level_with_max_size,
+};
 use crate::game::level_io::{
-    CustomPackFile, CustomPackMeta, MAX_CUSTOM_XML_BYTES, default_starter_level, parse_pack_xml,
-    write_pack_xml,
+    CustomPackFile, CustomPackMeta, MAX_CUSTOM_XML_BYTES, MAX_GRID_COLS, MAX_GRID_ROWS,
+    default_starter_level, parse_pack_xml, write_pack_xml,
 };
 use crate::game::scoring::calculate_score;
 use crate::game::solver::{SolveOutcome, solve_level, validate_level_structure};
@@ -19,7 +22,7 @@ use crate::ui::editor::{EditorTool, PipeBehavior, SolveStatus, editor_board_area
 use crate::ui::title::title_menu_metrics;
 use crate::ui::title_data::{TitleSubmenu, menu_entries};
 use crate::ui::widgets::{ModalState, QuestionId, UiAction};
-use crate::ui::{GameApp, PlayMode, Screen};
+use crate::ui::{EndlessConfig, EndlessRules, GameApp, PlayMode, Screen};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::fs;
@@ -469,6 +472,64 @@ fn solver_validation_and_mechanics() {
         other => panic!("expected portal puzzle solvable, got {:?}", other),
     }
 
+    // Portal entered from closed side (Source points Right into Down-facing Portal)
+    let mut bad_portal_entry = portal_lvl.clone();
+    bad_portal_entry.tiles[1].direction = 0; // Down, closed on Left
+    assert!(matches!(
+        solve_level(&bad_portal_entry, Duration::from_millis(200)),
+        SolveOutcome::Unsolvable(_)
+    ));
+
+    // Mate portal exits wrong side (points Up into pa instead of Right into Drain)
+    let mut bad_portal_exit = portal_lvl.clone();
+    bad_portal_exit.tiles[4].direction = 2; // Up
+    assert!(matches!(
+        solve_level(&bad_portal_exit, Duration::from_millis(200)),
+        SolveOutcome::Unsolvable(_)
+    ));
+
+    // Portal cannot act as a pass-through pipe when entered/exited on closed sides
+    let mut passthrough_pa = tile(1, 0, PieceShape::Spigot, PieceType::Portal, 0, false, false);
+    passthrough_pa.secondary_color = Some(GameColor::Violet);
+    let mut passthrough_pb = tile(0, 1, PieceShape::Spigot, PieceType::Portal, 3, false, false);
+    passthrough_pb.secondary_color = Some(GameColor::Violet);
+    let passthrough_portal_lvl = LevelDef {
+        cols: 3,
+        rows: 2,
+        tiles: vec![
+            tile(0, 0, PieceShape::Spigot, PieceType::Source, 3, false, false),
+            passthrough_pa,
+            tile(2, 0, PieceShape::Spigot, PieceType::Drain, 1, false, false),
+            passthrough_pb,
+            tile(1, 1, PieceShape::Block, PieceType::Blocker, 0, false, false),
+            tile(2, 1, PieceShape::Block, PieceType::Blocker, 0, false, false),
+        ],
+        ..default_starter_level(0)
+    };
+    assert!(matches!(
+        solve_level(&passthrough_portal_lvl, Duration::from_millis(200)),
+        SolveOutcome::Unsolvable(_)
+    ));
+
+    // Drain entered from closed side (Drain points Down instead of Left)
+    let bad_drain_entry = LevelDef {
+        cols: 3,
+        rows: 2,
+        tiles: vec![
+            tile(0, 0, PieceShape::Spigot, PieceType::Source, 3, false, false),
+            tile(1, 0, PieceShape::Straight, PieceType::Pipe, 1, false, false),
+            tile(2, 0, PieceShape::Spigot, PieceType::Drain, 0, false, false),
+            tile(0, 1, PieceShape::Block, PieceType::Blocker, 0, false, false),
+            tile(1, 1, PieceShape::Block, PieceType::Blocker, 0, false, false),
+            tile(2, 1, PieceShape::Block, PieceType::Blocker, 0, false, false),
+        ],
+        ..default_starter_level(0)
+    };
+    assert!(matches!(
+        solve_level(&bad_drain_entry, Duration::from_millis(200)),
+        SolveOutcome::Unsolvable(_)
+    ));
+
     // (c) Cross double-traversal
     let cross_lvl = LevelDef {
         cols: 4,
@@ -589,6 +650,11 @@ fn title_play_choices_includes_custom_packs_and_layout_fits() {
         e.id == "btn_custom_packs"
             && e.action == Some(UiAction::OpenCustomHub { play_focused: true })
     }));
+    assert!(
+        unsaved_play
+            .iter()
+            .any(|e| e.id == "btn_endless" && e.action == Some(UiAction::OpenEndlessSetup))
+    );
 
     save.current_profile = Some("Max".to_string());
     save.profiles.push(ProfileData {
@@ -599,6 +665,7 @@ fn title_play_choices_includes_custom_packs_and_layout_fits() {
     });
     let full_play = menu_entries(TitleSubmenu::PlayChoices, &save);
     assert!(full_play.iter().any(|e| e.id == "btn_custom_packs"));
+    assert!(full_play.iter().any(|e| e.id == "btn_endless"));
     let (base_y, spacing, _) = title_menu_metrics(full_play.len());
     let bottom_of_back = base_y + full_play.len() as f32 * spacing;
     assert!(bottom_of_back < 540.0);
@@ -1278,6 +1345,264 @@ fn symlink_guards_block_delete_and_overwrite() {
     assert_eq!(
         fs::read_to_string(&external_save_target).unwrap(),
         "do not overwrite save"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn endless_mode_setup_difficulty_max_grid_progression_retry_and_no_persistence() {
+    use crate::game::Difficulty;
+
+    let mut cfg = EndlessConfig::default();
+    assert!(cfg.easy && cfg.medium && cfg.hard);
+    assert_eq!((cfg.max_cols, cfg.max_rows), (8, 6));
+    assert!(cfg.any_enabled());
+    assert_eq!(
+        cfg.enabled_difficulties(),
+        vec![
+            GenDifficulty::Easy,
+            GenDifficulty::Medium,
+            GenDifficulty::Hard
+        ]
+    );
+    assert_eq!(
+        cfg.play_difficulty_for(GenDifficulty::Easy),
+        Difficulty::Easy
+    );
+    assert_eq!(
+        cfg.play_difficulty_for(GenDifficulty::Medium),
+        Difficulty::Medium
+    );
+    assert_eq!(
+        cfg.play_difficulty_for(GenDifficulty::Hard),
+        Difficulty::Hard
+    );
+
+    // Max grid clamping across MIN_GEN..=MAX_GRID
+    for _ in 0..10 {
+        cfg.adjust_max_cols(-1);
+        cfg.adjust_max_rows(-1);
+    }
+    assert_eq!((cfg.max_cols, cfg.max_rows), (MIN_GEN_COLS, MIN_GEN_ROWS));
+    for _ in 0..15 {
+        cfg.adjust_max_cols(1);
+        cfg.adjust_max_rows(1);
+    }
+    assert_eq!((cfg.max_cols, cfg.max_rows), (MAX_GRID_COLS, MAX_GRID_ROWS));
+
+    // Generator respects both tight small bounds (4x3) and max bounds (10x8)
+    for (max_c, max_r) in [(MIN_GEN_COLS, MIN_GEN_ROWS), (MAX_GRID_COLS, MAX_GRID_ROWS)] {
+        for diff in [
+            GenDifficulty::Easy,
+            GenDifficulty::Medium,
+            GenDifficulty::Hard,
+        ] {
+            let mut gen_rng = StdRng::seed_from_u64(700 + (max_c * 13 + max_r) as u64);
+            let lvl = generate_custom_level_with_max_size(diff, max_c, max_r, &mut gen_rng);
+            assert!(
+                lvl.cols <= max_c && lvl.rows <= max_r,
+                "level {}x{} exceeded max {}x{} for {:?}",
+                lvl.cols,
+                lvl.rows,
+                max_c,
+                max_r,
+                diff
+            );
+            assert!(validate_level_structure(&lvl).is_empty());
+            match solve_level(&lvl, Duration::from_millis(250)) {
+                SolveOutcome::Solvable(res) => assert!(res.verified_by_sim),
+                other => panic!(
+                    "max-bounded {:?} level ({}x{}) not solvable: {:?}",
+                    diff, max_c, max_r, other
+                ),
+            }
+        }
+    }
+
+    cfg.toggle(GenDifficulty::Medium);
+    assert!(!cfg.medium);
+    let mut pick_rng = StdRng::seed_from_u64(4242);
+    for _ in 0..40 {
+        let picked = cfg.pick_gen_difficulty(&mut pick_rng);
+        assert!(picked == GenDifficulty::Easy || picked == GenDifficulty::Hard);
+    }
+
+    cfg.toggle(GenDifficulty::Easy);
+    cfg.toggle(GenDifficulty::Hard);
+    assert!(!cfg.any_enabled());
+
+    cfg.rules = EndlessRules::Fixed(Difficulty::Hard);
+    assert_eq!(
+        cfg.play_difficulty_for(GenDifficulty::Easy),
+        Difficulty::Hard
+    );
+
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let root = std::env::temp_dir().join(format!("aqualux_endless_test_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let primary = root.join("custom_packs");
+
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let mut app =
+        GameApp::new_with_custom_dir(bundle, Some(120), Some(&primary), test_gpu()).expect("init");
+    let camp_records_before = app
+        .save
+        .active_profile()
+        .map(|p| (p.records.len(), p.total_score()));
+    let pack_progress_before = serde_json::to_string(&app.custom_packs.progress).unwrap();
+
+    app.screen = Screen::Title;
+    app.trigger_action(UiAction::OpenEndlessSetup);
+    assert!(matches!(
+        app.modals.last(),
+        Some(ModalState::EndlessSetup(_))
+    ));
+
+    // Uncheck all difficulties -> Play button disabled and StartEndlessRun is ignored
+    app.trigger_action(UiAction::EndlessToggleDifficulty(GenDifficulty::Easy));
+    app.trigger_action(UiAction::EndlessToggleDifficulty(GenDifficulty::Medium));
+    app.trigger_action(UiAction::EndlessToggleDifficulty(GenDifficulty::Hard));
+    let buttons = app.current_buttons();
+    assert!(buttons.iter().any(|b| b.id == "end_play" && !b.enabled));
+    app.trigger_action(UiAction::StartEndlessRun);
+    assert!(matches!(
+        app.modals.last(),
+        Some(ModalState::EndlessSetup(_))
+    ));
+    assert_eq!(app.screen, Screen::Title);
+
+    // Enable Hard only, lower max grid from 8x6 to 5x4, cycle rules MatchLevel -> Hard, then start run
+    app.trigger_action(UiAction::EndlessToggleDifficulty(GenDifficulty::Hard));
+    for _ in 0..3 {
+        app.trigger_action(UiAction::EndlessAdjustMaxCols(-1));
+    }
+    for _ in 0..2 {
+        app.trigger_action(UiAction::EndlessAdjustMaxRows(-1));
+    }
+    app.trigger_action(UiAction::EndlessCycleRules);
+    app.trigger_action(UiAction::EndlessCycleRules);
+    app.trigger_action(UiAction::EndlessCycleRules);
+    assert!(
+        app.current_buttons()
+            .iter()
+            .any(|b| b.id == "end_play" && b.enabled)
+    );
+    app.trigger_action(UiAction::StartEndlessRun);
+    assert!(app.modals.is_empty());
+    for _ in 0..45 {
+        app.update(0.05);
+    }
+
+    assert_eq!(app.screen, Screen::Playing);
+    assert!(matches!(
+        app.play_mode,
+        PlayMode::Endless {
+            config: EndlessConfig {
+                max_cols: 5,
+                max_rows: 4,
+                ..
+            },
+            level_num: 1,
+            pre_level_score: 0,
+            session_score: 0,
+            current_difficulty: Difficulty::Hard,
+            ..
+        }
+    ));
+    let sim_lvl = &app.campaign_sim.as_ref().expect("active level sim").level;
+    assert_eq!(sim_lvl.title, "Level 1");
+    assert!(sim_lvl.cols <= 5 && sim_lvl.rows <= 4);
+    assert!(validate_level_structure(sim_lvl).is_empty());
+
+    // Win Level 1 -> trophy and score shown in summary, nothing saved persistently
+    let res1 = calculate_score(4, 5, 5000, 6, 5, 15000, true);
+    app.on_campaign_win(res1);
+    assert_eq!(app.screen, Screen::Summary);
+    let sum1 = app.summary_state.as_ref().expect("summary state");
+    assert_eq!(sum1.result, res1);
+    assert!(matches!(
+        app.play_mode,
+        PlayMode::Endless {
+            level_num: 1,
+            session_score,
+            ..
+        } if session_score == res1.total_score
+    ));
+    assert_eq!(
+        app.save
+            .active_profile()
+            .map(|p| (p.records.len(), p.total_score())),
+        camp_records_before
+    );
+    assert_eq!(
+        serde_json::to_string(&app.custom_packs.progress).unwrap(),
+        pack_progress_before
+    );
+
+    // Retry Level 1 -> restores pre_level_score (0) and replays Level 1 without double-counting
+    app.summary_state.as_mut().unwrap().age = 4.0;
+    app.trigger_action(UiAction::RetryLevel);
+    for _ in 0..45 {
+        app.update(0.05);
+    }
+    assert_eq!(app.screen, Screen::Playing);
+    assert!(matches!(
+        app.play_mode,
+        PlayMode::Endless {
+            level_num: 1,
+            pre_level_score: 0,
+            session_score: 0,
+            ..
+        }
+    ));
+    app.on_campaign_win(res1);
+
+    // Advance to Level 2 -> generates next level within 5x4 and carries session_score
+    app.summary_state.as_mut().unwrap().age = 4.0;
+    app.trigger_action(UiAction::NextLevel);
+    for _ in 0..45 {
+        app.update(0.05);
+    }
+    assert_eq!(app.screen, Screen::Playing);
+    assert!(matches!(
+        app.play_mode,
+        PlayMode::Endless {
+            level_num: 2,
+            pre_level_score,
+            session_score,
+            ..
+        } if pre_level_score == res1.total_score && session_score == res1.total_score
+    ));
+    let lvl2 = &app.campaign_sim.as_ref().expect("lvl 2 sim").level;
+    assert_eq!(lvl2.title, "Level 2");
+    assert!(lvl2.cols <= 5 && lvl2.rows <= 4);
+
+    let res2 = calculate_score(5, 6, 6000, 6, 6, 16000, true);
+    app.on_campaign_win(res2);
+    assert!(matches!(
+        app.play_mode,
+        PlayMode::Endless {
+            level_num: 2,
+            session_score,
+            ..
+        } if session_score == res1.total_score + res2.total_score
+    ));
+
+    app.return_to_main_menu();
+    assert_eq!(app.play_mode, PlayMode::Campaign);
+    assert_eq!(app.screen, Screen::Title);
+    assert_eq!(
+        app.save
+            .active_profile()
+            .map(|p| (p.records.len(), p.total_score())),
+        camp_records_before
+    );
+    assert_eq!(
+        serde_json::to_string(&app.custom_packs.progress).unwrap(),
+        pack_progress_before
     );
 
     let _ = fs::remove_dir_all(&root);

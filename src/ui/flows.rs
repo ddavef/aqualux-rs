@@ -2,11 +2,12 @@
 // Copyright (C) 2026 ddavef aqualux-rs
 
 use crate::audio::music_for_background;
+use crate::game::generator::generate_custom_level_with_max_size;
 use crate::game::{AwardKind, Difficulty, LevelDef, LevelSim, MatchSim, SimEvent};
 use crate::render::{BoardLayout, LeakEmitter, ScoreBlurbFx};
 use crate::ui::title::TitleSubmenu;
 use crate::ui::widgets::{LaunchSource, ModalState, ScoreRoller};
-use crate::ui::{GameApp, InfoBanner, PlayMode, Screen};
+use crate::ui::{EndlessConfig, EndlessRules, GameApp, InfoBanner, PlayMode, Screen};
 
 impl GameApp {
     pub(crate) fn execute_launch(&mut self, source: LaunchSource) {
@@ -83,7 +84,41 @@ impl GameApp {
                 }
                 self.start_campaign_level(idx, false);
             }
+            LaunchSource::Endless(cfg) => {
+                self.launch_endless_level(cfg, 1, 0);
+            }
         }
+    }
+
+    pub fn launch_endless_level(
+        &mut self,
+        config: EndlessConfig,
+        level_num: usize,
+        session_score: u32,
+    ) {
+        let gen_diff = config.pick_gen_difficulty(&mut self.rng);
+        let play_diff = config.play_difficulty_for(gen_diff);
+        let mut def = generate_custom_level_with_max_size(
+            gen_diff,
+            config.max_cols,
+            config.max_rows,
+            &mut self.rng,
+        );
+        def.index = level_num.saturating_sub(1);
+        def.title = format!("Level {}", level_num);
+        def.description = match config.rules {
+            EndlessRules::MatchLevel => format!("Endless - {}", gen_diff.label()),
+            EndlessRules::Fixed(d) => format!("{} ({})", gen_diff.label(), d.human_label()),
+        };
+        self.play_mode = PlayMode::Endless {
+            config,
+            level_num,
+            pre_level_score: session_score,
+            session_score,
+            current_level: Box::new(def.clone()),
+            current_difficulty: play_diff,
+        };
+        self.launch_level_def(def);
     }
 
     pub fn start_campaign_level(&mut self, idx: usize, notify_allowed: bool) {
@@ -120,9 +155,12 @@ impl GameApp {
     pub fn launch_level_def(&mut self, def: LevelDef) {
         let diff = match &self.play_mode {
             PlayMode::Lotd => Difficulty::Medium,
-            PlayMode::CustomPack { difficulty, .. } | PlayMode::EditorTest { difficulty } => {
-                *difficulty
-            }
+            PlayMode::CustomPack { difficulty, .. }
+            | PlayMode::EditorTest { difficulty }
+            | PlayMode::Endless {
+                current_difficulty: difficulty,
+                ..
+            } => *difficulty,
             PlayMode::Campaign => self
                 .save
                 .active_profile()
@@ -222,6 +260,9 @@ impl GameApp {
                 if let Some(def) = self.editor.as_ref().map(|e| e.draft.clone()) {
                     self.launch_level_def(def);
                 }
+            }
+            PlayMode::Endless { current_level, .. } => {
+                self.launch_level_def(*current_level);
             }
             PlayMode::Campaign => {
                 self.start_campaign_level(self.current_level_idx, false);

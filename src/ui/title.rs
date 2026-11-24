@@ -20,8 +20,10 @@ pub fn title_menu_metrics(entry_count: usize) -> (f32, f32, f32) {
         (BUTTON_Y, BUTTON_SPACING, 31.0)
     } else if entry_count == 7 {
         (266.0, 28.0, 30.0)
-    } else {
+    } else if entry_count == 8 {
         (256.0, 27.0, 28.0)
+    } else {
+        (248.0, 25.0, 26.0)
     }
 }
 

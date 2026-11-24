@@ -612,7 +612,7 @@ impl<'a> SolverCtx<'a> {
                 self.filled[idx] = false;
                 return found;
             } else {
-                if self.portal_entered[idx] {
+                if self.filled[idx] || self.portal_entered[idx] {
                     return false;
                 }
                 let ports = ports_for(self.grid[y][x].shape, self.grid[y][x].direction);
@@ -625,7 +625,6 @@ impl<'a> SolverCtx<'a> {
                 if self.filled[mate] {
                     return false;
                 }
-                let prev_filled = self.filled[idx];
                 self.filled[idx] = true;
                 self.portal_entered[idx] = true;
                 self.used_sides[idx] |= 1 << entry.index();
@@ -644,7 +643,7 @@ impl<'a> SolverCtx<'a> {
                 self.path.pop();
                 self.used_sides[idx] &= !(1 << entry.index());
                 self.portal_entered[idx] = false;
-                self.filled[idx] = prev_filled;
+                self.filled[idx] = false;
                 return found;
             }
         }
@@ -851,66 +850,142 @@ impl<'a> SolverCtx<'a> {
     }
 
     fn can_reach_drain(&self, sx: usize, sy: usize, entry: Side) -> bool {
-        let n = self.cols * self.rows;
-        let mut seen = vec![false; n];
+        let cols = self.cols;
+        let rows = self.rows;
+        let used_sides = &self.used_sides;
+        let mut seen_sides = vec![0u8; cols * rows];
         let mut q = VecDeque::new();
-        let start_idx = sy * self.cols + sx;
-        if (self.used_sides[start_idx] & (1 << entry.index())) != 0 {
-            return false;
-        }
-        if !self.cell_accepts_any_traversal(sx, sy) {
-            return false;
-        }
-        seen[start_idx] = true;
-        q.push_back(start_idx);
 
-        while let Some(u) = q.pop_front() {
-            let ux = u % self.cols;
-            let uy = u / self.cols;
-            let ptype = self.grid[uy][ux].piece_type;
-            if ptype == PieceType::Drain {
-                return true;
+        let push_entry = |seen: &mut [u8],
+                          q: &mut VecDeque<(usize, usize, Side)>,
+                          x: usize,
+                          y: usize,
+                          side: Side| {
+            let s_idx = side.index();
+            if x >= cols || y >= rows || s_idx >= 4 {
+                return;
             }
-            if ptype == PieceType::Portal
-                && let Some(&mate) = self.portals.get(&u)
-                && !self.filled[mate]
-                && !seen[mate]
-            {
-                seen[mate] = true;
-                q.push_back(mate);
+            let idx = y * cols + x;
+            let bit = 1u8 << s_idx;
+            if (used_sides[idx] & bit) == 0 && (seen[idx] & bit) == 0 {
+                seen[idx] |= bit;
+                q.push_back((x, y, side));
             }
-            for (dx, dy) in [(0i32, -1i32), (1, 0), (0, 1), (-1, 0)] {
-                let nx = ux as i32 + dx;
-                let ny = uy as i32 + dy;
-                if nx < 0 || ny < 0 || (nx as usize) >= self.cols || (ny as usize) >= self.rows {
-                    continue;
+        };
+
+        let step_neighbor = |seen: &mut [u8],
+                             q: &mut VecDeque<(usize, usize, Side)>,
+                             ux: usize,
+                             uy: usize,
+                             exit: Side| {
+            let e_idx = exit.index();
+            if e_idx >= 4 || (used_sides[uy * cols + ux] & (1 << e_idx)) != 0 {
+                return;
+            }
+            let (dx, dy) = exit.delta();
+            let nx = ux as i32 + dx;
+            let ny = uy as i32 + dy;
+            if nx >= 0 && ny >= 0 && (nx as usize) < cols && (ny as usize) < rows {
+                push_entry(seen, q, nx as usize, ny as usize, exit.opposite());
+            }
+        };
+
+        push_entry(&mut seen_sides, &mut q, sx, sy, entry);
+
+        while let Some((ux, uy, cur_entry)) = q.pop_front() {
+            let idx = uy * cols + ux;
+            let t = &self.grid[uy][ux];
+            match t.piece_type {
+                PieceType::Blocker | PieceType::Source => {}
+                PieceType::Drain => {
+                    let ports = ports_for(t.shape, t.direction);
+                    if ports[cur_entry.index()] {
+                        return true;
+                    }
                 }
-                let v = ny as usize * self.cols + nx as usize;
-                if !seen[v] && self.cell_accepts_any_traversal(nx as usize, ny as usize) {
-                    seen[v] = true;
-                    q.push_back(v);
+                PieceType::Portal => {
+                    if self.filled[idx] || self.portal_entered[idx] {
+                        continue;
+                    }
+                    let ports = ports_for(t.shape, t.direction);
+                    if !ports[cur_entry.index()] {
+                        continue;
+                    }
+                    let Some(&mate) = self.portals.get(&idx) else {
+                        continue;
+                    };
+                    if self.filled[mate] {
+                        continue;
+                    }
+                    let (mx, my) = (mate % cols, mate / cols);
+                    let mt = &self.grid[my][mx];
+                    let mports = ports_for(mt.shape, mt.direction);
+                    if let Some(mexit) = exit_for_ports(mports, Side::Center) {
+                        step_neighbor(&mut seen_sides, &mut q, mx, my, mexit);
+                    }
+                }
+                PieceType::Pipe | PieceType::FrozenPipe => {
+                    if self.filled[idx] {
+                        let is_cross = if self.comp_id[idx].is_some() {
+                            self.locked_move[idx].is_some_and(|mk| mk.shape == PieceShape::Cross)
+                        } else {
+                            t.shape == PieceShape::Cross
+                        };
+                        if is_cross {
+                            step_neighbor(&mut seen_sides, &mut q, ux, uy, cur_entry.opposite());
+                        }
+                    } else if self.comp_id[idx].is_some() {
+                        for exit in [Side::Up, Side::Right, Side::Down, Side::Left] {
+                            if exit != cur_entry {
+                                step_neighbor(&mut seen_sides, &mut q, ux, uy, exit);
+                            }
+                        }
+                    } else if t.can_rotate || t.is_magic {
+                        match t.shape {
+                            PieceShape::Straight | PieceShape::Cross => {
+                                step_neighbor(
+                                    &mut seen_sides,
+                                    &mut q,
+                                    ux,
+                                    uy,
+                                    cur_entry.opposite(),
+                                );
+                            }
+                            PieceShape::Elbow => {
+                                step_neighbor(
+                                    &mut seen_sides,
+                                    &mut q,
+                                    ux,
+                                    uy,
+                                    cur_entry.rotate_cw(1),
+                                );
+                                step_neighbor(
+                                    &mut seen_sides,
+                                    &mut q,
+                                    ux,
+                                    uy,
+                                    cur_entry.rotate_cw(3),
+                                );
+                            }
+                            _ => {
+                                for exit in [Side::Up, Side::Right, Side::Down, Side::Left] {
+                                    if exit != cur_entry {
+                                        step_neighbor(&mut seen_sides, &mut q, ux, uy, exit);
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        let ports = ports_for(t.shape, t.direction);
+                        if ports[cur_entry.index()]
+                            && let Some(exit) = exit_for_ports(ports, cur_entry)
+                        {
+                            step_neighbor(&mut seen_sides, &mut q, ux, uy, exit);
+                        }
+                    }
                 }
             }
         }
         false
-    }
-
-    fn cell_accepts_any_traversal(&self, x: usize, y: usize) -> bool {
-        let idx = y * self.cols + x;
-        let t = &self.grid[y][x];
-        match t.piece_type {
-            PieceType::Blocker | PieceType::Source => false,
-            PieceType::Drain => true,
-            PieceType::Portal => !self.portal_entered[idx],
-            PieceType::Pipe | PieceType::FrozenPipe => {
-                if !self.filled[idx] {
-                    true
-                } else if let Some(mk) = self.locked_move[idx] {
-                    mk.shape == PieceShape::Cross && self.used_sides[idx] != 0b1111
-                } else {
-                    t.shape == PieceShape::Cross && self.used_sides[idx] != 0b1111
-                }
-            }
-        }
     }
 }

@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 ddavef aqualux-rs
 
+use crate::game::generator::GenDifficulty;
 use crate::game::{AwardKind, Difficulty, GameColor, LevelDef};
 use crate::render::{Canvas, FontFamily, FontSet, GlowPreset, Rect, TexBank, TextAlign};
+use crate::ui::EndlessConfig;
 use crate::ui::editor::{EditorTool, LevelPropsDraft, PipeBehavior, PipeColorSlot};
 pub use crate::ui::roller::ScoreRoller;
 
@@ -41,6 +43,7 @@ pub enum LaunchSource {
     CustomHub { play_focused: bool },
     Match { mirror: bool },
     RetryTrophy { idx: usize, difficulty: Difficulty },
+    Endless(EndlessConfig),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -92,6 +95,7 @@ pub enum ModalState {
         then_unlock_match_level: Option<Box<LevelDef>>,
     },
     LevelProps(LevelPropsDraft),
+    EndlessSetup(EndlessConfig),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -106,6 +110,12 @@ pub enum UiAction {
     PlayLotd,
     StartMatch,
     StartMirrorMatch,
+    OpenEndlessSetup,
+    EndlessToggleDifficulty(GenDifficulty),
+    EndlessAdjustMaxCols(i8),
+    EndlessAdjustMaxRows(i8),
+    EndlessCycleRules,
+    StartEndlessRun,
     OpenCustomHub { play_focused: bool },
     OpenTrophyRoom,
     OpenOptions,

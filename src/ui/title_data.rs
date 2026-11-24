@@ -95,6 +95,12 @@ pub fn menu_entries(submenu: TitleSubmenu, save: &SaveData) -> Vec<MenuEntry> {
                         info: "Play custom level packs created in\nthe Levelmaker or imported from .xml.",
                         action: Some(UiAction::OpenCustomHub { play_focused: true }),
                     },
+                    MenuEntry {
+                        id: "btn_endless",
+                        label: "endless mode",
+                        info: "Play endless randomly generated levels!\nChoose difficulties and max grid size\nfor your run.",
+                        action: Some(UiAction::OpenEndlessSetup),
+                    },
                 ]
             } else {
                 vec![
@@ -115,6 +121,12 @@ pub fn menu_entries(submenu: TitleSubmenu, save: &SaveData) -> Vec<MenuEntry> {
                         label: "custom packs",
                         info: "Play custom level packs created in\nthe Levelmaker or imported from .xml.",
                         action: Some(UiAction::OpenCustomHub { play_focused: true }),
+                    },
+                    MenuEntry {
+                        id: "btn_endless",
+                        label: "endless mode",
+                        info: "Play endless randomly generated levels!\nChoose difficulties and max grid size\nfor your run.",
+                        action: Some(UiAction::OpenEndlessSetup),
                     },
                 ]
             };

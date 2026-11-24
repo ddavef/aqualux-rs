@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 ddavef aqualux-rs
 
-use crate::game::level_io::default_starter_level;
+use crate::game::level_io::{MAX_GRID_COLS, MAX_GRID_ROWS};
 use crate::game::solver::{SolveOutcome, solve_level};
 use crate::game::types::{GameColor, LevelDef, PieceShape, PieceType, Side, TileDef};
 use rand::RngExt;
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
+
+pub const MIN_GEN_COLS: usize = 4;
+pub const MIN_GEN_ROWS: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GenDifficulty {
@@ -15,9 +18,31 @@ pub enum GenDifficulty {
     Hard,
 }
 
+impl GenDifficulty {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Easy => "Easy",
+            Self::Medium => "Medium",
+            Self::Hard => "Hard",
+        }
+    }
+}
+
 pub fn generate_custom_level(diff: GenDifficulty, rng: &mut impl RngExt) -> LevelDef {
+    generate_custom_level_with_max_size(diff, 8, 6, rng)
+}
+
+pub fn generate_custom_level_with_max_size(
+    diff: GenDifficulty,
+    max_cols: usize,
+    max_rows: usize,
+    rng: &mut impl RngExt,
+) -> LevelDef {
+    let mc = max_cols.clamp(MIN_GEN_COLS, MAX_GRID_COLS);
+    let mr = max_rows.clamp(MIN_GEN_ROWS, MAX_GRID_ROWS);
+
     for attempt in 0..16 {
-        if let Some(mut lvl) = try_build_candidate(diff, rng, attempt)
+        if let Some(mut lvl) = try_build_candidate(diff, mc, mr, rng, attempt)
             && let SolveOutcome::Solvable(res) = solve_level(&lvl, Duration::from_millis(250))
             && res.verified_by_sim
             && !res.moves.is_empty()
@@ -29,11 +54,93 @@ pub fn generate_custom_level(diff: GenDifficulty, rng: &mut impl RngExt) -> Leve
         }
     }
 
-    let mut fallback = default_starter_level(0);
-    fallback.title = match diff {
-        GenDifficulty::Easy => "Generated Easy".to_string(),
-        GenDifficulty::Medium => "Generated Medium".to_string(),
-        GenDifficulty::Hard => "Generated Hard".to_string(),
+    fallback_level_within(diff, mc, mr)
+}
+
+fn fallback_level_within(diff: GenDifficulty, max_cols: usize, max_rows: usize) -> LevelDef {
+    let cols = max_cols.clamp(MIN_GEN_COLS, 5);
+    let rows = max_rows.clamp(MIN_GEN_ROWS, 5);
+    let mid_y = rows / 2;
+    let mut tiles = Vec::with_capacity(cols * rows);
+    for y in 0..rows {
+        for x in 0..cols {
+            let tile = if y == mid_y && x == 0 {
+                TileDef {
+                    x,
+                    y,
+                    shape: PieceShape::Spigot,
+                    piece_type: PieceType::Source,
+                    direction: 3,
+                    is_moveable: false,
+                    can_rotate: false,
+                    is_gate: false,
+                    is_freeze: false,
+                    is_magic: false,
+                    secondary_color: None,
+                }
+            } else if y == mid_y && x + 1 == cols {
+                TileDef {
+                    x,
+                    y,
+                    shape: PieceShape::Spigot,
+                    piece_type: PieceType::Drain,
+                    direction: 1,
+                    is_moveable: false,
+                    can_rotate: false,
+                    is_gate: false,
+                    is_freeze: false,
+                    is_magic: false,
+                    secondary_color: None,
+                }
+            } else if y == mid_y {
+                TileDef {
+                    x,
+                    y,
+                    shape: PieceShape::Straight,
+                    piece_type: PieceType::Pipe,
+                    direction: 0,
+                    is_moveable: false,
+                    can_rotate: true,
+                    is_gate: false,
+                    is_freeze: false,
+                    is_magic: false,
+                    secondary_color: None,
+                }
+            } else {
+                TileDef {
+                    x,
+                    y,
+                    ..TileDef::dummy_blocker()
+                }
+            };
+            tiles.push(tile);
+        }
+    }
+    let mut fallback = LevelDef {
+        index: 0,
+        title: match diff {
+            GenDifficulty::Easy => "Generated Easy".to_string(),
+            GenDifficulty::Medium => "Generated Medium".to_string(),
+            GenDifficulty::Hard => "Generated Hard".to_string(),
+        },
+        description: "Generated puzzle.".to_string(),
+        background_id: "NightHills".to_string(),
+        liquid_color: GameColor::Blue,
+        start_delay: 10.0,
+        liquid_speed: 1.5,
+        rotater_color: GameColor::White,
+        mover_color: GameColor::Yellow,
+        stationary_color: GameColor::Orange,
+        gate_color: GameColor::Violet,
+        freeze_color: GameColor::Yellow,
+        magic_color: GameColor::Green,
+        par_moves: (cols.saturating_sub(2)).max(1) as u32,
+        par_pipes: cols as u32,
+        par_time_ms: 15000,
+        cols,
+        rows,
+        tiles,
+        tutorials: Vec::new(),
     };
     if let SolveOutcome::Solvable(res) = solve_level(&fallback, Duration::from_millis(250)) {
         fallback.par_moves = res.suggested_par_moves;
@@ -45,47 +152,66 @@ pub fn generate_custom_level(diff: GenDifficulty, rng: &mut impl RngExt) -> Leve
 
 fn try_build_candidate(
     diff: GenDifficulty,
+    max_cols: usize,
+    max_rows: usize,
     rng: &mut impl RngExt,
     attempt: usize,
 ) -> Option<LevelDef> {
-    let (cols, rows, min_len, bg, delay, speed) = match diff {
-        GenDifficulty::Easy => (
-            5usize,
-            if rng.random_bool(0.5) { 4usize } else { 5usize },
-            6usize,
-            if rng.random_bool(0.5) {
-                "NightHills"
-            } else {
-                "DaySky"
-            },
-            14.0f32,
-            1.3f32,
-        ),
-        GenDifficulty::Medium => (
-            6,
-            if rng.random_bool(0.5) { 5 } else { 6 },
-            8,
-            if rng.random_bool(0.5) {
-                "DaySky"
-            } else {
-                "SnowyHills"
-            },
-            10.0,
-            1.6,
-        ),
-        GenDifficulty::Hard => (
-            if rng.random_bool(0.5) { 7 } else { 8 },
-            6,
-            11,
-            if rng.random_bool(0.5) {
-                "SnowyHills"
-            } else {
-                "OuterSpace"
-            },
-            8.0,
-            2.0,
-        ),
+    let ((cols_lo, cols_hi), (rows_lo, rows_hi), target_min_len, bg, delay, speed) = match diff {
+        GenDifficulty::Easy => {
+            let chi = 5.min(max_cols);
+            let rhi = 5.min(max_rows);
+            (
+                (4.min(chi), chi),
+                (4.min(rhi), rhi),
+                6usize,
+                if rng.random_bool(0.5) {
+                    "NightHills"
+                } else {
+                    "DaySky"
+                },
+                14.0f32,
+                1.3f32,
+            )
+        }
+        GenDifficulty::Medium => {
+            let chi = 7.min(max_cols);
+            let rhi = 6.min(max_rows);
+            (
+                (6.min(chi), chi),
+                (5.min(rhi), rhi),
+                8,
+                if rng.random_bool(0.5) {
+                    "DaySky"
+                } else {
+                    "SnowyHills"
+                },
+                10.0,
+                1.6,
+            )
+        }
+        GenDifficulty::Hard => {
+            let chi = max_cols;
+            let rhi = max_rows;
+            (
+                (7.min(chi), chi),
+                (6.min(rhi), rhi),
+                11 + chi.saturating_sub(8),
+                if rng.random_bool(0.5) {
+                    "SnowyHills"
+                } else {
+                    "OuterSpace"
+                },
+                8.0,
+                2.0,
+            )
+        }
     };
+    let cols = rng.random_range(cols_lo..=cols_hi);
+    let rows = rng.random_range(rows_lo..=rows_hi);
+    let avail = (cols * rows).saturating_sub(2);
+    let max_feasible = (avail * 45 / 100).max(2);
+    let min_len = target_min_len.min(max_feasible);
 
     let sx = 0usize;
     let sy = rng.random_range(0..rows);
@@ -142,6 +268,14 @@ fn try_build_candidate(
 
     // Build path tiles (optionally split across a portal pair on Medium/Hard)
     let use_portal = diff != GenDifficulty::Easy && path.len() >= 7 && rng.random_bool(0.55);
+    let portal_palette = [
+        GameColor::Orange,
+        GameColor::Violet,
+        GameColor::Red,
+        GameColor::Green,
+        GameColor::Blue,
+    ];
+    let portal_color = portal_palette[rng.random_range(0..portal_palette.len())];
     let portal_split = if use_portal {
         Some(path.len() / 2)
     } else {
@@ -178,7 +312,7 @@ fn try_build_candidate(
                     is_gate: false,
                     is_freeze: false,
                     is_magic: false,
-                    secondary_color: Some(GameColor::Orange),
+                    secondary_color: Some(portal_color),
                 },
             );
             continue;
@@ -197,7 +331,7 @@ fn try_build_candidate(
                     is_gate: false,
                     is_freeze: false,
                     is_magic: false,
-                    secondary_color: Some(GameColor::Orange),
+                    secondary_color: Some(portal_color),
                 },
             );
             continue;
@@ -362,6 +496,16 @@ fn try_build_candidate(
         }
     }
 
+    let liquid_palette = [
+        GameColor::Blue,
+        GameColor::Green,
+        GameColor::Orange,
+        GameColor::Red,
+        GameColor::Violet,
+        GameColor::Yellow,
+    ];
+    let liquid_color = liquid_palette[rng.random_range(0..liquid_palette.len())];
+
     Some(LevelDef {
         index: 0,
         title: format!(
@@ -375,7 +519,7 @@ fn try_build_candidate(
         ),
         description: "Generated puzzle.".to_string(),
         background_id: bg.to_string(),
-        liquid_color: GameColor::Blue,
+        liquid_color,
         start_delay: delay,
         liquid_speed: speed,
         rotater_color: GameColor::White,
@@ -429,7 +573,7 @@ fn dfs_walk(
     steps: &mut usize,
 ) -> bool {
     *steps += 1;
-    if *steps > 600 {
+    if *steps > 1200 {
         return false;
     }
     if cur == end {

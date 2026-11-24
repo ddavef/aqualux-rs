@@ -35,6 +35,15 @@ impl GameApp {
                 *session_score
             }
             PlayMode::EditorTest { .. } => res.total_score,
+            PlayMode::Endless {
+                pre_level_score,
+                session_score,
+                ..
+            } => {
+                let next = *pre_level_score + res.total_score;
+                *session_score = next;
+                next
+            }
             PlayMode::Campaign => {
                 if let Some(prof) = self.save.active_profile_mut() {
                     if self.retry_backup.is_none() {
@@ -190,6 +199,16 @@ impl GameApp {
                 self.return_to_editor();
                 return;
             }
+            PlayMode::Endless {
+                config,
+                level_num,
+                session_score,
+                ..
+            } => {
+                self.bg_anim.lighten(0.0);
+                self.launch_endless_level(config, level_num + 1, session_score);
+                return;
+            }
             PlayMode::Campaign => {}
         }
 
@@ -341,7 +360,8 @@ impl GameApp {
     pub(crate) fn display_base_score(&self) -> u32 {
         match &self.play_mode {
             PlayMode::Lotd => self.lotd_score,
-            PlayMode::CustomPack { session_score, .. } => *session_score,
+            PlayMode::CustomPack { session_score, .. }
+            | PlayMode::Endless { session_score, .. } => *session_score,
             PlayMode::EditorTest { .. } => 0,
             PlayMode::Campaign => self
                 .save
@@ -377,7 +397,7 @@ impl GameApp {
         if !already {
             self.audio.play_sfx("SwapTwoSound");
             let more = match &self.play_mode {
-                PlayMode::Lotd => true,
+                PlayMode::Lotd | PlayMode::Endless { .. } => true,
                 PlayMode::EditorTest { .. } => false,
                 PlayMode::Campaign => {
                     self.current_level_idx + 1 < self.assets.campaign_levels.len()
@@ -403,8 +423,18 @@ impl GameApp {
         match action {
             SummaryHideAction::NextLevel => self.advance_after_summary(),
             SummaryHideAction::RetryLevel => {
-                if let Some(prof) = self.save.active_profile() {
+                if self.play_mode == PlayMode::Campaign
+                    && let Some(prof) = self.save.active_profile()
+                {
                     self.retry_backup = prof.records.get(&self.current_level_idx).cloned();
+                }
+                if let PlayMode::Endless {
+                    pre_level_score,
+                    session_score,
+                    ..
+                } = &mut self.play_mode
+                {
+                    *session_score = *pre_level_score;
                 }
                 self.is_retrying_level = true;
                 self.bg_anim.lighten(0.0);

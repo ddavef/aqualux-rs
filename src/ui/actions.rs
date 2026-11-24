@@ -22,6 +22,7 @@ impl GameApp {
                 | UiAction::ToggleLevelOnlyCheckbox
                 | UiAction::ToggleColorBlind
                 | UiAction::ToggleWindowed
+                | UiAction::EndlessToggleDifficulty(_)
                 | UiAction::NextTutorial
         ) {
             self.audio.play_sfx("ClickOneSound");
@@ -66,6 +67,43 @@ impl GameApp {
             UiAction::StartMatch => self.start_title_hide(LaunchSource::Match { mirror: false }),
             UiAction::StartMirrorMatch => {
                 self.start_title_hide(LaunchSource::Match { mirror: true })
+            }
+            UiAction::OpenEndlessSetup => {
+                self.modals
+                    .push(ModalState::EndlessSetup(self.endless_config));
+            }
+            UiAction::EndlessToggleDifficulty(d) => {
+                if let Some(ModalState::EndlessSetup(cfg)) = self.modals.last_mut() {
+                    cfg.toggle(d);
+                }
+            }
+            UiAction::EndlessAdjustMaxCols(delta) => {
+                if let Some(ModalState::EndlessSetup(cfg)) = self.modals.last_mut() {
+                    cfg.adjust_max_cols(delta);
+                }
+            }
+            UiAction::EndlessAdjustMaxRows(delta) => {
+                if let Some(ModalState::EndlessSetup(cfg)) = self.modals.last_mut() {
+                    cfg.adjust_max_rows(delta);
+                }
+            }
+            UiAction::EndlessCycleRules => {
+                if let Some(ModalState::EndlessSetup(cfg)) = self.modals.last_mut() {
+                    cfg.rules = cfg.rules.next();
+                }
+            }
+            UiAction::StartEndlessRun => {
+                if let Some(&ModalState::EndlessSetup(cfg)) = self.modals.last()
+                    && cfg.any_enabled()
+                {
+                    self.modals.pop();
+                    self.endless_config = cfg;
+                    if self.screen == Screen::Title {
+                        self.start_title_hide(LaunchSource::Endless(cfg));
+                    } else {
+                        self.execute_launch(LaunchSource::Endless(cfg));
+                    }
+                }
             }
             UiAction::OpenCustomHub { play_focused } => {
                 if self.screen == Screen::Title {
@@ -223,7 +261,7 @@ impl GameApp {
                     }
                     PlayMode::CustomPack { .. } => "Return to custom packs?".to_string(),
                     PlayMode::EditorTest { .. } => "Return to the level editor?".to_string(),
-                    PlayMode::Lotd => "Return to main menu?".to_string(),
+                    PlayMode::Lotd | PlayMode::Endless { .. } => "Return to main menu?".to_string(),
                 };
                 self.modals.push(ModalState::Question {
                     id: QuestionId::ConfirmMainMenuFromPause,
@@ -242,7 +280,7 @@ impl GameApp {
                     }
                     PlayMode::CustomPack { .. } => "Return to custom packs?".to_string(),
                     PlayMode::EditorTest { .. } => "Return to the level editor?".to_string(),
-                    PlayMode::Lotd => "Return to main menu?".to_string(),
+                    PlayMode::Lotd | PlayMode::Endless { .. } => "Return to main menu?".to_string(),
                 };
                 self.modals.push(ModalState::Question {
                     id: QuestionId::ConfirmMainMenuFromSummary,

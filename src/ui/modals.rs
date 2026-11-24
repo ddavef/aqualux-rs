@@ -2,11 +2,14 @@
 // Copyright (C) 2026 ddavef aqualux-rs
 
 use crate::assets::AssetBundle;
+use crate::game::generator::{GenDifficulty, MIN_GEN_COLS, MIN_GEN_ROWS};
+use crate::game::level_io::{MAX_GRID_COLS, MAX_GRID_ROWS};
 use crate::game::{AwardKind, Difficulty};
 use crate::render::{
     Canvas, FontFamily, FontSet, GlowPreset, LOGICAL_H, LOGICAL_W, Rect, TexBank, TextAlign,
 };
 use crate::save::SaveData;
+use crate::ui::EndlessConfig;
 use crate::ui::editor::{build_level_props_buttons, render_level_props_modal};
 use crate::ui::profiles::{
     build_enter_name_buttons, build_profile_modal_buttons, render_enter_name_modal,
@@ -285,6 +288,78 @@ pub fn build_modal_buttons(
             hover_sfx: None,
         }],
         ModalState::LevelProps(props) => build_level_props_buttons(props),
+        ModalState::EndlessSetup(cfg) => vec![
+            UiButton {
+                id: "end_easy",
+                rect: Rect::new(225.0, 198.0, 355.0, 26.0),
+                action: UiAction::EndlessToggleDifficulty(GenDifficulty::Easy),
+                enabled: true,
+                hover_sfx: None,
+            },
+            UiButton {
+                id: "end_med",
+                rect: Rect::new(225.0, 232.0, 355.0, 26.0),
+                action: UiAction::EndlessToggleDifficulty(GenDifficulty::Medium),
+                enabled: true,
+                hover_sfx: None,
+            },
+            UiButton {
+                id: "end_hard",
+                rect: Rect::new(225.0, 266.0, 355.0, 26.0),
+                action: UiAction::EndlessToggleDifficulty(GenDifficulty::Hard),
+                enabled: true,
+                hover_sfx: None,
+            },
+            UiButton {
+                id: "end_cols_dec",
+                rect: Rect::new(392.0, 312.0, 26.0, 24.0),
+                action: UiAction::EndlessAdjustMaxCols(-1),
+                enabled: cfg.max_cols > MIN_GEN_COLS,
+                hover_sfx: Some("PopTwoSound"),
+            },
+            UiButton {
+                id: "end_cols_inc",
+                rect: Rect::new(450.0, 312.0, 26.0, 24.0),
+                action: UiAction::EndlessAdjustMaxCols(1),
+                enabled: cfg.max_cols < MAX_GRID_COLS,
+                hover_sfx: Some("PopTwoSound"),
+            },
+            UiButton {
+                id: "end_rows_dec",
+                rect: Rect::new(496.0, 312.0, 26.0, 24.0),
+                action: UiAction::EndlessAdjustMaxRows(-1),
+                enabled: cfg.max_rows > MIN_GEN_ROWS,
+                hover_sfx: Some("PopTwoSound"),
+            },
+            UiButton {
+                id: "end_rows_inc",
+                rect: Rect::new(554.0, 312.0, 26.0, 24.0),
+                action: UiAction::EndlessAdjustMaxRows(1),
+                enabled: cfg.max_rows < MAX_GRID_ROWS,
+                hover_sfx: Some("PopTwoSound"),
+            },
+            UiButton {
+                id: "end_rules",
+                rect: Rect::new(370.0, 348.0, 212.0, 26.0),
+                action: UiAction::EndlessCycleRules,
+                enabled: true,
+                hover_sfx: Some("PopTwoSound"),
+            },
+            UiButton {
+                id: "end_play",
+                rect: Rect::new(298.0, 412.0, 94.0, 53.0),
+                action: UiAction::StartEndlessRun,
+                enabled: cfg.any_enabled(),
+                hover_sfx: None,
+            },
+            UiButton {
+                id: "end_back",
+                rect: Rect::new(408.0, 412.0, 94.0, 53.0),
+                action: UiAction::CloseTopModal,
+                enabled: true,
+                hover_sfx: None,
+            },
+        ],
     }
 }
 
@@ -359,6 +434,9 @@ pub fn render_modal_stack(
             }
             ModalState::LevelProps(props) => {
                 render_level_props_modal(canvas, bank, fonts, props, mpos);
+            }
+            ModalState::EndlessSetup(cfg) => {
+                render_endless_setup_modal(canvas, bank, fonts, *cfg, mpos);
             }
         }
     }
@@ -828,6 +906,217 @@ fn render_award_modal(
         r_ok,
         "Ok",
         r_ok.contains(mouse_pos.0, mouse_pos.1),
+        true,
+    );
+}
+
+fn render_endless_setup_modal(
+    canvas: &mut Canvas,
+    bank: &TexBank,
+    fonts: &FontSet,
+    cfg: EndlessConfig,
+    mouse_pos: (f32, f32),
+) {
+    canvas.fill_rect_alpha(
+        Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32),
+        0,
+        0,
+        0,
+        105,
+    );
+    draw_modal_bubble(canvas, Rect::new(185.0, 120.0, 430.0, 362.0));
+    fonts.draw_stroked(
+        canvas,
+        FontFamily::Neuropol,
+        400.0,
+        138.0,
+        24.0,
+        (255, 255, 255),
+        (5, 13, 43),
+        TextAlign::Center,
+        "-Endless Mode-",
+    );
+    fonts.draw(
+        canvas,
+        FontFamily::Neuropol,
+        400.0,
+        172.0,
+        16.0,
+        (0xC0, 0xD4, 0xF0),
+        TextAlign::Center,
+        "Choose difficulties to generate:",
+    );
+
+    let rows = [
+        ("Easy", "(classic pipes)", cfg.easy, 204.0),
+        ("Medium", "(portals & frost)", cfg.medium, 238.0),
+        ("Hard", "(gates, magic & portals)", cfg.hard, 272.0),
+    ];
+    for (lbl, hint, checked, y) in rows {
+        let hovered = Rect::new(225.0, y - 6.0, 355.0, 26.0).contains(mouse_pos.0, mouse_pos.1);
+        draw_checkbox(canvas, fonts, 225.0, y, lbl, checked, hovered);
+        fonts.draw(
+            canvas,
+            FontFamily::Neuropol,
+            578.0,
+            y + 1.0,
+            13.0,
+            (0xB8, 0xCA, 0xE6),
+            TextAlign::Right,
+            hint,
+        );
+    }
+
+    fonts.draw(
+        canvas,
+        FontFamily::Neuropol,
+        225.0,
+        314.0,
+        16.0,
+        (255, 255, 255),
+        TextAlign::Left,
+        "Max Grid:",
+    );
+    let draw_step = |canvas: &mut Canvas, x_center: f32, rect: Rect, label: &str, enabled: bool| {
+        let hov = enabled && rect.contains(mouse_pos.0, mouse_pos.1);
+        draw_text_button(
+            canvas,
+            fonts,
+            x_center,
+            314.0,
+            16.0,
+            TextAlign::Center,
+            label,
+            hov,
+            None,
+            if enabled { 1.0 } else { 0.35 },
+        );
+    };
+    draw_step(
+        canvas,
+        405.0,
+        Rect::new(392.0, 312.0, 26.0, 24.0),
+        "[-]",
+        cfg.max_cols > MIN_GEN_COLS,
+    );
+    fonts.draw(
+        canvas,
+        FontFamily::Neuropol,
+        434.0,
+        314.0,
+        16.0,
+        (255, 255, 255),
+        TextAlign::Center,
+        &cfg.max_cols.to_string(),
+    );
+    draw_step(
+        canvas,
+        463.0,
+        Rect::new(450.0, 312.0, 26.0, 24.0),
+        "[+]",
+        cfg.max_cols < MAX_GRID_COLS,
+    );
+    fonts.draw(
+        canvas,
+        FontFamily::Neuropol,
+        484.0,
+        315.0,
+        15.0,
+        (0xC0, 0xD4, 0xF0),
+        TextAlign::Center,
+        "x",
+    );
+    draw_step(
+        canvas,
+        509.0,
+        Rect::new(496.0, 312.0, 26.0, 24.0),
+        "[-]",
+        cfg.max_rows > MIN_GEN_ROWS,
+    );
+    fonts.draw(
+        canvas,
+        FontFamily::Neuropol,
+        538.0,
+        314.0,
+        16.0,
+        (255, 255, 255),
+        TextAlign::Center,
+        &cfg.max_rows.to_string(),
+    );
+    draw_step(
+        canvas,
+        567.0,
+        Rect::new(554.0, 312.0, 26.0, 24.0),
+        "[+]",
+        cfg.max_rows < MAX_GRID_ROWS,
+    );
+
+    fonts.draw(
+        canvas,
+        FontFamily::Neuropol,
+        225.0,
+        352.0,
+        16.0,
+        (255, 255, 255),
+        TextAlign::Left,
+        "Play Rules:",
+    );
+    let r_rules = Rect::new(370.0, 348.0, 212.0, 26.0);
+    draw_text_button(
+        canvas,
+        fonts,
+        578.0,
+        352.0,
+        16.0,
+        TextAlign::Right,
+        cfg.rules.label(),
+        r_rules.contains(mouse_pos.0, mouse_pos.1),
+        Some((0x42, 0x83, 0xF3)),
+        1.0,
+    );
+
+    if cfg.any_enabled() {
+        fonts.draw(
+            canvas,
+            FontFamily::Neuropol,
+            400.0,
+            384.0,
+            13.0,
+            (0xB8, 0xCA, 0xE6),
+            TextAlign::Center,
+            "Scores & trophies are shown per run and not saved.",
+        );
+    } else {
+        fonts.draw(
+            canvas,
+            FontFamily::Neuropol,
+            400.0,
+            384.0,
+            13.0,
+            (0xFF, 0x9A, 0x8C),
+            TextAlign::Center,
+            "(Select at least one difficulty)",
+        );
+    }
+
+    let r_play = Rect::new(298.0, 412.0, 94.0, 53.0);
+    let r_back = Rect::new(408.0, 412.0, 94.0, 53.0);
+    draw_modal_button(
+        canvas,
+        bank,
+        fonts,
+        r_play,
+        "play",
+        r_play.contains(mouse_pos.0, mouse_pos.1),
+        cfg.any_enabled(),
+    );
+    draw_modal_button(
+        canvas,
+        bank,
+        fonts,
+        r_back,
+        "back",
+        r_back.contains(mouse_pos.0, mouse_pos.1),
         true,
     );
 }
