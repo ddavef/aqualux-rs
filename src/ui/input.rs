@@ -6,7 +6,7 @@ use crate::ui::editor::{EditorTool, build_editor_buttons, editor_board_area};
 use crate::ui::hud;
 use crate::ui::modals::{OPTIONS_FX_Y, OPTIONS_MUSIC_Y, OPTIONS_SLIDER_X};
 use crate::ui::title::TitleSubmenu;
-use crate::ui::widgets::{ModalState, UiAction};
+use crate::ui::widgets::{ModalState, QuestionId, UiAction};
 use crate::ui::{DragSlider, GameApp, Screen};
 
 impl GameApp {
@@ -245,7 +245,12 @@ impl GameApp {
         }
         if let Some(top) = self.modals.last() {
             match top {
-                ModalState::InGameDifficulty { .. } | ModalState::Award { .. } => return,
+                ModalState::InGameDifficulty { .. }
+                | ModalState::Award { .. }
+                | ModalState::Question {
+                    id: QuestionId::UnlockMatchNotice(_) | QuestionId::UnlockMirrorNotice(_),
+                    ..
+                } => return,
                 _ => {
                     self.modals.pop();
                     return;
@@ -255,7 +260,9 @@ impl GameApp {
         match self.screen {
             Screen::CustomHub => self.trigger_action(UiAction::HubBackToTitle),
             Screen::Editor => self.trigger_action(UiAction::EditorBack),
-            Screen::Playing | Screen::MatchPlaying => self.trigger_action(UiAction::PauseGame),
+            Screen::Playing | Screen::MatchPlaying if self.can_pause() => {
+                self.trigger_action(UiAction::PauseGame)
+            }
             Screen::Paused => self.trigger_action(UiAction::ResumeGame),
             Screen::Title => {
                 if self.title_submenu == TitleSubmenu::DifficultyChoices {

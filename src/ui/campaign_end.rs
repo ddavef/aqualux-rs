@@ -20,7 +20,12 @@ impl GameApp {
         let old_total = self.display_base_score();
         let new_total = match &mut self.play_mode {
             PlayMode::Lotd => {
-                self.lotd_score += res.total_score;
+                if self.lotd_level_scores.len() <= self.lotd_index {
+                    self.lotd_level_scores.resize(self.lotd_index + 1, 0);
+                }
+                let prev = self.lotd_level_scores[self.lotd_index];
+                self.lotd_level_scores[self.lotd_index] = prev.max(res.total_score);
+                self.lotd_score = self.lotd_level_scores.iter().sum();
                 self.lotd_score
             }
             PlayMode::CustomPack {
@@ -50,8 +55,10 @@ impl GameApp {
                         self.retry_backup = prof.records.get(&self.current_level_idx).cloned();
                     }
                     prof.record_win(self.current_level_idx, res, moves, time_ms);
-                    prof.savable_level_index = (self.current_level_idx + 1)
-                        .min(self.assets.campaign_levels.len().saturating_sub(1));
+                    if self.is_index_savable {
+                        prof.savable_level_index = (self.current_level_idx + 1)
+                            .min(self.assets.campaign_levels.len().saturating_sub(1));
+                    }
                     prof.total_score()
                 } else {
                     res.total_score
@@ -62,12 +69,10 @@ impl GameApp {
         let drop_dur = (0.15 * (rows * cols) as f32).min(1.8) + 1.2;
         self.board_hide = Some((0.0, 0.0, drop_dur, HideAfterBoard::None));
         self.audio.play_music_delayed("GlideSuccess", 0.6, true);
-        self.audio.play_sfx_delayed("SwapTwoSound", 0.2, 1.0);
         self.bg_anim.darken(0.0);
-        self.summary_state = Some(SummaryState::new(res, old_total, new_total));
         self.screen = Screen::Summary;
 
-        if self.play_mode == PlayMode::Campaign {
+        let trigger_ultralux = if self.play_mode == PlayMode::Campaign {
             let total_lvls = self.assets.campaign_levels.len();
             if let Some(prof) = self.save.active_profile_mut()
                 && !prof.awards[3]
@@ -75,15 +80,32 @@ impl GameApp {
             {
                 prof.awards[3] = true;
                 self.save.save();
-                self.audio.play_sfx("BonusTwoSound");
-                self.modals.push(ModalState::Award {
-                    kind: AwardKind::Ultralux,
-                    then_champion: false,
-                    then_ultralux: false,
-                    then_unlock_match_level: None,
-                });
+                true
+            } else {
+                false
             }
+        } else {
+            false
+        };
+
+        if trigger_ultralux {
+            self.summary_state = None;
+            self.pending_summary = Some((res, old_total, new_total));
+            self.audio.play_sfx("BonusTwoSound");
+            self.modals.push(ModalState::Award {
+                kind: AwardKind::Ultralux,
+                then_champion: false,
+                then_ultralux: false,
+                then_unlock_match_level: None,
+            });
+        } else {
+            self.show_summary(res, old_total, new_total);
         }
+    }
+
+    pub(crate) fn show_summary(&mut self, res: MetricResult, old_total: u32, new_total: u32) {
+        self.audio.play_sfx_delayed("SwapTwoSound", 0.2, 1.0);
+        self.summary_state = Some(SummaryState::new(res, old_total, new_total));
     }
 
     pub(crate) fn on_campaign_fail(&mut self) {
@@ -217,7 +239,9 @@ impl GameApp {
         if next_idx < total {
             if let Some(prof) = self.save.active_profile_mut() {
                 prof.level_index = next_idx;
-                prof.savable_level_index = next_idx;
+                if self.is_index_savable {
+                    prof.savable_level_index = next_idx;
+                }
             }
             self.save.save();
             self.bg_anim.lighten(0.0);
@@ -230,7 +254,9 @@ impl GameApp {
             if let Some(prof) = self.save.active_profile_mut() {
                 let ap = prof.all_platinum(total);
                 prof.level_index = 0;
-                prof.savable_level_index = 0;
+                if self.is_index_savable {
+                    prof.savable_level_index = 0;
+                }
                 let nc = !prof.awards[1];
                 if nc {
                     prof.awards[1] = true;
@@ -288,6 +314,7 @@ impl GameApp {
         };
         self.save.save();
         if trigger_mirror_award {
+            self.info_banner = None;
             self.audio.play_sfx("BonusTwoSound");
             self.modals.push(ModalState::Award {
                 kind: AwardKind::MirrorMaster,
@@ -416,6 +443,8 @@ impl GameApp {
     }
 
     fn execute_summary_action(&mut self, action: SummaryHideAction) {
+        self.summary_state = None;
+        self.fireworks.clear();
         match action {
             SummaryHideAction::NextLevel => self.advance_after_summary(),
             SummaryHideAction::RetryLevel => {
@@ -432,7 +461,6 @@ impl GameApp {
                 {
                     *session_score = *pre_level_score;
                 }
-                self.is_retrying_level = true;
                 self.bg_anim.lighten(0.0);
                 self.repeat_current_level();
             }

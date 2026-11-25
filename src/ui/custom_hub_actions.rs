@@ -384,7 +384,8 @@ impl GameApp {
         self.fail_count = 0;
         self.temp_easy_revert = None;
         self.retry_backup = None;
-        self.is_retrying_level = false;
+        self.pending_summary = None;
+        self.is_index_savable = true;
         self.current_level_idx = level_idx;
         self.play_mode = PlayMode::CustomPack {
             pack_id: pack_id.to_string(),

@@ -59,9 +59,13 @@ impl SummaryState {
     }
 
     pub fn update(&mut self, dt: f32) -> (bool, Option<SummaryHideAction>) {
-        if let Some((ref mut h, act)) = self.hiding {
-            *h += dt;
-            return (false, (*h >= 2.0).then_some(act));
+        if let Some((mut h, act)) = self.hiding.take() {
+            h += dt;
+            if h >= 2.0 {
+                return (false, Some(act));
+            }
+            self.hiding = Some((h, act));
+            return (false, None);
         }
         self.age += dt;
         self.fill_roller.update(dt);

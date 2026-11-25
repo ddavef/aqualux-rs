@@ -28,7 +28,7 @@ use crate::audio::AudioEngine;
 use crate::custom::CustomPackStore;
 use crate::game::generator::{GenDifficulty, MIN_GEN_COLS, MIN_GEN_ROWS};
 use crate::game::level_io::{MAX_GRID_COLS, MAX_GRID_ROWS};
-use crate::game::{Difficulty, LevelDef, LevelSim, MatchSim};
+use crate::game::{Difficulty, LevelDef, LevelSim, MatchSim, MetricResult};
 use crate::render::{
     BgAnimState, BoardLayout, FireworkBurst, GpuCore, LeakEmitter, Renderer, ScoreBlurbFx,
 };
@@ -232,13 +232,15 @@ pub struct GameApp {
     pub play_mode: PlayMode,
     pub lotd_index: usize,
     pub lotd_score: u32,
+    pub(crate) lotd_level_scores: Vec<u32>,
     pub custom_packs: CustomPackStore,
     pub custom_hub: CustomHubState,
     pub editor: Option<EditorState>,
     pub endless_config: EndlessConfig,
     pub fail_count: u32,
-    pub is_retrying_level: bool,
+    pub is_index_savable: bool,
     pub retry_backup: Option<LevelRecord>,
+    pub(crate) pending_summary: Option<(MetricResult, u32, u32)>,
     pub temp_easy_revert: Option<Difficulty>,
     /// `(elapsed, start_delay, done_time, pop_sfx_count)`
     pub(crate) board_pop_elapsed: Option<(f32, f32, f32, usize)>,
@@ -314,13 +316,15 @@ impl GameApp {
             play_mode: PlayMode::Campaign,
             lotd_index: 0,
             lotd_score: 0,
+            lotd_level_scores: Vec::new(),
             custom_packs,
             custom_hub: CustomHubState::default(),
             editor: None,
             endless_config: EndlessConfig::default(),
             fail_count: 0,
-            is_retrying_level: false,
+            is_index_savable: true,
             retry_backup: None,
+            pending_summary: None,
             temp_easy_revert: None,
             board_pop_elapsed: None,
             board_hide: None,
@@ -350,6 +354,23 @@ impl GameApp {
 
     pub(crate) fn is_board_busy(&self) -> bool {
         self.board_pop_elapsed.is_some() || self.board_hide.is_some()
+    }
+
+    pub(crate) fn can_pause(&self) -> bool {
+        if self.is_board_busy() || !self.modals.is_empty() {
+            return false;
+        }
+        match self.screen {
+            Screen::Playing => self
+                .campaign_sim
+                .as_ref()
+                .is_some_and(|s| s.active_tutorial().is_none() && s.is_started && !s.finished),
+            Screen::MatchPlaying => self
+                .match_sim
+                .as_ref()
+                .is_some_and(|m| m.is_started && !m.finished),
+            _ => false,
+        }
     }
 
     pub fn update(&mut self, dt: f32) {
@@ -431,52 +452,54 @@ impl GameApp {
             self.pause_fade = 1.0;
         }
 
-        if let Some((mut elapsed, start_d, done_t, mut sfx_done)) = self.board_pop_elapsed {
-            elapsed += dt;
-            let total_tiles = self
-                .campaign_sim
-                .as_ref()
-                .map(|s| s.level.rows * s.level.cols)
-                .or_else(|| self.match_sim.as_ref().map(|m| m.level.rows * m.level.cols))
-                .unwrap_or(0);
-            while sfx_done < total_tiles && elapsed >= start_d + (sfx_done as f32) * 0.1 {
-                self.audio.play_sfx("PopTwoSound");
-                sfx_done += 1;
-            }
-            if elapsed >= done_t {
-                self.board_pop_elapsed = None;
-                if let Some(sim) = &mut self.campaign_sim {
-                    let evs = sim.start_level();
-                    let l = BoardLayout::compute(
-                        sim.level.cols,
-                        sim.level.rows,
-                        hud::campaign_board_area(),
-                    );
-                    self.handle_sim_events(evs, l);
+        if self.screen != Screen::Paused {
+            if let Some((mut elapsed, start_d, done_t, mut sfx_done)) = self.board_pop_elapsed {
+                elapsed += dt;
+                let total_tiles = self
+                    .campaign_sim
+                    .as_ref()
+                    .map(|s| s.level.rows * s.level.cols)
+                    .or_else(|| self.match_sim.as_ref().map(|m| m.level.rows * m.level.cols))
+                    .unwrap_or(0);
+                while sfx_done < total_tiles && elapsed >= start_d + (sfx_done as f32) * 0.1 {
+                    self.audio.play_sfx("PopTwoSound");
+                    sfx_done += 1;
                 }
-                if let Some(ms) = &mut self.match_sim {
-                    ms.start_level();
-                }
-            } else {
-                self.board_pop_elapsed = Some((elapsed, start_d, done_t, sfx_done));
-            }
-        }
-
-        if let Some((mut elapsed, delay, done_t, next)) = self.board_hide {
-            elapsed += dt;
-            if elapsed >= done_t {
-                self.board_hide = None;
-                match next {
-                    HideAfterBoard::None => {}
-                    HideAfterBoard::RepeatLevel => self.repeat_current_level(),
-                    HideAfterBoard::OfferEasyDifficulty => {
-                        self.modals
-                            .push(ModalState::InGameDifficulty { level_only: false });
+                if elapsed >= done_t {
+                    self.board_pop_elapsed = None;
+                    if let Some(sim) = &mut self.campaign_sim {
+                        let evs = sim.start_level();
+                        let l = BoardLayout::compute(
+                            sim.level.cols,
+                            sim.level.rows,
+                            hud::campaign_board_area(),
+                        );
+                        self.handle_sim_events(evs, l);
                     }
-                    HideAfterBoard::AdvanceMatch => self.advance_after_match(),
+                    if let Some(ms) = &mut self.match_sim {
+                        ms.start_level();
+                    }
+                } else {
+                    self.board_pop_elapsed = Some((elapsed, start_d, done_t, sfx_done));
                 }
-            } else {
-                self.board_hide = Some((elapsed, delay, done_t, next));
+            }
+
+            if let Some((mut elapsed, delay, done_t, next)) = self.board_hide {
+                elapsed += dt;
+                if elapsed >= done_t {
+                    self.board_hide = None;
+                    match next {
+                        HideAfterBoard::None => {}
+                        HideAfterBoard::RepeatLevel => self.repeat_current_level(),
+                        HideAfterBoard::OfferEasyDifficulty => {
+                            self.modals
+                                .push(ModalState::InGameDifficulty { level_only: false });
+                        }
+                        HideAfterBoard::AdvanceMatch => self.advance_after_match(),
+                    }
+                } else {
+                    self.board_hide = Some((elapsed, delay, done_t, next));
+                }
             }
         }
 

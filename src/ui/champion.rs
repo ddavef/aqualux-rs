@@ -37,11 +37,12 @@ impl ChampionState {
         self.age += dt;
         self.star_field.update(dt);
         self.score_roller.update(dt);
-        if let Some((ref mut h, quit)) = self.hiding {
-            *h += dt;
-            if *h >= 1.0 {
+        if let Some((mut h, quit)) = self.hiding.take() {
+            h += dt;
+            if h >= 1.0 {
                 return Some(quit);
             }
+            self.hiding = Some((h, quit));
         }
         None
     }

@@ -531,3 +531,229 @@ fn both_match_and_mirror_modes_available_independently() {
         assert_eq!(sim.level_index, 6);
     }
 }
+
+#[test]
+fn unlock_chains_retries_modal_deferral_and_escape_guards() {
+    use crate::game::scoring::calculate_score;
+    use crate::game::{AwardKind, Trophy};
+    use crate::save::LevelRecord;
+    use crate::ui::widgets::QuestionId;
+    use std::collections::HashMap;
+
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let mut app = GameApp::new(bundle, Some(120), test_gpu()).expect("GameApp init");
+
+    // Helper: non-platinum records for 0..count
+    let make_records = |count: usize, trophy: Trophy| -> HashMap<usize, LevelRecord> {
+        (0..count)
+            .map(|i| {
+                (
+                    i,
+                    LevelRecord {
+                        best_trophy: trophy,
+                        best_score: 1000,
+                        best_moves: Some(5),
+                        best_time_ms: Some(5000),
+                    },
+                )
+            })
+            .collect()
+    };
+
+    // 1. Level 25 -> 26 unlock chain: must NOT re-fire NextLevel behind LightWater / UnlockMatchNotice.
+    app.save.profiles = vec![ProfileData {
+        name: "Tester".into(),
+        level_index: 24,
+        savable_level_index: 24,
+        records: make_records(24, Trophy::Gold),
+        ..Default::default()
+    }];
+    app.save.current_profile = Some("Tester".into());
+    app.start_campaign_level(24, true);
+    let win_gold = calculate_score(4, 5, 5000, 8, 10, 20000, false);
+    app.on_campaign_win(win_gold);
+    app.trigger_action(UiAction::NextLevel);
+    for _ in 0..60 {
+        app.update(0.05);
+    }
+    assert!(app.summary_state.is_none());
+    assert_eq!(app.current_level_idx, 25);
+    assert!(matches!(
+        app.modals.last(),
+        Some(ModalState::Award {
+            kind: AwardKind::LightWater,
+            ..
+        })
+    ));
+    app.on_key_escape();
+    assert_eq!(app.modals.len(), 1);
+    app.trigger_action(UiAction::DismissAward);
+    assert!(matches!(
+        app.modals.last(),
+        Some(ModalState::Question {
+            id: QuestionId::UnlockMatchNotice(_),
+            ..
+        })
+    ));
+    for _ in 0..10 {
+        app.update(0.05);
+    }
+    assert_eq!(app.current_level_idx, 25);
+    app.on_key_escape();
+    assert_eq!(app.modals.len(), 1);
+    app.trigger_action(UiAction::QuestionYes);
+    assert!(app.modals.is_empty());
+    assert_eq!(app.screen, Screen::Playing);
+    assert_eq!(app.current_level_idx, 25);
+
+    // 2. Level 100 unlock chain: must NOT launch ChampionScreen early behind UnlockMirrorNotice / Champ.
+    app.save.profiles = vec![ProfileData {
+        name: "Tester".into(),
+        level_index: 99,
+        savable_level_index: 99,
+        awards: [true, false, false, false],
+        records: make_records(99, Trophy::Gold),
+        ..Default::default()
+    }];
+    app.start_campaign_level(99, true);
+    app.on_campaign_win(win_gold);
+    app.trigger_action(UiAction::NextLevel);
+    for _ in 0..60 {
+        app.update(0.05);
+    }
+    assert!(app.summary_state.is_none());
+    assert!(app.champion_state.is_none());
+    assert_ne!(app.screen, Screen::Champion);
+    assert!(matches!(
+        app.modals.last(),
+        Some(ModalState::Question {
+            id: QuestionId::UnlockMirrorNotice(false),
+            ..
+        })
+    ));
+    app.on_key_escape();
+    assert_eq!(app.modals.len(), 1);
+    app.trigger_action(UiAction::QuestionYes);
+    assert!(matches!(
+        app.modals.last(),
+        Some(ModalState::Award {
+            kind: AwardKind::Champ,
+            ..
+        })
+    ));
+    app.on_key_escape();
+    assert_eq!(app.modals.len(), 1);
+    app.trigger_action(UiAction::DismissAward);
+    assert!(app.modals.is_empty());
+    assert_eq!(app.screen, Screen::Champion);
+    assert!(app.champion_state.is_some());
+
+    // 3. ULTRALUXER defers SummaryState until dismissed; MIRROR ZEN clears info_banner.
+    app.champion_state = None;
+    app.save.profiles = vec![ProfileData {
+        name: "Tester".into(),
+        level_index: 99,
+        savable_level_index: 99,
+        awards: [true, true, false, false],
+        records: make_records(99, Trophy::Platinum),
+        ..Default::default()
+    }];
+    app.start_campaign_level(99, true);
+    let win_plat = calculate_score(4, 5, 5000, 4, 5, 10000, true);
+    app.on_campaign_win(win_plat);
+    assert!(matches!(
+        app.modals.last(),
+        Some(ModalState::Award {
+            kind: AwardKind::Ultralux,
+            ..
+        })
+    ));
+    assert!(app.summary_state.is_none());
+    for _ in 0..10 {
+        app.update(0.05);
+    }
+    assert!(app.summary_state.is_none());
+    app.trigger_action(UiAction::DismissAward);
+    assert!(app.modals.is_empty());
+    assert_eq!(app.screen, Screen::Summary);
+    let deferred_sum = app
+        .summary_state
+        .as_ref()
+        .expect("deferred summary created");
+    assert!((deferred_sum.age - 0.0).abs() < 1e-6);
+
+    if let Some(p) = app.save.active_profile_mut() {
+        p.mirror_level_index = 49;
+    }
+    app.execute_launch(LaunchSource::Match { mirror: true });
+    app.on_match_win();
+    assert!(app.info_banner.is_some());
+    app.advance_after_match();
+    assert!(app.info_banner.is_none());
+    assert!(matches!(
+        app.modals.last(),
+        Some(ModalState::Award {
+            kind: AwardKind::MirrorMaster,
+            ..
+        })
+    ));
+    app.modals.clear();
+
+    // 4. Trophy Room retry preserves savable_level_index across win + Next Level and win + Main Menu.
+    app.save.profiles = vec![ProfileData {
+        name: "Tester".into(),
+        level_index: 0,
+        savable_level_index: 0,
+        records: make_records(100, Trophy::Gold),
+        ..Default::default()
+    }];
+    app.execute_launch(LaunchSource::RetryTrophy {
+        idx: 12,
+        difficulty: Difficulty::Hard,
+    });
+    assert!(!app.is_index_savable);
+    app.on_campaign_win(win_gold);
+    assert_eq!(app.save.active_profile().unwrap().savable_level_index, 0);
+    app.trigger_action(UiAction::NextLevel);
+    for _ in 0..60 {
+        app.update(0.05);
+    }
+    assert_eq!(app.current_level_idx, 13);
+    assert_eq!(app.save.active_profile().unwrap().savable_level_index, 0);
+    app.on_campaign_win(win_gold);
+    app.trigger_action(UiAction::MainMenuConfirmFromSummary);
+    app.trigger_action(UiAction::QuestionYes);
+    for _ in 0..60 {
+        app.update(0.05);
+    }
+    assert_eq!(app.save.active_profile().unwrap().savable_level_index, 0);
+    assert_eq!(app.save.active_profile().unwrap().level_index, 0);
+
+    // 5. LOTD retry does not stack lotd_score.
+    app.execute_launch(LaunchSource::Lotd);
+    let lotd_hi = calculate_score(4, 5, 5000, 4, 5, 10000, true);
+    let lotd_lo = calculate_score(2, 10, 15000, 4, 5, 10000, false);
+    assert!(lotd_hi.total_score > lotd_lo.total_score);
+    app.on_campaign_win(lotd_hi);
+    assert_eq!(app.lotd_score, lotd_hi.total_score);
+    app.trigger_action(UiAction::RetryLevel);
+    for _ in 0..60 {
+        app.update(0.05);
+    }
+    app.on_campaign_win(lotd_lo);
+    assert_eq!(app.lotd_score, lotd_hi.total_score);
+
+    // 6. Escape does not pause during board_pop_elapsed or tutorial, and pauses freeze transitions.
+    app.start_campaign_level(0, false);
+    assert!(app.board_pop_elapsed.is_some());
+    app.on_key_escape();
+    assert_eq!(app.screen, Screen::Playing);
+    let pop_before = app.board_pop_elapsed;
+    app.trigger_action(UiAction::PauseGame);
+    assert_eq!(app.screen, Screen::Paused);
+    app.update(0.05);
+    assert_eq!(app.board_pop_elapsed, pop_before);
+}

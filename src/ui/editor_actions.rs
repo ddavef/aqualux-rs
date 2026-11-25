@@ -353,7 +353,8 @@ impl GameApp {
         self.fail_count = 0;
         self.temp_easy_revert = None;
         self.retry_backup = None;
-        self.is_retrying_level = false;
+        self.pending_summary = None;
+        self.is_index_savable = true;
         self.play_mode = PlayMode::EditorTest { difficulty: diff };
         self.launch_level_def(def);
     }

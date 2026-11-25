@@ -163,7 +163,9 @@ impl GameApp {
                     let len = self.assets.campaign_levels.len();
                     if let Some(prof) = self.save.active_profile_mut() {
                         prof.level_index = (self.current_level_idx + 1) % len.max(1);
-                        prof.savable_level_index = prof.level_index;
+                        if self.is_index_savable {
+                            prof.savable_level_index = prof.level_index;
+                        }
                     }
                 }
                 self.start_summary_hide(SummaryHideAction::MainMenu);
@@ -286,6 +288,8 @@ impl GameApp {
                 .unwrap_or(0);
             let has_u = self.save.active_profile().is_some_and(|p| p.awards[3]);
             self.enter_champion_screen(score, has_u);
+        } else if let Some((res, old_total, new_total)) = self.pending_summary.take() {
+            self.show_summary(res, old_total, new_total);
         } else if let Some(sim) = &self.match_sim {
             let is_mirror = sim.mirror_mode;
             let idx = self

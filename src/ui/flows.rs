@@ -14,7 +14,8 @@ impl GameApp {
         self.fail_count = 0;
         self.temp_easy_revert = None;
         self.retry_backup = None;
-        self.is_retrying_level = false;
+        self.pending_summary = None;
+        self.is_index_savable = true;
 
         match source {
             LaunchSource::NewCampaign(diff) => {
@@ -50,6 +51,7 @@ impl GameApp {
                 self.play_mode = PlayMode::Lotd;
                 self.lotd_index = 0;
                 self.lotd_score = 0;
+                self.lotd_level_scores.clear();
                 self.show_status_toast(
                     "Couldn't contact the level server.  Loading cached levels.",
                 );
@@ -76,7 +78,7 @@ impl GameApp {
             }
             LaunchSource::RetryTrophy { idx, difficulty } => {
                 self.play_mode = PlayMode::Campaign;
-                self.is_retrying_level = true;
+                self.is_index_savable = false;
                 if let Some(prof) = self.save.active_profile_mut() {
                     self.retry_backup = prof.records.get(&idx).cloned();
                     prof.level_index = idx;
@@ -277,6 +279,8 @@ impl GameApp {
         }
         let was_custom = matches!(self.play_mode, PlayMode::CustomPack { .. });
         self.temp_easy_revert = None;
+        self.pending_summary = None;
+        self.is_index_savable = true;
         if self.play_mode == PlayMode::Campaign {
             self.revert_retry_if_needed();
             if let Some(prof) = self.save.active_profile_mut() {
