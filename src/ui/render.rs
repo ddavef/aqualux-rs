@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 ddavef aqualux-rs
 
-use crate::render::{BoardAnim, BoardLayout, Canvas, draw_cursor, draw_fx_layers};
+use crate::render::{
+    BoardAnim, BoardLayout, Canvas, draw_cursor, draw_fireworks, draw_score_blurbs,
+};
 use crate::ui::champion::{build_champion_buttons, render_champion_screen};
 use crate::ui::summary::{build_summary_buttons, render_summary_screen};
 use crate::ui::widgets::UiButton;
@@ -141,6 +143,11 @@ impl GameApp {
             } else if self.screen == Screen::Summary
                 && let Some(sum) = &self.summary_state
             {
+                let fw_alpha = sum
+                    .hiding
+                    .map(|(h, _)| (1.0 - h).clamp(0.0, 1.0))
+                    .unwrap_or(1.0);
+                draw_fireworks(canvas, &self.renderer.bank, &self.fireworks, fw_alpha);
                 render_summary_screen(
                     canvas,
                     &self.renderer.bank,
@@ -151,19 +158,7 @@ impl GameApp {
             }
         }
 
-        let fw_alpha = self
-            .summary_state
-            .as_ref()
-            .and_then(|s| s.hiding)
-            .map(|(h, _)| (1.0 - h).clamp(0.0, 1.0))
-            .unwrap_or(1.0);
-        draw_fx_layers(
-            canvas,
-            &self.renderer.fonts,
-            &self.fireworks,
-            &self.blurbs,
-            fw_alpha,
-        );
+        draw_score_blurbs(canvas, &self.renderer.fonts, &self.blurbs);
         if let Some(banner) = &self.info_banner {
             hud::draw_level_info_screen(
                 canvas,

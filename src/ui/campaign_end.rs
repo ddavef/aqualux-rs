@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 ddavef aqualux-rs
 
-use crate::game::{AwardKind, Difficulty, GameColor, MetricResult};
+use crate::game::{AwardKind, Difficulty, MetricResult};
 use crate::render::FireworkBurst;
 use crate::ui::champion::ChampionState;
 use crate::ui::summary::{SummaryHideAction, SummaryState};
@@ -339,16 +339,12 @@ impl GameApp {
     }
 
     pub(crate) fn spawn_firework(&mut self, fx: f32, fy: f32) {
-        let palette = [
-            GameColor::Red,
-            GameColor::Green,
-            GameColor::Blue,
-            GameColor::White,
-        ];
-        let c = palette[self.rng.random_range(0..palette.len())];
+        const FIREWORK_COLORS: [(u8, u8, u8); 3] =
+            [(0xFF, 0x00, 0x00), (0x00, 0xFF, 0x00), (0x00, 0x00, 0xFF)];
+        let rgb = FIREWORK_COLORS[self.rng.random_range(0..FIREWORK_COLORS.len())];
         let power = self.rng.random_range(1.0..1.2);
         self.fireworks
-            .push(FireworkBurst::new(fx, fy, c.rgb(), power, &mut self.rng));
+            .push(FireworkBurst::new(fx, fy, rgb, power, &mut self.rng));
         let snd = if self.rng.random_bool(0.5) {
             "FireworkOneSound"
         } else {
@@ -450,7 +446,7 @@ impl GameApp {
                 .summary_state
                 .as_mut()
                 .map_or((false, None), |s| s.update(dt));
-            if fire_tick && self.rng.random_range(0..9) == 0 {
+            if fire_tick && self.rng.random_range(0..8) == 0 {
                 let (fx, fy) = (
                     self.rng.random_range(0.0..800.0),
                     self.rng.random_range(0.0..180.0),

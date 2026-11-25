@@ -342,3 +342,122 @@ fn night_hills_starlight_matches_original_spec() {
     assert!(mid[0] > 0 && mid[0] < center[0], "mid pixel {:?}", mid);
     assert_eq!(at(420, 300), [0, 0, 0, 255]);
 }
+
+#[test]
+fn firework_effect_matches_original_spec() {
+    use crate::render::FireworkBurst;
+    use crate::render::canvas::DrawCmd;
+
+    // 1. Single FireStar GlowFilter texture: 3x3 white core + pure-color soft blur(6, strength=2)
+    let gpu = test_gpu();
+    let bank = TexBank::new(gpu.clone(), &empty_bundle());
+    let (red_tid, base_sz) = bank.fire_star((255, 0, 0));
+    assert_eq!(base_sz, 21.0);
+    let mut c = Canvas::new();
+    c.clear((0, 0, 0));
+    c.draw_tex_uv_rotated_blur(
+        red_tid,
+        [0.0, 0.0, 1.0, 1.0],
+        400.5,
+        300.5,
+        base_sz,
+        base_sz,
+        0.0,
+        None,
+        1.0,
+        1.0,
+        false,
+        (0.0, 0.0),
+    );
+    let px = gpu.render_to_rgba(&c, &bank, 800, 600);
+    let at = |x: usize, y: usize| -> [u8; 4] {
+        let i = (y * 800 + x) * 4;
+        [px[i], px[i + 1], px[i + 2], px[i + 3]]
+    };
+    assert_eq!(at(400, 300), [255, 255, 255, 255]);
+    let p403 = at(403, 300);
+    let p405 = at(405, 300);
+    assert!(
+        p403[0] > 40 && p403[1] <= 2 && p403[2] <= 2,
+        "p403={p403:?}"
+    );
+    assert!(
+        p405[0] > 5 && p405[0] < p403[0] && p405[1] <= 2 && p405[2] <= 2,
+        "p405={p405:?} vs p403={p403:?}"
+    );
+    assert_eq!(at(420, 300), [0, 0, 0, 255]);
+
+    // 2. FireworkBurst emits 15 rotated + scaled SpriteTex FireStars (no flat circles)
+    let mut rng = StdRng::seed_from_u64(7);
+    let mut burst = FireworkBurst::new(200.0, 120.0, (0, 255, 0), 1.1, &mut rng);
+    burst.update(0.3);
+    c.begin_frame(1.0);
+    burst.draw(&mut c, &bank, 1.0);
+    let green_tid = bank.fire_star((0, 255, 0)).0;
+    let star_cmds: Vec<_> = c
+        .cmds
+        .iter()
+        .filter_map(|cmd| match cmd {
+            DrawCmd::SpriteTex(tid, inst) if *tid == green_tid => Some(inst),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(star_cmds.len(), 15);
+    assert!(!c.cmds.iter().any(|cmd| matches!(cmd, DrawCmd::Shape(_))));
+    for inst in star_cmds {
+        assert!(inst.row0[3] > base_sz, "expected Back.easeOut scale > 1.0");
+        assert!(
+            inst.row0[1].abs() > 0.01 || inst.row1[0].abs() > 0.01,
+            "expected non-zero 720-deg tween rotation"
+        );
+    }
+
+    // 3. Pure RGB colors & behind-Summary Z-order
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let mut app = GameApp::new(bundle, Some(120), gpu).expect("init");
+    for _ in 0..24 {
+        app.spawn_firework(400.0, 100.0);
+    }
+    for fw in &app.fireworks {
+        assert!(
+            matches!(fw.rgb(), (255, 0, 0) | (0, 255, 0) | (0, 0, 255)),
+            "unexpected firework color {:?}",
+            fw.rgb()
+        );
+    }
+    app.summary_state = Some(crate::ui::summary::SummaryState::new(
+        calculate_score(4, 5, 6000, 4, 5, 8000, true),
+        1000,
+        2400,
+    ));
+    if let Some(s) = &mut app.summary_state {
+        s.age = 0.5;
+    }
+    app.screen = Screen::Summary;
+    c.begin_frame(1.0);
+    app.render(&mut c);
+
+    let fw_tids = [
+        app.renderer.bank.fire_star((255, 0, 0)).0,
+        app.renderer.bank.fire_star((0, 255, 0)).0,
+        app.renderer.bank.fire_star((0, 0, 255)).0,
+    ];
+    let rainbow_tid = app.renderer.bank.rainbow_tex();
+    let first_fw = c
+        .cmds
+        .iter()
+        .position(|cmd| matches!(cmd, DrawCmd::SpriteTex(t, _) if fw_tids.contains(t)))
+        .expect("firework SpriteTex should render");
+    let rainbow_pos = c
+        .cmds
+        .iter()
+        .position(|cmd| matches!(cmd, DrawCmd::SpriteTex(t, _) if *t == rainbow_tid))
+        .expect("rainbow SpriteTex should render");
+    assert!(
+        first_fw < rainbow_pos,
+        "fireworks ({first_fw}) must render behind Summary rainbow ({rainbow_pos})"
+    );
+}

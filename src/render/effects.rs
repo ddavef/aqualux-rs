@@ -109,16 +109,18 @@ pub fn draw_tutorial_bubble(
     (bx, by, bw, bh)
 }
 
-pub fn draw_fx_layers(
+pub fn draw_fireworks(
     canvas: &mut Canvas,
-    fonts: &FontSet,
+    bank: &TexBank,
     fireworks: &[FireworkBurst],
-    blurbs: &[ScoreBlurbFx],
     fw_alpha: f32,
 ) {
     for f in fireworks {
-        f.draw(canvas, fw_alpha);
+        f.draw(canvas, bank, fw_alpha);
     }
+}
+
+pub fn draw_score_blurbs(canvas: &mut Canvas, fonts: &FontSet, blurbs: &[ScoreBlurbFx]) {
     for b in blurbs {
         let (y_off, scale, alpha, col, glow_blur, glow_a, blur) = if b.age < 0.6 {
             let u = (b.age / 0.6).clamp(0.0, 1.0);

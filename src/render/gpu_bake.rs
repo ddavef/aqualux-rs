@@ -531,3 +531,48 @@ pub fn bake_rainbow_texture(gpu: &GpuCore) -> GpuTexture {
     gpu.queue.submit(Some(enc.finish()));
     out
 }
+
+/// Bakes a 4x supersampled `FireStar` (`3x3` white square + Flash `GlowFilter(rgb)` blur 6, strength 2).
+pub fn bake_fire_star_texture(gpu: &GpuCore, rgb: (u8, u8, u8)) -> GpuTexture {
+    const SCALE: u32 = 4;
+    const CORE_SZ: u32 = 3 * SCALE;
+    const PAD: u32 = 36;
+    let core = upload_premul_texture(
+        gpu,
+        &RgbaImage {
+            width: CORE_SZ,
+            height: CORE_SZ,
+            data: vec![255; (CORE_SZ * CORE_SZ * 4) as usize],
+        },
+    );
+    let mut enc = gpu.device.create_command_encoder(&Default::default());
+    let glow = encode_blur_into(
+        gpu,
+        &mut enc,
+        &core.view,
+        CORE_SZ,
+        CORE_SZ,
+        0.0,
+        0.0,
+        rgb,
+        1.0,
+        6.0 * SCALE as f32,
+        2.0,
+        PAD,
+    );
+    let out = composite_two_sprites(
+        gpu,
+        &mut enc,
+        (glow.width, glow.height),
+        (
+            &glow.bind_group,
+            full_sprite(glow.width as f32, glow.height as f32, 0.0, 0.0),
+        ),
+        (
+            &core.bind_group,
+            full_sprite(CORE_SZ as f32, CORE_SZ as f32, PAD as f32, PAD as f32),
+        ),
+    );
+    gpu.queue.submit(Some(enc.finish()));
+    out
+}

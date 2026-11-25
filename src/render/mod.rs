@@ -27,7 +27,9 @@ pub use bg_sprites::draw_sprite_title;
 pub use board::BoardAnim;
 pub use canvas::{Canvas, LOGICAL_H, LOGICAL_W};
 pub use cursor::{CursorKind, draw_cursor};
-pub use effects::{ScoreBlurbFx, draw_fx_layers, draw_rainbow, draw_tutorial_bubble};
+pub use effects::{
+    ScoreBlurbFx, draw_fireworks, draw_rainbow, draw_score_blurbs, draw_tutorial_bubble,
+};
 pub use emitter::LeakEmitter;
 pub use gpu_core::GpuCore;
 pub use layout::{BoardLayout, Rect};

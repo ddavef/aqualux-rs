@@ -6,7 +6,7 @@ use crate::game::scoring::{calculate_score, generate_match_level};
 use crate::game::types::{LevelDef, TileDef};
 use crate::game::{Difficulty, FlowTimerState, GameColor, LevelSim, PieceShape, PieceType, Trophy};
 use crate::render::pipe_mask::draw_flow_timer;
-use crate::render::{BoardLayout, Canvas, Renderer, ScoreBlurbFx, draw_fx_layers};
+use crate::render::{BoardLayout, Canvas, Renderer, ScoreBlurbFx, draw_score_blurbs};
 use crate::save::{LevelRecord, ProfileData, SaveData};
 use crate::tests::{asset_file_if_present, test_gpu};
 use crate::ui::champion::{ChampionState, build_champion_buttons, render_champion_screen};
@@ -346,7 +346,7 @@ fn animated_text_and_counters_do_not_thrash_font_cache() {
             text: "100".into(),
             age: (frame % 54) as f32 * dt,
         };
-        draw_fx_layers(&mut canvas, &renderer.fonts, &[], &[blurb], 1.0);
+        draw_score_blurbs(&mut canvas, &renderer.fonts, &[blurb]);
         let sim = LevelSim::new(bundle.campaign_levels[0].clone(), Difficulty::Medium);
         let layout =
             BoardLayout::compute(sim.level.cols, sim.level.rows, hud::campaign_board_area());

@@ -5,8 +5,8 @@ use crate::assets::AssetBundle;
 use crate::game::Side;
 use crate::render::cursor::CursorKind;
 use crate::render::gpu_bake::{
-    GpuTexture, bake_blur_texture, bake_cursor_texture, bake_path_highlight_texture,
-    bake_rainbow_texture, upload_premul_texture,
+    GpuTexture, bake_blur_texture, bake_cursor_texture, bake_fire_star_texture,
+    bake_path_highlight_texture, bake_rainbow_texture, upload_premul_texture,
 };
 use crate::render::gpu_core::GpuCore;
 use crate::render::gpu_types::TexId;
@@ -46,6 +46,7 @@ impl GlowPreset {
 
 type GlowCache = RefCell<FxHashMap<(String, GlowPreset), (TexId, u32, u32, u32)>>;
 type PathHlCache = RefCell<FxHashMap<(Side, Side), (TexId, u32, u32)>>;
+type FireStarCache = RefCell<FxHashMap<(u8, u8, u8), (TexId, f32)>>;
 
 pub struct TexBank {
     gpu: Arc<GpuCore>,
@@ -56,6 +57,7 @@ pub struct TexBank {
     glows: GlowCache,
     path_hl: PathHlCache,
     rainbow: RefCell<Option<TexId>>,
+    fire_stars: FireStarCache,
     cursors: FxHashMap<CursorKind, (TexId, u32, u32, u32)>,
 }
 
@@ -110,6 +112,7 @@ impl TexBank {
             glows: RefCell::new(FxHashMap::default()),
             path_hl: RefCell::new(FxHashMap::default()),
             rainbow: RefCell::new(None),
+            fire_stars: RefCell::new(FxHashMap::default()),
             cursors,
         }
     }
@@ -253,5 +256,16 @@ impl TexBank {
         let (tid, _, _) = self.alloc_tex(tex);
         *self.rainbow.borrow_mut() = Some(tid);
         tid
+    }
+
+    pub fn fire_star(&self, rgb: (u8, u8, u8)) -> (TexId, f32) {
+        if let Some(&hit) = self.fire_stars.borrow().get(&rgb) {
+            return hit;
+        }
+        let tex = bake_fire_star_texture(&self.gpu, rgb);
+        let (tid, w, _) = self.alloc_tex(tex);
+        let entry = (tid, w as f32 / 4.0);
+        self.fire_stars.borrow_mut().insert(rgb, entry);
+        entry
     }
 }

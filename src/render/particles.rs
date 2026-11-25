@@ -69,26 +69,40 @@ impl FireworkBurst {
         self.age_ticks < 35
     }
 
-    pub fn draw(&self, canvas: &mut Canvas, fade: f32) {
+    #[cfg(test)]
+    pub fn rgb(&self) -> (u8, u8, u8) {
+        self.rgb
+    }
+
+    pub fn draw(&self, canvas: &mut Canvas, bank: &TexBank, fade: f32) {
         let fade = fade.clamp(0.0, 1.0);
         if fade <= 0.01 {
             return;
         }
+        let (tid, base_size) = bank.fire_star(self.rgb);
         for (i, p) in self.particles.iter().enumerate() {
             let u = (self.elapsed / self.star_durs[i]).clamp(0.0, 1.0);
-            let alpha = ((1.0 - back_out(u).max(0.0)).clamp(0.0, 1.0) * fade * 255.0) as u8;
-            if alpha < 4 {
+            let e = back_out(u);
+            let star_a = (1.0 - e).clamp(0.0, 1.0) * fade;
+            if star_a <= 0.004 {
                 continue;
             }
-            let sx = self.origin_x + p.x;
-            let sy = self.origin_y + p.y;
-            canvas.fill_circle_alpha(sx, sy, 6.0, (self.rgb.0, self.rgb.1, self.rgb.2, alpha / 3));
-            canvas.fill_rect_alpha(
-                crate::render::Rect::new(sx - 1.5, sy - 1.5, 3.0, 3.0),
-                255,
-                255,
-                255,
-                alpha,
+            let scale = (1.0 + 0.2 * e).max(0.01);
+            let rot_deg = 720.0 * e;
+            let draw_sz = base_size * scale;
+            canvas.draw_tex_uv_rotated_blur(
+                tid,
+                [0.0, 0.0, 1.0, 1.0],
+                self.origin_x + p.x,
+                self.origin_y + p.y,
+                draw_sz,
+                draw_sz,
+                rot_deg,
+                None,
+                1.0,
+                star_a,
+                false,
+                (0.0, 0.0),
             );
         }
     }

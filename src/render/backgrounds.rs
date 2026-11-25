@@ -68,10 +68,10 @@ impl NightStar {
             .map(|_| {
                 let x = (STAR_RECT_X + rng.random_range(0.0..1.0) * STAR_RECT_W).floor();
                 let y = (STAR_RECT_Y + rng.random_range(0.0..1.0) * STAR_RECT_H).floor();
-                let radius =
-                    (rng.random_range(0.0..1.0) * (STAR_MAX_SIZE + STAR_MIN_SIZE) - STAR_MIN_SIZE)
-                        .floor()
-                        .abs();
+                let radius = (rng.random_range(0.0..1.0) * (STAR_MAX_SIZE + STAR_MIN_SIZE)
+                    - STAR_MIN_SIZE)
+                    .floor()
+                    .abs();
                 let init_value = ((rng.random_range(0.0f64..1.0) * 18.0).floor() + 2.0) / 10.0;
                 let dist_from_bottom = 1.0 - y / STAR_RECT_H;
                 let alpha = (dist_from_bottom * (STAR_MAX_ALPHA - STAR_MIN_ALPHA)
