@@ -110,14 +110,13 @@ pub fn render_trophy_room(
         105,
     );
     draw_modal_bubble(canvas, Rect::new(MODAL_X, MODAL_Y, MODAL_W, MODAL_H));
-    fonts.draw_stroked(
+    fonts.draw(
         canvas,
         FontFamily::Neuropol,
         GRID_X + 66.0,
         MODAL_Y + 15.0,
         24.0,
         (255, 255, 255),
-        (5, 13, 43),
         TextAlign::Left,
         "-Pick a level to try for a new Trophy!-",
     );
@@ -169,7 +168,7 @@ pub fn render_trophy_room(
                 };
             }
             draw_trophy_slot(canvas, bank, rect, trophy.bitmap_name(), is_hov);
-            fonts.draw_stroked(
+            fonts.draw_stroked_plain(
                 canvas,
                 FontFamily::Neuropol,
                 rect.x + bw * 0.5 + 6.0,

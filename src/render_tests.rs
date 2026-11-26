@@ -736,3 +736,269 @@ fn mirror_match_orientation_sign_and_preview_parity() {
         assert!(!prv_ring_dirty, "Preview board must omit PipeDropShadow");
     }
 }
+
+#[test]
+fn ui_colors_and_text_outline_shadow_parity() {
+    use crate::game::{Difficulty, LevelSim};
+    use crate::render::{
+        BoardLayout, FontFamily, ScoreBlurbFx, TextAlign, TextOutline, draw_score_blurbs,
+    };
+    use crate::ui::hud;
+    use crate::ui::summary::{SummaryState, render_summary_screen};
+    use crate::ui::widgets::{draw_plain_text_button, draw_slider, draw_text_button};
+
+    assert_eq!(GameColor::Red.rgb(), (0x8A, 0x3E, 0x35));
+    assert_eq!(GameColor::Orange.rgb(), (0xE6, 0x73, 0x00));
+    assert_eq!(GameColor::Yellow.rgb(), (0xD2, 0xD2, 0x00));
+    assert_eq!(GameColor::Green.rgb(), (0x3A, 0xF4, 0x04));
+    assert_eq!(GameColor::Blue.rgb(), (0x66, 0xB3, 0xFF));
+    assert_eq!(GameColor::Violet.rgb(), (0xA9, 0x5C, 0xAF));
+    assert_eq!(GameColor::White.rgb(), (0xE6, 0xE6, 0xE6));
+    assert_eq!(GameColor::Grey.rgb(), (0x3F, 0x3F, 0x3F));
+
+    let gpu = test_gpu();
+    let empty_bank = TexBank::new(gpu.clone(), &empty_bundle());
+    let mut c_slider = Canvas::new();
+    c_slider.clear((0, 0, 0));
+    draw_slider(&mut c_slider, 100.0, 100.0, 0.0);
+    let px_slider = gpu.render_to_rgba(&c_slider, &empty_bank, 800, 600);
+    let idx = |x: usize, y: usize| (y * 800 + x) * 4;
+    let track = &px_slider[idx(160, 110)..idx(160, 110) + 4];
+    let nub = &px_slider[idx(100, 110)..idx(100, 110) + 4];
+    assert!(
+        track[0].abs_diff(0x42) <= 2
+            && track[1].abs_diff(0x83) <= 2
+            && track[2].abs_diff(0xB3) <= 2,
+        "slider track should be #4283B3, got {:?}",
+        track
+    );
+    assert!(
+        nub[0].abs_diff(0x7E) <= 2 && nub[1].abs_diff(0xAD) <= 2 && nub[2].abs_diff(0xCF) <= 2,
+        "slider nub should be #7EADCF, got {:?}",
+        nub
+    );
+
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let renderer = Renderer::new(gpu.clone(), &bundle).expect("renderer");
+
+    // 1. Opt-in drop shadow: stroke-only has no neutral-grey shadow pixels on white bg.
+    let render_a_with = |outline: Option<TextOutline>| -> Vec<u8> {
+        let mut c = Canvas::new();
+        c.clear((255, 255, 255));
+        renderer.fonts.draw_styled_alpha(
+            &mut c,
+            FontFamily::Neuropol,
+            120.0,
+            120.0,
+            40.0,
+            1.0,
+            1.0,
+            (255, 255, 255),
+            outline,
+            TextAlign::Left,
+            "A",
+            1.0,
+        );
+        gpu.render_to_rgba(&c, &renderer.bank, 800, 600)
+    };
+    let px_plain_stroke = render_a_with(Some(TextOutline::stroke((255, 0, 0))));
+    let px_shadowed = render_a_with(Some(TextOutline::shadowed((255, 0, 0))));
+    let has_neutral_shadow = |px: &[u8]| -> bool {
+        (80usize..220).any(|y| {
+            (80usize..220).any(|x| {
+                let i = idx(x, y);
+                let (r, g, b) = (px[i], px[i + 1], px[i + 2]);
+                r < 240 && r.abs_diff(g) <= 2 && g.abs_diff(b) <= 2
+            })
+        })
+    };
+    assert!(
+        !has_neutral_shadow(&px_plain_stroke),
+        "stroke-only text must not emit a drop shadow"
+    );
+    assert!(
+        has_neutral_shadow(&px_shadowed),
+        "shadowed text must emit neutral-grey drop shadow pixels"
+    );
+
+    // 2. Dual solid stroke on Champion text (#56A0A9 fill, #000000 inner, #F4F28A outer).
+    let mut c_champ = Canvas::new();
+    c_champ.clear((120, 0, 120));
+    renderer.fonts.draw_styled_alpha(
+        &mut c_champ,
+        FontFamily::Neuropol,
+        100.0,
+        200.0,
+        46.0,
+        1.0,
+        1.0,
+        (0x56, 0xA0, 0xA9),
+        Some(TextOutline::double((0, 0, 0), (0xF4, 0xF2, 0x8A))),
+        TextAlign::Left,
+        "GRAND",
+        1.0,
+    );
+    let px_champ = gpu.render_to_rgba(&c_champ, &renderer.bank, 800, 600);
+    let (mut saw_fill, mut saw_inner, mut saw_outer) = (false, false, false);
+    for y in 170usize..310 {
+        for x in 60usize..420 {
+            let i = idx(x, y);
+            let (r, g, b) = (px_champ[i], px_champ[i + 1], px_champ[i + 2]);
+            if r.abs_diff(0x56) <= 6 && g.abs_diff(0xA0) <= 6 && b.abs_diff(0xA9) <= 6 {
+                saw_fill = true;
+            } else if r <= 10 && g <= 10 && b <= 10 {
+                saw_inner = true;
+            } else if r >= 220 && g >= 218 && b <= 155 {
+                saw_outer = true;
+            }
+        }
+    }
+    assert!(
+        saw_fill && saw_inner && saw_outer,
+        "dual stroke text missing colors: fill={saw_fill} inner={saw_inner} outer={saw_outer}"
+    );
+
+    // 3. Hovered draw_text_button uses #C9D8E1.
+    let mut c_hov = Canvas::new();
+    c_hov.clear((0, 0, 0));
+    draw_text_button(
+        &mut c_hov,
+        &renderer.fonts,
+        400.0,
+        300.0,
+        31.0,
+        TextAlign::Center,
+        "PLAY",
+        true,
+        None,
+        1.0,
+    );
+    let px_hov = gpu.render_to_rgba(&c_hov, &renderer.bank, 800, 600);
+    let saw_silver_blue = (280usize..380).any(|y| {
+        (300usize..500).any(|x| {
+            let i = idx(x, y);
+            px_hov[i].abs_diff(0xC9) <= 6
+                && px_hov[i + 1].abs_diff(0xD8) <= 6
+                && px_hov[i + 2].abs_diff(0xE1) <= 6
+        })
+    });
+    assert!(saw_silver_blue, "hovered button must use #C9D8E1");
+
+    // 4. Plain Options button has #4283B3 fill and zero navy stroke pixels on white bg.
+    let mut c_plain_btn = Canvas::new();
+    c_plain_btn.clear((255, 255, 255));
+    draw_plain_text_button(
+        &mut c_plain_btn,
+        &renderer.fonts,
+        400.0,
+        300.0,
+        16.0,
+        TextAlign::Center,
+        "hard",
+        false,
+        (0x42, 0x83, 0xB3),
+    );
+    let px_pbtn = gpu.render_to_rgba(&c_plain_btn, &renderer.bank, 800, 600);
+    let mut saw_steel = false;
+    for y in 285usize..345 {
+        for x in 320usize..480 {
+            let i = idx(x, y);
+            let (r, g, b) = (px_pbtn[i], px_pbtn[i + 1], px_pbtn[i + 2]);
+            if r.abs_diff(0x42) <= 8 && g.abs_diff(0x83) <= 8 && b.abs_diff(0xB3) <= 8 {
+                saw_steel = true;
+            }
+            assert!(
+                !(r < 30 && g < 30 && b < 60),
+                "plain button must not draw dark stroke/shadow at ({x},{y}): {:?}",
+                &px_pbtn[i..i + 4]
+            );
+        }
+    }
+    assert!(saw_steel, "plain Options button should draw #4283B3 text");
+
+    // 5. ScoreBlurb starts at #E4E9ED (228, 233, 237).
+    let mut c_blurb = Canvas::new();
+    c_blurb.clear((0, 0, 0));
+    draw_score_blurbs(
+        &mut c_blurb,
+        &renderer.fonts,
+        &[ScoreBlurbFx {
+            x: 400.0,
+            y: 300.0,
+            text: "100".into(),
+            age: 0.0,
+        }],
+    );
+    let px_blurb = gpu.render_to_rgba(&c_blurb, &renderer.bank, 800, 600);
+    let saw_ice_white = (250usize..350).any(|y| {
+        (330usize..470).any(|x| {
+            let i = idx(x, y);
+            px_blurb[i].abs_diff(228) <= 6
+                && px_blurb[i + 1].abs_diff(233) <= 6
+                && px_blurb[i + 2].abs_diff(237) <= 6
+        })
+    });
+    assert!(saw_ice_white, "ScoreBlurb at t=0 must be ice-white #E4E9ED");
+
+    // 6. SummaryScreen uses #40D1EF cyan.
+    let mut c_sum = Canvas::new();
+    c_sum.clear((0, 0, 0));
+    let mut sum = SummaryState::new(calculate_score(4, 5, 6000, 4, 5, 8000, true), 1000, 2400);
+    sum.age = 2.0;
+    render_summary_screen(
+        &mut c_sum,
+        &renderer.bank,
+        &renderer.fonts,
+        &sum,
+        (0.0, 0.0),
+    );
+    let px_sum = gpu.render_to_rgba(&c_sum, &renderer.bank, 800, 600);
+    let saw_cyan = (90usize..200).any(|y| {
+        (460usize..780).any(|x| {
+            let i = idx(x, y);
+            px_sum[i] <= 90 && px_sum[i + 1] >= 190 && px_sum[i + 2] >= 230
+        })
+    });
+    assert!(saw_cyan, "Summary 'well done!' must use #40D1EF cyan");
+
+    // 7. HUD par labels use #161616 dark grey stroke instead of navy (0, 0, 64).
+    let mut c_hud = Canvas::new();
+    c_hud.clear((0, 0, 0));
+    let sim = LevelSim::new(bundle.campaign_levels[0].clone(), Difficulty::Hard);
+    let layout = BoardLayout::compute(sim.level.cols, sim.level.rows, hud::campaign_board_area());
+    hud::render_campaign_hud(
+        &mut c_hud,
+        &renderer.bank,
+        &renderer.fonts,
+        &sim,
+        layout,
+        1000,
+        0.0,
+        (0.0, 0.0),
+        false,
+        false,
+    );
+    let px_hud = gpu.render_to_rgba(&c_hud, &renderer.bank, 800, 600);
+    let mut saw_par_grey_stroke = false;
+    for y in 565usize..596 {
+        for x in 548usize..610 {
+            let i = idx(x, y);
+            let (r, g, b) = (px_hud[i], px_hud[i + 1], px_hud[i + 2]);
+            if r.abs_diff(0x16) <= 4 && g.abs_diff(0x16) <= 4 && b.abs_diff(0x16) <= 4 {
+                saw_par_grey_stroke = true;
+            }
+            assert!(
+                !(r <= 10 && g <= 10 && b >= 45),
+                "HUD par label must use #161616 stroke rather than navy at ({x},{y}): {:?}",
+                &px_hud[i..i + 4]
+            );
+        }
+    }
+    assert!(
+        saw_par_grey_stroke,
+        "HUD par label should contain #161616 stroke pixels"
+    );
+}

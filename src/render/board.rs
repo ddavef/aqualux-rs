@@ -10,7 +10,7 @@ use crate::render::canvas::{BoardLayout, Canvas};
 use crate::render::emitter::LeakEmitter;
 use crate::render::pipe_mask::build_pipe_capsules;
 use crate::render::tex_bank::{GlowPreset, PATH_HL_PAD, TexBank};
-use crate::render::text::{FontFamily, FontSet, TextAlign};
+use crate::render::text::{FontFamily, FontSet, TextAlign, TextOutline};
 use rustc_hash::FxHashSet;
 
 #[derive(Debug, Clone, Copy)]
@@ -370,7 +370,7 @@ impl BoardRenderer {
                 sc,
                 sc,
                 (255, 255, 255),
-                Some((0x05, 0x0D, 0x2B)),
+                Some(TextOutline::stroke((0x05, 0x0D, 0x2B))),
                 TextAlign::Center,
                 badge,
                 1.0,

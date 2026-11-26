@@ -18,7 +18,7 @@ use crate::ui::profiles::{
 use crate::ui::trophy_room::{build_trophy_room_buttons, render_trophy_room};
 use crate::ui::widgets::{
     ModalState, UiAction, UiButton, draw_checkbox, draw_modal_bubble, draw_modal_button,
-    draw_radio, draw_slider, draw_text_button,
+    draw_plain_text_button, draw_radio, draw_slider, draw_text_button,
 };
 
 pub const OPTIONS_SLIDER_X: f32 = 435.0;
@@ -71,7 +71,7 @@ pub fn render_pause_menu(
         400.0,
         180.0,
         45.0,
-        (0xF4, 0xF5, 0xF7),
+        (0xF4, 0xF7, 0xF7),
         (5, 13, 43),
         TextAlign::Center,
         "game paused",
@@ -471,14 +471,13 @@ fn render_options_modal(
     let bh = (done_y + 53.0 + 18.0) - base_y;
     draw_modal_bubble(canvas, Rect::new(bx, base_y, 370.0, bh));
 
-    fonts.draw_stroked(
+    fonts.draw(
         canvas,
         FontFamily::Neuropol,
         400.0,
         base_y + 16.0,
         22.0,
         (255, 255, 255),
-        (5, 13, 43),
         TextAlign::Center,
         "-Options-",
     );
@@ -531,7 +530,7 @@ fn render_options_modal(
             .map(|p| p.difficulty.human_label())
             .unwrap_or("casual (medium)");
         let r_df = Rect::new(OPTIONS_SLIDER_X - 55.0, diff_y, 175.0, 24.0);
-        draw_text_button(
+        draw_plain_text_button(
             canvas,
             fonts,
             OPTIONS_SLIDER_X + 120.0,
@@ -540,8 +539,7 @@ fn render_options_modal(
             TextAlign::Right,
             dlbl,
             r_df.contains(mouse_pos.0, mouse_pos.1),
-            Some((0x42, 0x83, 0xF3)),
-            1.0,
+            (0x42, 0x83, 0xB3),
         );
     }
 
@@ -580,7 +578,7 @@ fn render_options_modal(
         format!("{} fps", save.config.target_fps)
     };
     let r_fps = Rect::new(OPTIONS_SLIDER_X - 20.0, fps_y - 3.0, 145.0, 24.0);
-    draw_text_button(
+    draw_plain_text_button(
         canvas,
         fonts,
         OPTIONS_SLIDER_X + 120.0,
@@ -589,8 +587,7 @@ fn render_options_modal(
         TextAlign::Right,
         &fps_lbl,
         r_fps.contains(mouse_pos.0, mouse_pos.1),
-        Some((0x42, 0x83, 0xF3)),
-        1.0,
+        (0x42, 0x83, 0xB3),
     );
 
     let r_done = Rect::new(400.0 - 47.0, done_y, 94.0, 53.0);
@@ -621,14 +618,13 @@ fn render_difficulty_modal(
         105,
     );
     draw_modal_bubble(canvas, Rect::new(205.0, 180.0, 390.0, 285.0));
-    fonts.draw_stroked(
+    fonts.draw(
         canvas,
         FontFamily::Neuropol,
         400.0,
         196.0,
         24.0,
         (255, 255, 255),
-        (5, 13, 43),
         TextAlign::Center,
         "-Choose Difficulty-",
     );
@@ -703,14 +699,13 @@ fn render_ingame_diff_modal(
         105,
     );
     draw_modal_bubble(canvas, Rect::new(200.0, 210.0, 400.0, 228.0));
-    fonts.draw_stroked(
+    fonts.draw(
         canvas,
         FontFamily::Neuropol,
         400.0,
         226.0,
         24.0,
         (255, 255, 255),
-        (5, 13, 43),
         TextAlign::Center,
         "Hey- this one is tough!",
     );
@@ -925,14 +920,13 @@ fn render_endless_setup_modal(
         105,
     );
     draw_modal_bubble(canvas, Rect::new(185.0, 120.0, 430.0, 362.0));
-    fonts.draw_stroked(
+    fonts.draw(
         canvas,
         FontFamily::Neuropol,
         400.0,
         138.0,
         24.0,
         (255, 255, 255),
-        (5, 13, 43),
         TextAlign::Center,
         "-Endless Mode-",
     );
@@ -1062,7 +1056,7 @@ fn render_endless_setup_modal(
         "Play Rules:",
     );
     let r_rules = Rect::new(370.0, 348.0, 212.0, 26.0);
-    draw_text_button(
+    draw_plain_text_button(
         canvas,
         fonts,
         578.0,
@@ -1071,8 +1065,7 @@ fn render_endless_setup_modal(
         TextAlign::Right,
         cfg.rules.label(),
         r_rules.contains(mouse_pos.0, mouse_pos.1),
-        Some((0x42, 0x83, 0xF3)),
-        1.0,
+        (0x42, 0x83, 0xB3),
     );
 
     if cfg.any_enabled() {

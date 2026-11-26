@@ -5,7 +5,7 @@ use crate::game::{Difficulty, LevelSim, MatchSim};
 use crate::render::easing::{back_in, strong_out};
 use crate::render::{
     BoardLayout, Canvas, FontFamily, FontSet, GlowPreset, LOGICAL_W, Rect, TexBank, TextAlign,
-    draw_tutorial_bubble,
+    TextOutline, draw_tutorial_bubble,
 };
 use crate::ui::widgets::{UiAction, UiButton};
 
@@ -195,7 +195,7 @@ pub fn render_match_hud(
             1.0,
             1.0,
             (0xEA, 0xEA, 0xEA),
-            Some((0, 0, 64)),
+            Some(TextOutline::stroke((0, 0, 64))),
             TextAlign::Left,
             header,
             preview_alpha,
@@ -228,6 +228,7 @@ fn draw_bottom_counters(
     difficulty: Difficulty,
 ) {
     let stroke = (0x00, 0x00, 0x40);
+    let par_stroke = (0x16, 0x16, 0x16);
     let label_y = 568.0;
     let val_y = 571.0;
 
@@ -252,7 +253,7 @@ fn draw_bottom_counters(
         1.0,
         1.0,
         (255, 255, 255),
-        Some(stroke),
+        Some(TextOutline::shadowed(stroke)),
         TextAlign::Right,
         &total_score.to_string(),
         1.0,
@@ -294,7 +295,7 @@ fn draw_bottom_counters(
         1.0,
         1.0,
         (255, 255, 255),
-        Some(stroke),
+        Some(TextOutline::shadowed(stroke)),
         TextAlign::Right,
         &moves.to_string(),
         1.0,
@@ -307,7 +308,7 @@ fn draw_bottom_counters(
         val_y,
         16.0,
         par_col,
-        stroke,
+        par_stroke,
         TextAlign::Left,
         &format!("/ {}", pm),
     );
@@ -335,7 +336,7 @@ fn draw_bottom_counters(
         1.0,
         1.0,
         (255, 255, 255),
-        Some(stroke),
+        Some(TextOutline::shadowed(stroke)),
         TextAlign::Right,
         &format!("{}:{:02}", secs / 60, secs % 60),
         1.0,
@@ -348,7 +349,7 @@ fn draw_bottom_counters(
         val_y,
         16.0,
         par_col,
-        stroke,
+        par_stroke,
         TextAlign::Left,
         &format!("/ {}:{:02}", psecs / 60, psecs % 60),
     );
@@ -391,8 +392,8 @@ pub fn draw_level_info_screen(
             (u * 8.0, 0.0),
         )
     };
-    let col = (0xC9, 0xDA, 0x41);
-    let st = Some((0x05, 0x0D, 0x2B));
+    let col = (0xC9, 0xD8, 0xE1);
+    let st = Some(TextOutline::shadowed((0x05, 0x0D, 0x2B)));
     fonts.draw_fx(
         canvas,
         FontFamily::Neuropol,
@@ -453,7 +454,7 @@ pub fn draw_status_toast(canvas: &mut Canvas, fonts: &FontSet, text: &str, age: 
         1.0,
         1.0,
         (255, 255, 255),
-        Some((0x00, 0x00, 0x40)),
+        Some(TextOutline::shadowed((0x00, 0x00, 0x40))),
         TextAlign::Left,
         text,
         alpha,
@@ -490,7 +491,7 @@ pub fn draw_editor_toast(canvas: &mut Canvas, fonts: &FontSet, text: &str, age: 
         1.0,
         1.0,
         (255, 255, 255),
-        Some((0x05, 0x0D, 0x2B)),
+        Some(TextOutline::stroke((0x05, 0x0D, 0x2B))),
         TextAlign::Center,
         text,
         alpha,

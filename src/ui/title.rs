@@ -5,7 +5,7 @@ use crate::assets::AssetBundle;
 use crate::render::easing::{back_in, back_out};
 use crate::render::{
     BackgroundRenderer, BgAnimState, Canvas, FontFamily, FontSet, Rect, TexBank, TextAlign,
-    draw_sprite_title,
+    TextOutline, draw_sprite_title,
 };
 use crate::save::SaveData;
 use crate::ui::title_data::{
@@ -112,7 +112,7 @@ pub fn render_title_screen(
                 1.0,
                 1.0,
                 (255, 255, 255),
-                Some((0x05, 0x0D, 0x2B)),
+                Some(TextOutline::shadowed((0x05, 0x0D, 0x2B))),
                 TextAlign::Left,
                 TICKER_TEXT,
                 ticker_alpha,
@@ -195,7 +195,7 @@ pub fn render_title_screen(
             18.0,
             21.0,
             (255, 255, 255),
-            Some((0x05, 0x0D, 0x2B)),
+            Some(TextOutline::shadowed((0x05, 0x0D, 0x2B))),
             TextAlign::Right,
             450.0,
             info,
@@ -243,7 +243,7 @@ pub fn render_title_screen(
             1.0,
             1.0,
             (255, 255, 255),
-            Some((0x05, 0x0D, 0x2B)),
+            Some(TextOutline::stroke((0x05, 0x0D, 0x2B))),
             TextAlign::Right,
             &greet,
             p_alpha,

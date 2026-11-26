@@ -146,8 +146,8 @@ impl GameColor {
     pub fn rgb(self) -> (u8, u8, u8) {
         match self {
             Self::Red => (0x8A, 0x3E, 0x35),
-            Self::Orange => (0xE6, 0x74, 0x00),
-            Self::Yellow => (0xD2, 0xD1, 0x00),
+            Self::Orange => (0xE6, 0x73, 0x00),
+            Self::Yellow => (0xD2, 0xD2, 0x00),
             Self::Green => (0x3A, 0xF4, 0x04),
             Self::Blue => (0x66, 0xB3, 0xFF),
             Self::Violet => (0xA9, 0x5C, 0xAF),

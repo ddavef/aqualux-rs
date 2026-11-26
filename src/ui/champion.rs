@@ -2,7 +2,9 @@
 // Copyright (C) 2026 ddavef aqualux-rs
 
 use crate::render::easing::back_out;
-use crate::render::{Canvas, FontFamily, FontSet, Rect, StarField, TexBank, TextAlign};
+use crate::render::{
+    Canvas, FontFamily, FontSet, Rect, StarField, TexBank, TextAlign, TextOutline,
+};
 use crate::ui::widgets::{ScoreRoller, UiAction, UiButton, draw_text_button};
 use rand::RngExt;
 
@@ -137,6 +139,7 @@ pub fn render_champion_screen(
         }
     }
 
+    let title_outline = Some(TextOutline::double((0, 0, 0), (0xF4, 0xF2, 0x8A)));
     for (start, target_sx, label) in [(3.8f32, 45.0f32, "GRAND"), (4.6, 210.0, "CHAMPION!")] {
         if champ.age >= start {
             let u = ((champ.age - start) / 0.55).clamp(0.0, 1.0);
@@ -158,28 +161,13 @@ pub fn render_champion_screen(
                     sc,
                     TextAlign::Left,
                     label,
-                    (0x56, 0xA1, 0xA9),
-                    Some((0, 0, 0)),
+                    (0x56, 0xA0, 0xA9),
+                    title_outline,
                     (255, 255, 255),
                     bl + c_glow_blur,
                     glow_p * u * hide_a,
                 );
             }
-            fonts.draw_glow_alpha(
-                canvas,
-                FontFamily::Neuropol,
-                gx,
-                gy,
-                46.0,
-                sc,
-                TextAlign::Left,
-                label,
-                (0x56, 0xA1, 0xA9),
-                Some((0, 0, 0)),
-                (244, 242, 202),
-                bl + 8.0,
-                u * hide_a,
-            );
             fonts.draw_fx(
                 canvas,
                 FontFamily::Neuropol,
@@ -190,8 +178,8 @@ pub fn render_champion_screen(
                 1.0,
                 sc,
                 sc,
-                (0x56, 0xA1, 0xA9),
-                Some((0, 0, 0)),
+                (0x56, 0xA0, 0xA9),
+                title_outline,
                 TextAlign::Left,
                 label,
                 bright,
@@ -217,7 +205,7 @@ pub fn render_champion_screen(
                 1.0,
                 1.0,
                 (255, 255, 255),
-                Some((0, 0, 0)),
+                Some(TextOutline::stroke((0, 0, 0))),
                 TextAlign::Center,
                 "Final Score:",
                 -1.0,
@@ -237,7 +225,7 @@ pub fn render_champion_screen(
             1.0,
             1.0,
             (255, 255, 255),
-            Some((0, 0, 0)),
+            Some(TextOutline::stroke((0, 0, 0))),
             TextAlign::Center,
             "Final Score:",
             1.0,
@@ -261,7 +249,7 @@ pub fn render_champion_screen(
                 1.0,
                 1.0,
                 (0xEA, 0xEA, 0xEA),
-                Some((0x00, 0x00, 0x40)),
+                Some(TextOutline::shadowed((0x00, 0x00, 0x40))),
                 TextAlign::Center,
                 &txt,
                 (255, 255, 255),
@@ -279,7 +267,7 @@ pub fn render_champion_screen(
             1.0,
             1.0,
             (0xEA, 0xEA, 0xEA),
-            Some((0x00, 0x00, 0x40)),
+            Some(TextOutline::shadowed((0x00, 0x00, 0x40))),
             TextAlign::Center,
             &txt,
             su * hide_a,

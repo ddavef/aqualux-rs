@@ -5,6 +5,7 @@ use crate::assets::{GlyphOp, SwfFont};
 use crate::render::gpu_bake::{GpuTexture, encode_blur_into, make_gpu_texture, make_stage_cmat_bg};
 use crate::render::gpu_core::GpuCore;
 use crate::render::gpu_types::{GlyphUniform, GlyphVertex, ShapeInstance, SpriteInstance};
+use crate::render::text::TextOutline;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
     BindGroupDescriptor, BindGroupEntry, BufferUsages, Color, Extent3d, LoadOp, Operations,
@@ -55,7 +56,7 @@ pub fn bake_swf_text_gpu(
     scale_y: f32,
     dpr: f32,
     color: (u8, u8, u8),
-    stroke: Option<(u8, u8, u8)>,
+    outline: Option<TextOutline>,
     text: &str,
 ) -> Option<BakedGpuText> {
     let sx_log = SwfFont::scale_for_size(size) * scale_x;
@@ -70,12 +71,13 @@ pub fn bake_swf_text_gpu(
         })
         .sum();
     let stroke_w = (size * 0.14).clamp(2.0, 5.2);
-    let pad = if stroke.is_some() {
-        stroke_w.ceil() + 3.0
-    } else {
-        2.0
+    let has_shadow = outline.is_some_and(|o| o.shadow);
+    let pad = match outline {
+        Some(o) if o.outer.is_some() => (stroke_w * 2.0).ceil() + 3.0,
+        Some(_) => stroke_w.ceil() + 3.0,
+        None => 2.0,
     };
-    let sh_pad = if stroke.is_some() { 8.0 } else { 0.0 };
+    let sh_pad = if has_shadow { 8.0 } else { 0.0 };
     let log_w = (total_w + pad * 2.0 + 4.0).ceil().max(1.0);
     let log_h = ((font.ascent + font.descent) * sy_log + pad * 2.0 + 6.0)
         .ceil()
@@ -92,44 +94,56 @@ pub fn bake_swf_text_gpu(
     let pad_px = pad * eff_dpr;
     let base_y = font.ascent * sy + pad_px;
     let stroke_r = (stroke_w * eff_dpr) * 0.5;
-    let sc_col = stroke.map(|s| {
+    let rgb4 = |c: (u8, u8, u8)| {
         [
-            s.0 as f32 / 255.0,
-            s.1 as f32 / 255.0,
-            s.2 as f32 / 255.0,
+            c.0 as f32 / 255.0,
+            c.1 as f32 / 255.0,
+            c.2 as f32 / 255.0,
             1.0,
         ]
-    });
+    };
+    let inner_col = outline.map(|o| rgb4(o.color));
+    let outer_col = outline.and_then(|o| o.outer.map(rgb4));
 
     let mut fill_tris: Vec<GlyphVertex> = Vec::with_capacity(text.len() * 48);
-    let mut stroke_caps: Vec<ShapeInstance> = Vec::new();
+    let mut outer_caps: Vec<ShapeInstance> = Vec::new();
+    let mut inner_caps: Vec<ShapeInstance> = Vec::new();
     let mut contour: Vec<[f32; 2]> = Vec::with_capacity(64);
     let mut pen_x = pad_px;
 
-    let flush_contour =
-        |pts: &mut Vec<[f32; 2]>, tris: &mut Vec<GlyphVertex>, caps: &mut Vec<ShapeInstance>| {
-            if pts.len() >= 2 {
-                if let Some(sc) = sc_col {
-                    for w in pts.windows(2) {
-                        push_capsule(w[0], w[1], stroke_r, sc, caps);
-                    }
-                    let last = pts[pts.len() - 1];
-                    let first = pts[0];
-                    if (last[0] - first[0]).abs() + (last[1] - first[1]).abs() > 1e-3 {
-                        push_capsule(last, first, stroke_r, sc, caps);
-                    }
-                }
-                if pts.len() >= 3 {
-                    let anchor = pts[0];
-                    for i in 1..(pts.len() - 1) {
-                        tris.push(GlyphVertex { pos: anchor });
-                        tris.push(GlyphVertex { pos: pts[i] });
-                        tris.push(GlyphVertex { pos: pts[i + 1] });
-                    }
+    let push_ring = |pts: &[[f32; 2]], r: f32, col: [f32; 4], out: &mut Vec<ShapeInstance>| {
+        for w in pts.windows(2) {
+            push_capsule(w[0], w[1], r, col, out);
+        }
+        let last = pts[pts.len() - 1];
+        let first = pts[0];
+        if (last[0] - first[0]).abs() + (last[1] - first[1]).abs() > 1e-3 {
+            push_capsule(last, first, r, col, out);
+        }
+    };
+
+    let flush_contour = |pts: &mut Vec<[f32; 2]>,
+                         tris: &mut Vec<GlyphVertex>,
+                         o_caps: &mut Vec<ShapeInstance>,
+                         i_caps: &mut Vec<ShapeInstance>| {
+        if pts.len() >= 2 {
+            if let Some(oc) = outer_col {
+                push_ring(pts, stroke_r * 2.0, oc, o_caps);
+            }
+            if let Some(ic) = inner_col {
+                push_ring(pts, stroke_r, ic, i_caps);
+            }
+            if pts.len() >= 3 {
+                let anchor = pts[0];
+                for i in 1..(pts.len() - 1) {
+                    tris.push(GlyphVertex { pos: anchor });
+                    tris.push(GlyphVertex { pos: pts[i] });
+                    tris.push(GlyphVertex { pos: pts[i + 1] });
                 }
             }
-            pts.clear();
-        };
+        }
+        pts.clear();
+    };
 
     for ch in text.chars() {
         let Some(glyph) = font.glyphs.get(&ch) else {
@@ -139,7 +153,12 @@ pub fn bake_swf_text_gpu(
         for &op in &glyph.ops {
             match op {
                 GlyphOp::Move(gx, gy) => {
-                    flush_contour(&mut contour, &mut fill_tris, &mut stroke_caps);
+                    flush_contour(
+                        &mut contour,
+                        &mut fill_tris,
+                        &mut outer_caps,
+                        &mut inner_caps,
+                    );
                     contour.push([pen_x + gx * sx, base_y + gy * sy]);
                 }
                 GlyphOp::Line(gx, gy) => {
@@ -160,9 +179,16 @@ pub fn bake_swf_text_gpu(
                 }
             }
         }
-        flush_contour(&mut contour, &mut fill_tris, &mut stroke_caps);
+        flush_contour(
+            &mut contour,
+            &mut fill_tris,
+            &mut outer_caps,
+            &mut inner_caps,
+        );
         pen_x += glyph.advance * sx;
     }
+    outer_caps.append(&mut inner_caps);
+    let stroke_caps = outer_caps;
     if fill_tris.is_empty() && stroke_caps.is_empty() {
         return None;
     }

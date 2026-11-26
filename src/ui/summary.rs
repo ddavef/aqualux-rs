@@ -4,7 +4,7 @@
 use crate::game::{MetricResult, Trophy};
 use crate::render::easing::{back_in, back_out, bounce_out, strong_in, strong_out};
 use crate::render::{
-    Canvas, FontFamily, FontSet, GlowPreset, Rect, TexBank, TextAlign, draw_rainbow,
+    Canvas, FontFamily, FontSet, GlowPreset, Rect, TexBank, TextAlign, TextOutline, draw_rainbow,
 };
 use crate::ui::widgets::{ScoreRoller, UiAction, UiButton, draw_text_button};
 
@@ -142,8 +142,8 @@ pub fn render_summary_screen(
         let sc = (0.1 + 0.9 * b).max(0.01);
         let rot = -500.0 * (1.0 - b);
         let wb = (1.0 - u) * 8.0;
-        let col = (0x40, 0xD1, 0xAF);
-        let st = Some((0x00, 0x00, 0x40));
+        let col = (0x40, 0xD1, 0xEF);
+        let st = Some(TextOutline::stroke((0x00, 0x00, 0x40)));
         fonts.draw_rotated_fx(
             canvas,
             FontFamily::Pricedown,
@@ -217,7 +217,7 @@ pub fn render_summary_screen(
                     1.0,
                     1.0,
                     (0xEA, 0xEA, 0xEA),
-                    Some((0x00, 0x00, 0x40)),
+                    Some(TextOutline::shadowed((0x00, 0x00, 0x40))),
                     TextAlign::Right,
                     lbl,
                     1.0,
@@ -243,7 +243,7 @@ pub fn render_summary_screen(
                     1.0,
                     1.0,
                     (0xEA, 0xEA, 0xEA),
-                    Some((0x00, 0x00, 0x40)),
+                    Some(TextOutline::shadowed((0x00, 0x00, 0x40))),
                     TextAlign::Left,
                     &val.to_string(),
                     na,
@@ -299,7 +299,7 @@ pub fn render_summary_screen(
                 1.0,
                 1.0,
                 (255, 255, 255),
-                Some((0, 0, 0)),
+                Some(TextOutline::stroke((0, 0, 0))),
                 TextAlign::Center,
                 summary.result.trophy.badge_label(),
                 1.0,
@@ -324,8 +324,8 @@ pub fn render_summary_screen(
             1.0,
             TextAlign::Center,
             "play next level",
-            (0x40, 0xD1, 0xAF),
-            Some((0x05, 0x0D, 0x2B)),
+            (0x40, 0xD1, 0xEF),
+            Some(TextOutline::shadowed((0x05, 0x0D, 0x2B))),
             (255, 255, 255),
             glow_blur,
             0.85 * ba,
@@ -340,7 +340,7 @@ pub fn render_summary_screen(
             TextAlign::Center,
             "play next level",
             allow_hov && r_cont.contains(mouse_pos.0, mouse_pos.1),
-            Some((0x40, 0xD1, 0xAF)),
+            Some((0x40, 0xD1, 0xEF)),
             ba,
         );
         draw_text_button(
@@ -352,7 +352,7 @@ pub fn render_summary_screen(
             TextAlign::Center,
             "retry level",
             allow_hov && Rect::new(305.0, 535.0, 220.0, 28.0).contains(mouse_pos.0, mouse_pos.1),
-            Some((0x40, 0xD1, 0xAF)),
+            Some((0x40, 0xD1, 0xEF)),
             ba,
         );
         draw_text_button(
@@ -364,7 +364,7 @@ pub fn render_summary_screen(
             TextAlign::Center,
             "main menu",
             allow_hov && Rect::new(305.0, 564.0, 220.0, 28.0).contains(mouse_pos.0, mouse_pos.1),
-            Some((0x40, 0xD1, 0xAF)),
+            Some((0x40, 0xD1, 0xEF)),
             ba,
         );
     }

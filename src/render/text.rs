@@ -26,6 +26,42 @@ pub enum TextAlign {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TextOutline {
+    pub color: (u8, u8, u8),
+    pub outer: Option<(u8, u8, u8)>,
+    pub shadow: bool,
+}
+
+impl TextOutline {
+    /// Solid stroke only (`[STROKE_FILTER]`, no drop shadow).
+    pub const fn stroke(color: (u8, u8, u8)) -> Self {
+        Self {
+            color,
+            outer: None,
+            shadow: false,
+        }
+    }
+
+    /// Solid stroke with Flash `DropShadowFilter(4, 0, 0, 0.5, 16, 16)` (`[STROKE_FILTER, SHADOW_FILTER]`).
+    pub const fn shadowed(color: (u8, u8, u8)) -> Self {
+        Self {
+            color,
+            outer: None,
+            shadow: true,
+        }
+    }
+
+    /// Dual solid stroke (`[STROKE_FILTER, OUTER_STROKE_FILTER]`, no drop shadow).
+    pub const fn double(inner: (u8, u8, u8), outer: (u8, u8, u8)) -> Self {
+        Self {
+            color: inner,
+            outer: Some(outer),
+            shadow: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct TextMetaKey {
     fam: FontFamily,
     size_q: u32,
@@ -33,7 +69,7 @@ struct TextMetaKey {
     sy_q: u32,
     dpr_q: u32,
     color: (u8, u8, u8),
-    stroke: Option<(u8, u8, u8)>,
+    outline: Option<TextOutline>,
 }
 
 struct CachedText {
@@ -149,7 +185,36 @@ impl FontSet {
             1.0,
             1.0,
             color,
-            Some(stroke),
+            Some(TextOutline::shadowed(stroke)),
+            align,
+            text,
+            1.0,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_stroked_plain(
+        &self,
+        canvas: &mut Canvas,
+        fam: FontFamily,
+        x: f32,
+        y: f32,
+        size: f32,
+        color: (u8, u8, u8),
+        stroke: (u8, u8, u8),
+        align: TextAlign,
+        text: &str,
+    ) {
+        self.draw_styled_alpha(
+            canvas,
+            fam,
+            x,
+            y,
+            size,
+            1.0,
+            1.0,
+            color,
+            Some(TextOutline::stroke(stroke)),
             align,
             text,
             1.0,
@@ -165,7 +230,7 @@ impl FontSet {
         scale_y: f32,
         dpr: f32,
         color: (u8, u8, u8),
-        stroke: Option<(u8, u8, u8)>,
+        outline: Option<TextOutline>,
         text: &str,
     ) -> Option<(Arc<BindGroup>, f32, f32, f32, f32)> {
         let meta = TextMetaKey {
@@ -175,7 +240,7 @@ impl FontSet {
             sy_q: (scale_y * 100.0).round() as u32,
             dpr_q: (dpr.clamp(1.0, 4.0) * 50.0).round() as u32,
             color,
-            stroke,
+            outline,
         };
         let mut cache = self.cache.borrow_mut();
         if !cache.get(&meta).is_some_and(|m| m.contains_key(text)) {
@@ -190,7 +255,7 @@ impl FontSet {
                 scale_y,
                 dpr,
                 color,
-                stroke,
+                outline,
                 text,
             )?;
             let bg = Arc::new(baked.texture.bind_group.clone());
@@ -232,7 +297,7 @@ impl FontSet {
         extra_sx: f32,
         extra_sy: f32,
         bake_color: (u8, u8, u8),
-        stroke: Option<(u8, u8, u8)>,
+        outline: Option<TextOutline>,
         align: TextAlign,
         text: &str,
         brightness: f32,
@@ -250,7 +315,7 @@ impl FontSet {
             TextAlign::Right => x - w,
         };
         if let Some((bg, lw, lh, ox, oy)) = self.get_or_bake(
-            fam, base_size, base_sx, base_sy, canvas.dpr, bake_color, stroke, text,
+            fam, base_size, base_sx, base_sy, canvas.dpr, bake_color, outline, text,
         ) {
             canvas.draw_direct_sprite_fx(
                 bg,
@@ -275,7 +340,7 @@ impl FontSet {
         scale_x: f32,
         scale_y: f32,
         color: (u8, u8, u8),
-        stroke: Option<(u8, u8, u8)>,
+        outline: Option<TextOutline>,
         align: TextAlign,
         text: &str,
         alpha: f32,
@@ -291,7 +356,7 @@ impl FontSet {
             1.0,
             1.0,
             color,
-            stroke,
+            outline,
             align,
             text,
             1.0,
@@ -313,7 +378,7 @@ impl FontSet {
         align: TextAlign,
         text: &str,
         bake_color: (u8, u8, u8),
-        stroke: Option<(u8, u8, u8)>,
+        outline: Option<TextOutline>,
         glow_rgb: (u8, u8, u8),
         blur_px: f32,
         alpha: f32,
@@ -334,7 +399,7 @@ impl FontSet {
             extra_scale,
             extra_scale,
             bake_color,
-            stroke,
+            outline,
             align,
             text,
             -1.0,
@@ -353,7 +418,7 @@ impl FontSet {
         cy: f32,
         size: f32,
         bake_color: (u8, u8, u8),
-        stroke: Option<(u8, u8, u8)>,
+        outline: Option<TextOutline>,
         text: &str,
         scale: f32,
         rot_deg: f32,
@@ -367,7 +432,7 @@ impl FontSet {
         }
         let w = self.measure_width_scaled(fam, text, size, 1.0);
         let Some((bg, lw, lh, ox, oy)) =
-            self.get_or_bake(fam, size, 1.0, 1.0, canvas.dpr, bake_color, stroke, text)
+            self.get_or_bake(fam, size, 1.0, 1.0, canvas.dpr, bake_color, outline, text)
         else {
             return;
         };
@@ -397,7 +462,7 @@ impl FontSet {
         base_sy: f32,
         extra_scale: f32,
         bake_col: (u8, u8, u8),
-        stroke: Option<(u8, u8, u8)>,
+        outline: Option<TextOutline>,
         align: TextAlign,
         text: &str,
         brightness: f32,
@@ -420,7 +485,7 @@ impl FontSet {
             if !ch.is_whitespace() {
                 let s = ch.encode_utf8(&mut buf);
                 if let Some((bg, lw, lh, ox, oy)) = self.get_or_bake(
-                    fam, base_size, base_sx, base_sy, canvas.dpr, bake_col, stroke, s,
+                    fam, base_size, base_sx, base_sy, canvas.dpr, bake_col, outline, s,
                 ) {
                     canvas.draw_direct_sprite_fx(
                         bg,
@@ -449,13 +514,13 @@ impl FontSet {
         base_sy: f32,
         extra_scale: f32,
         color: (u8, u8, u8),
-        stroke: Option<(u8, u8, u8)>,
+        outline: Option<TextOutline>,
         align: TextAlign,
         text: &str,
         alpha: f32,
         blur: (f32, f32),
     ) {
-        let (bake_col, tint_rgb) = if stroke.is_none() {
+        let (bake_col, tint_rgb) = if outline.is_none() {
             (
                 (255, 255, 255),
                 [
@@ -477,7 +542,7 @@ impl FontSet {
             base_sy,
             extra_scale,
             bake_col,
-            stroke,
+            outline,
             align,
             text,
             1.0,
@@ -499,14 +564,14 @@ impl FontSet {
         base_sy: f32,
         extra_scale: f32,
         bake_color: (u8, u8, u8),
-        stroke: Option<(u8, u8, u8)>,
+        outline: Option<TextOutline>,
         align: TextAlign,
         text: &str,
         glow_rgb: (u8, u8, u8),
         alpha: f32,
         blur: (f32, f32),
     ) {
-        let bake_col = if stroke.is_none() {
+        let bake_col = if outline.is_none() {
             (255, 255, 255)
         } else {
             bake_color
@@ -526,7 +591,7 @@ impl FontSet {
             base_sy,
             extra_scale,
             bake_col,
-            stroke,
+            outline,
             align,
             text,
             -1.0,
@@ -546,7 +611,7 @@ impl FontSet {
         size: f32,
         line_h: f32,
         color: (u8, u8, u8),
-        stroke: Option<(u8, u8, u8)>,
+        outline: Option<TextOutline>,
         align: TextAlign,
         max_w: f32,
         text: &str,
@@ -556,7 +621,7 @@ impl FontSet {
         let mut cy = y;
         for ln in &lines {
             self.draw_styled_alpha(
-                canvas, fam, x, cy, size, 1.0, 1.0, color, stroke, align, ln, alpha,
+                canvas, fam, x, cy, size, 1.0, 1.0, color, outline, align, ln, alpha,
             );
             cy += line_h;
         }

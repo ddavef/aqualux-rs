@@ -3,7 +3,9 @@
 
 use crate::game::generator::GenDifficulty;
 use crate::game::{AwardKind, Difficulty, GameColor, LevelDef};
-use crate::render::{Canvas, FontFamily, FontSet, GlowPreset, Rect, TexBank, TextAlign};
+use crate::render::{
+    Canvas, FontFamily, FontSet, GlowPreset, Rect, TexBank, TextAlign, TextOutline,
+};
 use crate::ui::EndlessConfig;
 use crate::ui::editor::{EditorTool, LevelPropsDraft, PipeBehavior, PipeColorSlot};
 pub use crate::ui::roller::ScoreRoller;
@@ -284,20 +286,19 @@ pub fn draw_modal_button(
     } else {
         (160, 170, 185)
     };
-    fonts.draw_stroked(
+    fonts.draw(
         canvas,
         FontFamily::Neuropol,
         rect.x + rect.w * 0.5,
         rect.y + rect.h * 0.5 - 12.0,
         20.0,
         col,
-        (0x05, 0x0D, 0x2B),
         TextAlign::Center,
         label,
     );
 }
 
-/// Renders interactive text button: `#20A1F2` idle, `#C9DA41` hovered, `#050D2B` stroke.
+/// Renders interactive text button: `#20A1F2` idle, `#C9D8E1` hovered, `#050D2B` stroke.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_text_button_blurred(
     canvas: &mut Canvas,
@@ -313,7 +314,7 @@ pub fn draw_text_button_blurred(
     blur: (f32, f32),
 ) {
     let col = if hovered {
-        (0xC9, 0xDA, 0x41)
+        (0xC9, 0xD8, 0xE1)
     } else {
         idle_col.unwrap_or((0x20, 0xA1, 0xF2))
     };
@@ -328,7 +329,7 @@ pub fn draw_text_button_blurred(
         1.0,
         1.0,
         col,
-        Some((0x05, 0x0D, 0x2B)),
+        Some(TextOutline::shadowed((0x05, 0x0D, 0x2B))),
         align,
         label,
         1.0,
@@ -336,6 +337,27 @@ pub fn draw_text_button_blurred(
         [1.0; 3],
         blur,
     );
+}
+
+/// Renders unoutlined interactive text button (`#C9D8E1` hovered, no stroke or drop shadow).
+#[allow(clippy::too_many_arguments)]
+pub fn draw_plain_text_button(
+    canvas: &mut Canvas,
+    fonts: &FontSet,
+    x: f32,
+    y: f32,
+    size: f32,
+    align: TextAlign,
+    label: &str,
+    hovered: bool,
+    idle_col: (u8, u8, u8),
+) {
+    let col = if hovered {
+        (0xC9, 0xD8, 0xE1)
+    } else {
+        idle_col
+    };
+    fonts.draw(canvas, FontFamily::Neuropol, x, y, size, col, align, label);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -412,19 +434,19 @@ pub fn draw_checkbox(
     );
 }
 
-/// Renders 120px `#4283F3` volume slider track with draggable `#7EAEF1` rounded nub.
+/// Renders 120px `#4283B3` volume slider track with draggable `#7EADCF` rounded nub.
 pub fn draw_slider(canvas: &mut Canvas, x: f32, y: f32, value_01: f32) {
     let w = 120.0;
     let h = 20.0;
     let cy = y + h * 0.5;
-    canvas.draw_line(x, cy, x + w, cy, 4.0, (0x42, 0x83, 0xF3, 255));
+    canvas.draw_line(x, cy, x + w, cy, 4.0, (0x42, 0x83, 0xB3, 255));
     let nx = x + value_01.clamp(0.0, 1.0) * w;
     let nw = 12.0;
     let nh = 20.0;
     canvas.draw_rounded_rect(
         Rect::new(nx - nw * 0.5, cy - nh * 0.5, nw, nh),
         4.0,
-        (0x7E, 0xAE, 0xF1, 255),
+        (0x7E, 0xAD, 0xCF, 255),
         Some((255, 255, 255, 255, 2.0)),
     );
 }

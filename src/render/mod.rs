@@ -35,7 +35,7 @@ pub use gpu_core::GpuCore;
 pub use layout::{BoardLayout, Rect};
 pub use particles::{FireworkBurst, StarField};
 pub use tex_bank::{GlowPreset, TexBank};
-pub use text::{FontFamily, FontSet, TextAlign};
+pub use text::{FontFamily, FontSet, TextAlign, TextOutline};
 
 use crate::assets::AssetBundle;
 use crate::game::Tile;

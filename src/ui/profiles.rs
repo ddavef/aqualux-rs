@@ -58,14 +58,13 @@ pub fn render_profile_modal(
         105,
     );
     draw_modal_bubble(canvas, Rect::new(PM_X, PM_Y, PM_W, PM_H));
-    fonts.draw_stroked(
+    fonts.draw(
         canvas,
         FontFamily::Neuropol,
         400.0,
         PM_Y + 15.0,
         24.0,
         (255, 255, 255),
-        (5, 13, 43),
         TextAlign::Center,
         "-Choose Profile-",
     );

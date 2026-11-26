@@ -5,7 +5,7 @@ use crate::render::canvas::{Canvas, LOGICAL_H, LOGICAL_W};
 use crate::render::easing::{back_in, back_out, quad_out, sine_out, strong_in};
 use crate::render::particles::FireworkBurst;
 use crate::render::tex_bank::TexBank;
-use crate::render::text::{FontFamily, FontSet, TextAlign};
+use crate::render::text::{FontFamily, FontSet, TextAlign, TextOutline};
 
 #[derive(Debug, Clone)]
 pub struct ScoreBlurbFx {
@@ -127,8 +127,8 @@ pub fn draw_score_blurbs(canvas: &mut Canvas, fonts: &FontSet, blurbs: &[ScoreBl
             let e = sine_out(u);
             let c_mix = quad_out(u);
             let r = (228.0 + (255.0 - 228.0) * c_mix) as u8;
-            let g = (229.0 + (255.0 - 229.0) * c_mix) as u8;
-            let bl = (173.0 + (255.0 - 173.0) * c_mix) as u8;
+            let g = (233.0 + (255.0 - 233.0) * c_mix) as u8;
+            let bl = (237.0 + (255.0 - 237.0) * c_mix) as u8;
             let a = 1.0 - 0.5 * e;
             (
                 -60.0 * e,
@@ -170,7 +170,7 @@ pub fn draw_score_blurbs(canvas: &mut Canvas, fonts: &FontSet, blurbs: &[ScoreBl
                 TextAlign::Center,
                 &b.text,
                 (255, 255, 255),
-                Some((0x05, 0x0D, 0x2B)),
+                Some(TextOutline::stroke((0x05, 0x0D, 0x2B))),
                 (255, 255, 255),
                 glow_blur,
                 glow_a,
@@ -187,7 +187,7 @@ pub fn draw_score_blurbs(canvas: &mut Canvas, fonts: &FontSet, blurbs: &[ScoreBl
             scale,
             scale,
             (255, 255, 255),
-            Some((0x05, 0x0D, 0x2B)),
+            Some(TextOutline::stroke((0x05, 0x0D, 0x2B))),
             TextAlign::Center,
             &b.text,
             1.0,
