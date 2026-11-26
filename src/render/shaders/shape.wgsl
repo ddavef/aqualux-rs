@@ -94,6 +94,18 @@ fn sd_triangle(p: vec2<f32>, p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>) -> f32
     return -sqrt(d.x) * sign(d.y);
 }
 
+fn sd_tut_bubble(
+    p: vec2<f32>,
+    ctr: vec2<f32>,
+    half_ext: vec2<f32>,
+    radius: f32,
+    v0: vec2<f32>,
+    v1: vec2<f32>,
+    v2: vec2<f32>,
+) -> f32 {
+    return min(sd_rounded_box(p - ctr, half_ext, radius), sd_triangle(p, v0, v1, v2));
+}
+
 fn eval_rainbow(p: vec2<f32>, t_end: f32, alpha: f32, aa: f32) -> vec4<f32> {
     let colors = array<vec3<f32>, 6>(
         vec3<f32>(1.0, 0.0, 0.0),
@@ -157,7 +169,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let off = vec2<f32>(2.12132, 2.12132);
         let a1 = clamp(0.5 - sd_rounded_box(p - off - ctr, half_ext, radius) / 3.6, 0.0, 1.0);
         let a2 = clamp(0.5 - sd_rounded_box(p + off - ctr, half_ext, radius) / 3.6, 0.0, 1.0);
-        let diff = a1 - a2;
+        let diff = a2 - a1;
         var rgb = in.fill.rgb;
         if diff > 0.0 {
             rgb = mix(rgb, vec3<f32>(1.0), clamp(diff * 0.5, 0.0, 1.0));
@@ -214,15 +226,30 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if kind == 5u {
         let half_ext = in.p0.zw * 0.5;
         let ctr = in.p0.xy + half_ext;
-        let d_box = sd_rounded_box(p - ctr, half_ext, radius);
         let bot = in.p0.y + in.p0.w;
-        let v0 = vec2<f32>(in.p1.x - in.p1.y, bot);
-        let v1 = vec2<f32>(in.p1.x + in.p1.y, bot);
-        let v2 = vec2<f32>(in.p1.x, bot + in.p1.z);
-        let d = min(d_box, sd_triangle(p, v0, v1, v2));
+        let tri_h = max(in.p1.z, 1e-4);
+        let inset = min(tri_h, in.p0.w * 0.45);
+        let base_hw = in.p1.y * (tri_h + inset) / tri_h;
+        let v0 = vec2<f32>(in.p1.x - base_hw, bot - inset);
+        let v1 = vec2<f32>(in.p1.x + base_hw, bot - inset);
+        let v2 = vec2<f32>(in.p1.x, bot + tri_h);
+        let d = sd_tut_bubble(p, ctr, half_ext, radius, v0, v1, v2);
         let f_cov = clamp(0.5 - d / aa, 0.0, 1.0);
+        let sc = max(extra, 0.01);
+        let off = vec2<f32>(2.828427 * sc, 2.828427 * sc);
+        let blur = max(3.6 * sc, 0.5);
+        let a1 = clamp(0.5 - sd_tut_bubble(p - off, ctr, half_ext, radius, v0, v1, v2) / blur, 0.0, 1.0);
+        let a2 = clamp(0.5 - sd_tut_bubble(p + off, ctr, half_ext, radius, v0, v1, v2) / blur, 0.0, 1.0);
+        let diff = a2 - a1;
+        var rgb = in.fill.rgb;
+        if diff > 0.0 {
+            rgb = mix(rgb, vec3<f32>(1.0), clamp(diff, 0.0, 1.0));
+        } else if diff < 0.0 {
+            rgb = mix(rgb, vec3<f32>(0.188235, 0.188235, 0.286275), clamp(-diff * 0.9, 0.0, 1.0));
+        }
+        let body = vec4<f32>(rgb * in.fill.a, in.fill.a) * f_cov;
         let s_cov = clamp(0.5 - (abs(d) - stroke_w * 0.5) / aa, 0.0, 1.0);
-        return over_pm(premul(in.stroke) * s_cov, premul(in.fill) * f_cov);
+        return over_pm(premul(in.stroke) * s_cov, body);
     }
     return eval_rainbow(p, extra, in.fill.a, aa);
 }

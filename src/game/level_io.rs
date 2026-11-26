@@ -525,7 +525,7 @@ impl XmlLevel {
                     wait_for_swap: parse_point_list(msg.wait_for_swap.as_deref()),
                     wait_for_drag: parse_point_list(msg.wait_for_drag.as_deref()),
                     hold_hilight,
-                    text: strip_html_tags(&msg.text),
+                    text: normalize_tutorial_html(&msg.text),
                 });
             }
         }
@@ -841,27 +841,90 @@ fn normalize_bg_id(raw: &str) -> String {
     }
 }
 
-fn strip_html_tags(input: &str) -> String {
+fn canonical_preserved_tag(raw_tag: &str) -> Option<String> {
+    let inner = raw_tag.trim();
+    if inner.eq_ignore_ascii_case("i") {
+        return Some("<i>".to_string());
+    }
+    if inner.eq_ignore_ascii_case("/i") {
+        return Some("</i>".to_string());
+    }
+    if inner.eq_ignore_ascii_case("/font") {
+        return Some("</font>".to_string());
+    }
+    let mut rest = inner;
+    if !(rest.len() >= 4 && rest[..4].eq_ignore_ascii_case("font")) {
+        return None;
+    }
+    rest = &rest[4..];
+    if !rest.starts_with(|c: char| c.is_ascii_whitespace()) {
+        return None;
+    }
+    let lower = rest.to_ascii_lowercase();
+    let idx = lower.find("color=")?;
+    let val = rest[idx + 6..].trim_start();
+    let raw_hex = if let Some(s) = val.strip_prefix('"') {
+        s.split('"').next()?
+    } else if let Some(s) = val.strip_prefix('\'') {
+        s.split('\'').next()?
+    } else {
+        val.split(|c: char| c.is_ascii_whitespace() || c == '>')
+            .next()?
+    };
+    let hex = raw_hex.trim().strip_prefix('#').unwrap_or(raw_hex.trim());
+    if hex.len() == 6 && hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        Some(format!("<font color=\"#{}\">", hex.to_ascii_uppercase()))
+    } else {
+        None
+    }
+}
+
+fn normalize_tutorial_html(input: &str) -> String {
     let with_breaks = input
         .replace("<br>", "\n")
         .replace("<br/>", "\n")
         .replace("<br />", "\n")
         .replace("<BR>", "\n")
+        .replace("<BR/>", "\n")
+        .replace("<BR />", "\n")
+        .replace("\r\n", "\n")
         .replace('\r', "\n");
-    let mut out = String::with_capacity(with_breaks.len());
-    let mut in_tag = false;
-    for ch in with_breaks.chars() {
-        match ch {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => out.push(ch),
-            _ => {}
+    let mut lines = Vec::new();
+    for raw_line in with_breaks.split('\n') {
+        let mut line_out = String::with_capacity(raw_line.len());
+        let mut pending_space = false;
+        let mut chars = raw_line.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '<' {
+                let mut tag = String::new();
+                let mut closed = false;
+                for tc in chars.by_ref() {
+                    if tc == '>' {
+                        closed = true;
+                        break;
+                    }
+                    tag.push(tc);
+                }
+                if closed && let Some(kept) = canonical_preserved_tag(&tag) {
+                    if pending_space && !line_out.is_empty() {
+                        line_out.push(' ');
+                    }
+                    pending_space = false;
+                    line_out.push_str(&kept);
+                }
+            } else if ch == ' ' || ch == '\t' {
+                if !line_out.is_empty() {
+                    pending_space = true;
+                }
+            } else {
+                if pending_space && !line_out.is_empty() {
+                    line_out.push(' ');
+                }
+                pending_space = false;
+                line_out.push(ch);
+            }
         }
+        lines.push(line_out);
     }
-    out.split('\n')
-        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string()
+    lines.join("\n").trim_matches('\n').to_string()
 }

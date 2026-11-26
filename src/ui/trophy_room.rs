@@ -252,7 +252,7 @@ pub fn render_trophy_room(
         let bx = (mouse_pos.0 + 35.0).min(730.0 - 15.0 - 165.0);
         let by = (mouse_pos.1 - 38.0).max(20.0);
         let box_r = Rect::new(bx, by, 165.0, 80.0);
-        canvas.draw_rounded_rect(box_r, 8.0, (0, 0, 0, 212), Some((180, 190, 200, 180, 1.5)));
+        canvas.draw_rounded_rect(box_r, 4.0, (0, 0, 0, 212), Some((180, 190, 200, 180, 1.5)));
         match card {
             HoverCard::Award(kind) => {
                 fonts.draw(

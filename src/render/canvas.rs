@@ -107,7 +107,7 @@ impl Canvas {
             p1: [0.0; 4],
             fill: rgba_f((0x1C, 0x4A, 0x84, 247)),
             stroke: rgba_f((0, 0, 0, 247)),
-            meta: [2.0, 4.0, 35.0, 0.0],
+            meta: [2.0, 4.0, 17.5, 0.0],
         }));
     }
 
@@ -218,15 +218,16 @@ impl Canvas {
         tail_cx: f32,
         tail_hw: f32,
         tri_h: f32,
+        bevel_scale: f32,
     ) {
         let pad = stroke_w * 0.5 + 3.0;
         self.cmds.push(DrawCmd::Shape(ShapeInstance {
             bounds: [bx - pad, by - pad, bw + pad * 2.0, bh + tri_h + pad * 2.0],
             p0: [bx, by, bw, bh],
             p1: [tail_cx, tail_hw, tri_h, 0.0],
-            fill: rgba_f((0xEE, 0xEE, 0xEE, 250)),
+            fill: rgba_f((0xEE, 0xEE, 0xEE, 255)),
             stroke: rgba_f((0, 0, 0, 255)),
-            meta: [5.0, stroke_w, radius, 0.0],
+            meta: [5.0, stroke_w, radius, bevel_scale],
         }));
     }
 

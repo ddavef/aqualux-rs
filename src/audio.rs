@@ -83,6 +83,15 @@ impl AudioEngine {
         self.delayed.clear();
     }
 
+    #[cfg(test)]
+    pub fn delayed_sfx(&self) -> Vec<(&str, f32)> {
+        self.delayed
+            .iter()
+            .filter(|item| !item.is_music)
+            .map(|item| (item.name.as_str(), item.remaining))
+            .collect()
+    }
+
     pub fn play_music(&mut self, name: &str, loop_forever: bool) {
         if self.current_music.as_deref() == Some(name)
             && self.music_player.as_ref().is_none_or(|p| !p.empty())

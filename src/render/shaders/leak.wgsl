@@ -81,7 +81,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let off = vec2<f32>(11.313708, 11.313708);
     let a1 = clamp(0.5 - sd_poly(p - off, n) / 7.2, 0.0, 1.0);
     let a2 = clamp(0.5 - sd_poly(p + off, n) / 7.2, 0.0, 1.0);
-    let diff = a1 - a2;
+    let diff = a2 - a1;
     var rgb = leak.rgb_alpha.rgb;
     if diff > 0.0 {
         rgb = mix(rgb, vec3<f32>(1.0, 1.0, 179.0 / 255.0), clamp(diff * 0.4, 0.0, 1.0));

@@ -88,6 +88,7 @@ pub fn render_campaign_hud(
     layout: BoardLayout,
     total_score: u32,
     tut_age: f32,
+    ff_hint_age: Option<f32>,
     mouse_pos: (f32, f32),
     hiding_board: bool,
     allow_ff_hint: bool,
@@ -133,7 +134,7 @@ pub fn render_campaign_hud(
     );
 
     if let Some(msg) = sim.active_tutorial() {
-        if let Some(&(tx, ty)) = msg.tiles.first() {
+        for &(tx, ty) in &msg.tiles {
             let (tcx, tcy) = layout.tile_center(tx, ty);
             draw_tutorial_bubble(
                 canvas,
@@ -147,16 +148,18 @@ pub fn render_campaign_hud(
         }
     } else if allow_ff_hint
         && sim.is_started
+        && !sim.finished
         && !sim.is_accelerated
         && sim.path_complete
         && sim.level.index <= 4
+        && let Some(ff_age) = ff_hint_age
     {
         let hint = if sim.difficulty == Difficulty::Easy {
             "Now click here to finish the puzzle!"
         } else {
             "Done already?\nFASTFORWARD for bonus points!"
         };
-        draw_tutorial_bubble(canvas, fonts, 95.0, 560.0, hint, false, 1.0);
+        draw_tutorial_bubble(canvas, fonts, 95.0, 560.0, hint, false, ff_age);
     }
 }
 

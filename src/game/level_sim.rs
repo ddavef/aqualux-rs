@@ -13,6 +13,7 @@ pub const ACTION_TWEEN_SECS: f32 = 0.4;
 #[derive(Debug, Clone)]
 pub enum SimEvent {
     PlaySfx(&'static str),
+    PlaySfxDelayed(&'static str, f32),
     PlayRandomBonusSfx,
     ScoreBlurb(f32, f32, u32),
     LeakErupt(usize, usize, Side, GameColor),
@@ -90,7 +91,7 @@ impl LevelSim {
         if self.level.tutorials.is_empty() || self.tutorials_skipped {
             self.start_level_play()
         } else {
-            vec![SimEvent::PlaySfx("PopTwoSound")]
+            vec![SimEvent::PlaySfxDelayed("PopTwoSound", 0.2)]
         }
     }
 
@@ -148,7 +149,7 @@ impl LevelSim {
         if self.tutorial_idx >= self.level.tutorials.len() {
             self.start_level_play()
         } else {
-            vec![SimEvent::PlaySfx("PopTwoSound")]
+            vec![SimEvent::PlaySfxDelayed("PopTwoSound", 0.2)]
         }
     }
 

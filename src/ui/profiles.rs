@@ -73,7 +73,7 @@ pub fn render_profile_modal(
     let ly = PM_Y + 50.0;
     canvas.draw_rounded_rect(
         Rect::new(lx, ly, 390.0, 200.0),
-        4.0,
+        2.0,
         (0x05, 0x0D, 0x2B, 204),
         Some((0x0E, 0x15, 0x32, 255, 3.0)),
     );

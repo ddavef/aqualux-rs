@@ -329,6 +329,63 @@ impl FontSet {
         }
     }
 
+    /// Draws an unstroked inline text span scaled uniformly from `base_size` with optional italic shear,
+    /// baking white glyphs so colored spans share a single cached font sheet.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_styled_span_fx(
+        &self,
+        canvas: &mut Canvas,
+        fam: FontFamily,
+        x: f32,
+        y: f32,
+        base_size: f32,
+        extra_scale: f32,
+        color: (u8, u8, u8),
+        italic: bool,
+        text: &str,
+    ) {
+        if extra_scale <= 0.004 || text.is_empty() {
+            return;
+        }
+        let tint_rgb = [
+            color.0 as f32 / 255.0,
+            color.1 as f32 / 255.0,
+            color.2 as f32 / 255.0,
+        ];
+        if let Some((bg, lw, lh, ox, oy)) = self.get_or_bake(
+            fam,
+            base_size,
+            1.0,
+            1.0,
+            canvas.dpr,
+            (255, 255, 255),
+            None,
+            text,
+        ) {
+            let row0 = if italic {
+                let shear = -0.22 * extra_scale;
+                let pivot_y = oy + base_size * 0.55;
+                [
+                    extra_scale,
+                    shear,
+                    x - ox * extra_scale - shear * pivot_y,
+                    lw,
+                ]
+            } else {
+                [extra_scale, 0.0, x - ox * extra_scale, lw]
+            };
+            canvas.draw_direct_sprite_fx(
+                bg,
+                row0,
+                [0.0, extra_scale, y - oy * extra_scale, lh],
+                1.0,
+                1.0,
+                tint_rgb,
+                (0.0, 0.0),
+            );
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn draw_styled_alpha(
         &self,

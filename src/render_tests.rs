@@ -977,6 +977,7 @@ fn ui_colors_and_text_outline_shadow_parity() {
         layout,
         1000,
         0.0,
+        None,
         (0.0, 0.0),
         false,
         false,
@@ -1000,5 +1001,228 @@ fn ui_colors_and_text_outline_shadow_parity() {
     assert!(
         saw_par_grey_stroke,
         "HUD par label should contain #161616 stroke pixels"
+    );
+}
+
+#[test]
+fn bevel_lighting_round_rect_radii_and_tutorial_bubble_parity() {
+    use crate::render::{FontFamily, LeakEmitter, draw_tutorial_bubble};
+
+    let gpu = test_gpu();
+    let empty_bank = TexBank::new(gpu.clone(), &empty_bundle());
+    let idx = |x: usize, y: usize| (y * 800 + x) * 4;
+    let luma = |px: &[u8], x: usize, y: usize| -> f32 {
+        let i = idx(x, y);
+        0.2126 * px[i] as f32 + 0.7152 * px[i + 1] as f32 + 0.0722 * px[i + 2] as f32
+    };
+
+    // 1. LeakEmitter bevel highlights top-left/upper edge and shadows bottom-right/lower edge.
+    let mut emitter = LeakEmitter::new((0, 0), 200.0, Side::Right, GameColor::Blue);
+    for _ in 0..8 {
+        emitter.update(1.0 / 30.0);
+    }
+    let mut c_leak = Canvas::new();
+    c_leak.clear((0, 0, 0));
+    emitter.draw_at(&mut c_leak, 200.0, 200.0);
+    let px_leak = gpu.render_to_rgba(&c_leak, &empty_bank, 800, 600);
+    let top_peak = (182usize..198)
+        .map(|y| luma(&px_leak, 218, y))
+        .fold(0.0f32, f32::max);
+    let bot_peak = (202usize..218)
+        .map(|y| luma(&px_leak, 218, y))
+        .fold(0.0f32, f32::max);
+    assert!(
+        top_peak > bot_peak + 8.0,
+        "Leak upper edge should receive highlight ({top_peak:.1} vs lower {bot_peak:.1})"
+    );
+
+    // 2. Modal bubble has corner radius 17.5 (not 35.0) and top-left highlight / bottom-right shadow.
+    let mut c_modal = Canvas::new();
+    c_modal.clear((0, 0, 0));
+    c_modal.draw_modal_bubble(Rect::new(100.0, 100.0, 200.0, 100.0));
+    let px_modal = gpu.render_to_rgba(&c_modal, &empty_bank, 800, 600);
+    // Corner arc center at r=17.5 is (117.5, 117.5); (108, 108) is inside fill (whereas r=35 leaves it outside).
+    let corner_in = &px_modal[idx(108, 108)..idx(108, 108) + 4];
+    assert!(
+        corner_in[2] > 70,
+        "(108, 108) must lie inside 17.5px-radius modal corner, got {:?}",
+        corner_in
+    );
+    let modal_tl = luma(&px_modal, 120, 103);
+    let modal_br = luma(&px_modal, 280, 197);
+    assert!(
+        modal_tl > modal_br + 10.0,
+        "Modal top-left bevel ({modal_tl:.1}) must be brighter than bottom-right ({modal_br:.1})"
+    );
+
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let renderer = Renderer::new(gpu.clone(), &bundle).expect("renderer");
+
+    // 3. TutorialBubble: delayed start, anchor-scaled pop-in without cache thrash, bevel, narrow tail, HTML spans & italics.
+    let sample_msg = "Uh-oh! <font color=\"#0080FF\">AQUA</font> test <font color=\"#494949\"><i>DRAG</i></font>";
+    let mut c_pre = Canvas::new();
+    c_pre.clear((0, 255, 128));
+    let (_, _, pre_w, pre_h) = draw_tutorial_bubble(
+        &mut c_pre,
+        &renderer.fonts,
+        400.0,
+        420.0,
+        sample_msg,
+        true,
+        0.10,
+    );
+    assert_eq!((pre_w, pre_h), (0.0, 0.0));
+    let px_pre = gpu.render_to_rgba(&c_pre, &renderer.bank, 800, 600);
+    assert!(
+        px_pre
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|p| *p == [0, 255, 128, 255]),
+        "TutorialBubble before 0.2s delay must draw nothing"
+    );
+
+    let mut c_full = Canvas::new();
+    c_full.clear((0, 255, 128));
+    let (fx, fy, fw, fh) = draw_tutorial_bubble(
+        &mut c_full,
+        &renderer.fonts,
+        400.0,
+        420.0,
+        sample_msg,
+        true,
+        1.0,
+    );
+    let px_full = gpu.render_to_rgba(&c_full, &renderer.bank, 800, 600);
+
+    // Inner bevel: top edge of bubble is lighter than bottom edge near shadow.
+    let f_cx = (fx + fw * 0.5).round() as usize;
+    let tut_top = luma(&px_full, f_cx + 30, (fy + 4.0).round() as usize);
+    let tut_bot = luma(&px_full, f_cx + 30, (fy + fh - 4.0).round() as usize);
+    assert!(
+        tut_top > tut_bot + 10.0,
+        "TutorialBubble top bevel ({tut_top:.1}) must be lighter than bottom bevel ({tut_bot:.1})"
+    );
+
+    // Narrow tail: height/20 half-width at bottom edge -> at bot+15, center is filled, dx=8 is empty green bg.
+    let bot = fy + fh;
+    let y_tail = (bot + 15.0).round() as usize;
+    let p_tail_ctr = &px_full[idx(f_cx, y_tail)..idx(f_cx, y_tail) + 4];
+    let p_tail_out = &px_full[idx(f_cx + 8, y_tail)..idx(f_cx + 8, y_tail) + 4];
+    assert_ne!(
+        p_tail_ctr,
+        &[0, 255, 128, 255],
+        "tail center must be filled at y={y_tail}"
+    );
+    assert_eq!(
+        p_tail_out,
+        &[0, 255, 128, 255],
+        "narrow tail must exclude dx=8 at y={y_tail}, got {:?}",
+        p_tail_out
+    );
+
+    // Styled spans: blue AQUA (#0080FF) and Click to continue (#409FFF).
+    let (mut saw_aqua_blue, mut saw_ctc_blue) = (false, false);
+    for y in (fy as usize)..(bot as usize) {
+        for x in (fx as usize)..((fx + fw) as usize) {
+            let i = idx(x, y);
+            let (r, g, b) = (px_full[i], px_full[i + 1], px_full[i + 2]);
+            if r <= 30 && (95..=165).contains(&g) && b >= 220 {
+                saw_aqua_blue = true;
+            }
+            if r.abs_diff(0x40) <= 22 && g.abs_diff(0x9F) <= 22 && b >= 225 {
+                saw_ctc_blue = true;
+            }
+        }
+    }
+    assert!(saw_aqua_blue, "AQUA span must render #0080FF blue");
+    assert!(saw_ctc_blue, "Click to continue must render #409FFF blue");
+
+    // Scaled pop-in at age=0.35 renders scaled text & stays closer to anchor without thrashing font cache.
+    let mut c_mid = Canvas::new();
+    c_mid.clear((0, 255, 128));
+    let (mx, my, mw, mh) = draw_tutorial_bubble(
+        &mut c_mid,
+        &renderer.fonts,
+        400.0,
+        420.0,
+        sample_msg,
+        true,
+        0.35,
+    );
+    assert!(mw < fw * 0.85 && mh < fh * 0.85);
+    assert!(
+        (my + mh * 0.5) > (fy + fh * 0.5) + 15.0,
+        "partial bubble must scale toward bottom anchor"
+    );
+    let px_mid = gpu.render_to_rgba(&c_mid, &renderer.bank, 800, 600);
+    let saw_scaled_dark_text = ((my + 6.0) as usize..((my + mh - 6.0) as usize)).any(|y| {
+        ((mx + 6.0) as usize..((mx + mw - 6.0) as usize)).any(|x| {
+            let i = idx(x, y);
+            px_mid[i] < 60 && px_mid[i + 1] < 60 && px_mid[i + 2] < 60
+        })
+    });
+    assert!(
+        saw_scaled_dark_text,
+        "scaled text should already be visible at age=0.35"
+    );
+
+    let count_after_first = renderer.fonts.cache_entry_count();
+    for age in [0.40, 0.50, 0.65, 0.78] {
+        let mut c_anim = Canvas::new();
+        draw_tutorial_bubble(
+            &mut c_anim,
+            &renderer.fonts,
+            400.0,
+            420.0,
+            sample_msg,
+            true,
+            age,
+        );
+    }
+    assert_eq!(
+        renderer.fonts.cache_entry_count(),
+        count_after_first,
+        "animated TutorialBubble pop-in must reuse cached font textures"
+    );
+
+    // Italic shear check: <i>DRAG</i> top ink centroid shifts right vs bottom relative to upright DRAG.
+    let measure_shear = |italic: bool| -> f32 {
+        let mut c = Canvas::new();
+        c.clear((0, 0, 0));
+        renderer.fonts.draw_styled_span_fx(
+            &mut c,
+            FontFamily::Helvetica,
+            200.0,
+            200.0,
+            24.0,
+            1.0,
+            (255, 255, 255),
+            italic,
+            "DRAG",
+        );
+        let px = gpu.render_to_rgba(&c, &renderer.bank, 800, 600);
+        let centroid = |ys: std::ops::Range<usize>| -> f32 {
+            let (mut wx, mut w) = (0.0f32, 0.0f32);
+            for y in ys {
+                for x in 180usize..340 {
+                    let v = px[idx(x, y)] as f32;
+                    if v > 20.0 {
+                        wx += x as f32 * v;
+                        w += v;
+                    }
+                }
+            }
+            wx / w.max(1.0)
+        };
+        centroid(196..209) - centroid(210..226)
+    };
+    let delta = measure_shear(true) - measure_shear(false);
+    assert!(
+        delta > 1.2,
+        "<i> span should lean right at top relative to bottom (delta={delta:.2})"
     );
 }

@@ -260,6 +260,7 @@ impl GameApp {
                 layout,
                 self.hud_score_roller.value(),
                 self.tut_age,
+                self.ff_hint_age,
                 self.mouse_pos,
                 self.is_board_busy(),
                 self.play_mode == PlayMode::Campaign,

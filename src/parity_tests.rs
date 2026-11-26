@@ -358,6 +358,7 @@ fn animated_text_and_counters_do_not_thrash_font_cache() {
             layout,
             12_345 + frame * 7,
             1.0,
+            Some(1.0),
             (0.0, 0.0),
             false,
             true,
@@ -1138,6 +1139,7 @@ fn hud_score_single_count_magic_moves_and_stationary_frozen_pipe_parity() {
         layout,
         1300,
         0.0,
+        None,
         (0.0, 0.0),
         false,
         false,
@@ -1155,6 +1157,7 @@ fn hud_score_single_count_magic_moves_and_stationary_frozen_pipe_parity() {
         layout,
         1300,
         0.0,
+        None,
         (0.0, 0.0),
         false,
         false,
@@ -1255,4 +1258,105 @@ fn hud_score_single_count_magic_moves_and_stationary_frozen_pipe_parity() {
         play_diff,
         "Screen::Playing should draw campaign HUD counters"
     );
+}
+
+#[test]
+fn tutorial_html_preservation_and_delayed_pop_timing_parity() {
+    use crate::game::SimEvent;
+
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+
+    // 1. Campaign Level 1 tutorials retain <font color> / <i> tags and <br><br> paragraph break.
+    let lvl0 = &bundle.campaign_levels[0];
+    assert!(
+        lvl0.tutorials[0]
+            .text
+            .contains("<font color=\"#0080FF\">AQUA</font>"),
+        "expected preserved AQUA color tag, got: {}",
+        lvl0.tutorials[0].text
+    );
+    assert!(
+        lvl0.tutorials[3]
+            .text
+            .contains("<font color=\"#494949\"><i>DRAG</i></font>"),
+        "expected preserved DRAG italic+color tags, got: {}",
+        lvl0.tutorials[3].text
+    );
+    assert!(
+        lvl0.tutorials[4].text.contains("\n\n")
+            && lvl0.tutorials[4]
+                .text
+                .contains("<font color=\"#009100\">GREEN.</font>"),
+        "expected paragraph break and GREEN color tag, got: {}",
+        lvl0.tutorials[4].text
+    );
+
+    // 2. Tutorial show/advance schedules PopTwoSound with exact 0.2s delay.
+    let mut sim = LevelSim::new(lvl0.clone(), Difficulty::Medium);
+    let ev_start = sim.start_level();
+    assert!(
+        ev_start.iter().any(
+            |e| matches!(e, SimEvent::PlaySfxDelayed("PopTwoSound", d) if (*d - 0.2).abs() < 1e-6)
+        ),
+        "start_level with tutorials should delay PopTwoSound by 0.2s: {:?}",
+        ev_start
+    );
+    let ev_next = sim.next_tutorial();
+    assert!(
+        ev_next.iter().any(
+            |e| matches!(e, SimEvent::PlaySfxDelayed("PopTwoSound", d) if (*d - 0.2).abs() < 1e-6)
+        ),
+        "next_tutorial should delay PopTwoSound by 0.2s: {:?}",
+        ev_next
+    );
+
+    // 3. FastForward hint tracks live age, schedules 0.2s PopTwoSound on appear, and resets when hidden.
+    let gpu = test_gpu();
+    let mut app = GameApp::new(bundle, Some(60), gpu).expect("GameApp init");
+    app.launch_level_def(app.assets.campaign_levels[0].clone());
+    app.board_pop_elapsed = None;
+    app.info_banner = None;
+    if let Some(s) = app.campaign_sim.as_mut() {
+        s.tutorials_skipped = true;
+        s.is_ready = true;
+        s.is_started = true;
+        s.path_complete = true;
+    }
+    assert!(app.ff_hint_age.is_none());
+    app.audio.clear_delayed();
+
+    app.update(0.05);
+    assert_eq!(app.ff_hint_age, Some(0.0));
+    assert!(
+        app.audio
+            .delayed_sfx()
+            .iter()
+            .any(|(n, d)| *n == "PopTwoSound" && (*d - 0.2).abs() < 1e-6),
+        "FastForward hint appearance must schedule PopTwoSound at 0.2s"
+    );
+
+    app.update(0.05);
+    app.update(0.05);
+    assert!((app.ff_hint_age.unwrap() - 0.10).abs() < 1e-5);
+
+    if let Some(s) = app.campaign_sim.as_mut() {
+        s.path_complete = false;
+    }
+    app.update(0.05);
+    assert!(app.ff_hint_age.is_none());
+
+    if let Some(s) = app.campaign_sim.as_mut() {
+        s.path_complete = true;
+    }
+    app.update(0.05);
+    assert_eq!(app.ff_hint_age, Some(0.0));
+
+    if let Some(s) = app.campaign_sim.as_mut() {
+        s.is_accelerated = true;
+    }
+    app.update(0.05);
+    assert!(app.ff_hint_age.is_none());
 }

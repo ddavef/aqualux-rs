@@ -249,6 +249,7 @@ pub struct GameApp {
     pub(crate) pause_fade: f32,
     pub(crate) tut_age: f32,
     pub(crate) last_tut_idx: usize,
+    pub(crate) ff_hint_age: Option<f32>,
     pub(crate) hud_score_roller: ScoreRoller,
     pub mouse_pos: (f32, f32),
     pub cursor_in_window: bool,
@@ -331,6 +332,7 @@ impl GameApp {
             pause_fade: 1.0,
             tut_age: 0.0,
             last_tut_idx: 0,
+            ff_hint_age: None,
             hud_score_roller: ScoreRoller::new(init_score),
             mouse_pos: (400.0, 300.0),
             cursor_in_window: true,
@@ -534,6 +536,25 @@ impl GameApp {
                 .unwrap_or_default();
             if let Some(layout) = layout_opt {
                 self.handle_sim_events(events, layout);
+            }
+            let show_ff_hint = self.play_mode == PlayMode::Campaign
+                && self.campaign_sim.as_ref().is_some_and(|s| {
+                    s.is_started
+                        && !s.finished
+                        && !s.is_accelerated
+                        && s.active_tutorial().is_none()
+                        && s.path_complete
+                        && s.level.index <= 4
+                });
+            if show_ff_hint {
+                if let Some(age) = &mut self.ff_hint_age {
+                    *age += dt;
+                } else {
+                    self.ff_hint_age = Some(0.0);
+                    self.audio.play_sfx_delayed("PopTwoSound", 0.2, 1.0);
+                }
+            } else {
+                self.ff_hint_age = None;
             }
         } else if self.screen == Screen::MatchPlaying && self.modals.is_empty() {
             let layout_opt = self.match_sim.as_ref().map(|sim| {

@@ -180,6 +180,9 @@ impl GameApp {
         self.board_pop_elapsed = Some((0.0, 3.5, pop_end, 0));
         self.board_hide = None;
         self.pause_fade = 1.0;
+        self.tut_age = 0.0;
+        self.last_tut_idx = 0;
+        self.ff_hint_age = None;
 
         self.info_banner = Some(InfoBanner {
             title: def.title.clone(),
@@ -296,6 +299,9 @@ impl GameApp {
         self.champion_state = None;
         self.board_pop_elapsed = None;
         self.board_hide = None;
+        self.tut_age = 0.0;
+        self.last_tut_idx = 0;
+        self.ff_hint_age = None;
         self.info_banner = None;
         self.leaks.clear();
         self.fireworks.clear();
@@ -321,6 +327,9 @@ impl GameApp {
         for ev in events {
             match ev {
                 SimEvent::PlaySfx(name) => self.audio.play_sfx(name),
+                SimEvent::PlaySfxDelayed(name, delay) => {
+                    self.audio.play_sfx_delayed(name, delay, 1.0);
+                }
                 SimEvent::PlayRandomBonusSfx => self.play_random_bonus_sfx(),
                 SimEvent::ScoreBlurb(gx, gy, pts) => {
                     self.blurbs.push(ScoreBlurbFx {
