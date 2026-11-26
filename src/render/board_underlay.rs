@@ -4,7 +4,7 @@
 use crate::game::{GameColor, PieceShape, PieceType, Tile};
 use crate::render::board::BoardAnim;
 use crate::render::canvas::{BoardLayout, Canvas};
-use crate::render::easing::{bounce_out, strong_in};
+use crate::render::easing::{bounce_out, quad_out, strong_in};
 use crate::render::pipe_mask::draw_flow_timer;
 use crate::render::tex_bank::TexBank;
 use crate::render::text::FontSet;
@@ -169,7 +169,7 @@ pub(crate) fn draw_portal_underlay(
     blur: (f32, f32),
 ) {
     let portal_col = tile.secondary_color.unwrap_or(GameColor::Violet);
-    let p_scale = 0.95 + 0.05 * (time * std::f32::consts::FRAC_PI_2).cos();
+    let p_scale = 1.0 - 0.1 * quad_out((time / 2.0).clamp(0.0, 1.0));
     let psz = tile_px * p_scale;
     if let Some((tid, _, _)) = bank.named("YellowPortalBitmap") {
         canvas.draw_tex_uv_rotated_blur(
@@ -218,21 +218,11 @@ pub(crate) fn draw_tile_timer_overlay(
     cy: f32,
     tpx: f32,
     alpha: f32,
-    time: f32,
 ) {
     if let Some(ref timer) = tile.timer {
         let tl_x = cx - tpx * 0.5;
         let tl_y = cy - tpx * 0.5;
-        draw_flow_timer(
-            canvas,
-            bank,
-            fonts,
-            tl_x + 20.0,
-            tl_y + 20.0,
-            timer,
-            time,
-            alpha,
-        );
+        draw_flow_timer(canvas, bank, fonts, tl_x + 20.0, tl_y + 20.0, timer, alpha);
     }
 }
 
@@ -273,12 +263,13 @@ pub(crate) fn tile_xform(
                 return (cx, cy, 0.0, 0.0, 0.0);
             }
             let u = ((elapsed - delay) / 0.6).clamp(0.0, 1.0);
+            let b = bounce_out(u);
             (
                 cx,
                 cy,
-                layout.tile_px * (0.1 + 0.9 * bounce_out(u)),
-                u,
-                (1.0 - u) * 8.0,
+                layout.tile_px * (0.1 + 0.9 * b),
+                b.clamp(0.0, 1.0),
+                ((1.0 - b) * 8.0).max(0.0),
             )
         }
         BoardAnim::Obscured { alpha } => (cx, cy, layout.tile_px, alpha, (1.0 - alpha) * 32.0),
@@ -292,8 +283,9 @@ pub(crate) fn tile_xform(
             let mut blur_px = 0.0;
             if elapsed > tdelay {
                 let u = ((elapsed - tdelay) / 0.8).clamp(0.0, 1.0);
-                cy += (800.0 - base_cy) * strong_in(u);
-                blur_px = u * 16.0;
+                let e = strong_in(u);
+                cy += (800.0 - base_cy) * e;
+                blur_px = e * 16.0;
             }
             (cx, cy, layout.tile_px, 1.0, blur_px)
         }

@@ -684,7 +684,7 @@ fn mirror_match_orientation_sign_and_preview_parity() {
             None,
             &[],
             None,
-            &[],
+            0.0,
             &[],
             false,
             false,
@@ -704,7 +704,7 @@ fn mirror_match_orientation_sign_and_preview_parity() {
             None,
             &[],
             None,
-            &[],
+            0.0,
             &[],
             false,
             false,
@@ -1225,4 +1225,417 @@ fn bevel_lighting_round_rect_radii_and_tutorial_bubble_parity() {
         delta > 1.2,
         "<i> span should lean right at top relative to bottom (delta={delta:.2})"
     );
+}
+
+#[test]
+fn board_effects_blurs_shadow_and_piece_parity() {
+    use crate::render::board::{BoardAnim, BoardRenderer};
+    use crate::render::board_underlay::tile_xform;
+    use crate::render::canvas::DrawCmd;
+    use crate::render::gpu_types::color_mat_id;
+    use crate::render::pipe_mask::draw_flow_timer;
+    use crate::render::tex_bank::{CURSOR_PAD, GlowPreset};
+    use crate::render::{BoardLayout, FontFamily, LeakEmitter, ScoreBlurbFx, draw_score_blurbs};
+
+    // 1. CURSOR_PAD accommodates blur=16 + 4px@45deg drop shadow without clipping.
+    assert_eq!(CURSOR_PAD, 26);
+
+    // 2. PopIn uses bounce_out for alpha/blur; HideDrop uses strong_in for blur.
+    let layout1 = BoardLayout::compute(1, 1, Rect::new(336.0, 236.0, 128.0, 128.0));
+    let mut dummy = Tile::from_def(&TileDef::dummy_blocker(), &minimal_test_level());
+    dummy.x = 0;
+    dummy.y = 0;
+    let (_, _, _, pop_a, pop_b) = tile_xform(
+        &dummy,
+        0,
+        1,
+        0.0,
+        layout1,
+        false,
+        BoardAnim::PopIn {
+            elapsed: 0.15,
+            start_delay: 0.0,
+        },
+    );
+    assert!((pop_a - 0.472656).abs() < 1e-3, "got {pop_a}");
+    assert!((pop_b - (1.0 - pop_a) * 8.0).abs() < 1e-3, "got {pop_b}");
+
+    let (_, _, _, _, hide_b) = tile_xform(
+        &dummy,
+        0,
+        1,
+        0.0,
+        layout1,
+        false,
+        BoardAnim::HideDrop {
+            elapsed: 0.40,
+            delay: 0.0,
+        },
+    );
+    assert!((hide_b - 0.5).abs() < 1e-3, "got {hide_b}");
+
+    let gpu = test_gpu();
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let renderer = Renderer::new(gpu.clone(), &bundle).expect("renderer");
+
+    let (arrow_raw_id, arrow_w, arrow_h) = renderer.bank.named("ArrowCursorBitmap").unwrap();
+    let _ = arrow_raw_id;
+    let (_, cw, ch, cpad) = renderer.bank.cursor(CursorKind::Arrow).unwrap();
+    assert_eq!(cpad, 26);
+    assert_eq!((cw, ch), (arrow_w + 52, arrow_h + 52));
+
+    // 3. ScoreBlurb Phase 2 back_in overshoots upward and retains its 32px white glow.
+    let mut c_blurb = Canvas::new();
+    draw_score_blurbs(
+        &mut c_blurb,
+        &renderer.fonts,
+        &[ScoreBlurbFx {
+            x: 400.0,
+            y: 300.0,
+            text: "100".into(),
+            age: 0.68,
+        }],
+    );
+    let glows: Vec<_> = c_blurb
+        .cmds
+        .iter()
+        .filter_map(|cmd| match cmd {
+            DrawCmd::SpriteDirect(_, s) if s.params[1] < -0.5 => Some(*s),
+            _ => None,
+        })
+        .collect();
+    let mains: Vec<_> = c_blurb
+        .cmds
+        .iter()
+        .filter_map(|cmd| match cmd {
+            DrawCmd::SpriteDirect(_, s) if s.params[1] > 0.5 => Some(*s),
+            _ => None,
+        })
+        .collect();
+    assert!(!glows.is_empty(), "Phase 2 ScoreBlurb must keep white glow");
+    assert!((glows[0].params[3] - 32.0).abs() < 1e-3);
+    assert!(
+        mains[0].row0[0] > 1.35,
+        "Phase 2 back_in should overshoot scale > 1.35, got {}",
+        mains[0].row0[0]
+    );
+
+    // 4. FlowTimer red/black warning color, one-shot elastic 1.0 -> 1.2 -> 0.9, and 64px fade blur.
+    let mut c_ft_red = Canvas::new();
+    c_ft_red.clear((0, 0, 0));
+    let mut ft_state = crate::game::FlowTimerState::new(5.0);
+    ft_state.age = 1.0;
+    ft_state.remaining = 0.0;
+    ft_state.warning_red = true;
+    ft_state.warn_elapsed = Some(1.9);
+    ft_state.fading = true;
+    ft_state.fade_elapsed = 0.0;
+    draw_flow_timer(
+        &mut c_ft_red,
+        &renderer.bank,
+        &renderer.fonts,
+        120.0,
+        120.0,
+        &ft_state,
+        1.0,
+    );
+    let px_red = gpu.render_to_rgba(&c_ft_red, &renderer.bank, 800, 600);
+    let saw_red_digit = (100usize..145).any(|y| {
+        (90usize..155).any(|x| {
+            let i = (y * 800 + x) * 4;
+            px_red[i] > 180 && px_red[i + 1] < 35 && px_red[i + 2] < 35
+        })
+    });
+    assert!(
+        saw_red_digit,
+        "0:00 with warning_red=true must draw red digits"
+    );
+
+    let mut c_ft_fade = Canvas::new();
+    ft_state.fade_elapsed = 0.92;
+    draw_flow_timer(
+        &mut c_ft_fade,
+        &renderer.bank,
+        &renderer.fonts,
+        120.0,
+        120.0,
+        &ft_state,
+        1.0,
+    );
+    let watch_tid = renderer.bank.named("FlowTimerBitmap").unwrap().0;
+    let watch_inst = c_ft_fade
+        .cmds
+        .iter()
+        .find_map(|cmd| match cmd {
+            DrawCmd::SpriteTex(tid, s) if *tid == watch_tid => Some(*s),
+            _ => None,
+        })
+        .unwrap();
+    let (_, watch_w, _) = renderer.bank.named("FlowTimerBitmap").unwrap();
+    assert!(
+        (watch_inst.row0[3] / watch_w as f32 - 0.9).abs() < 0.02,
+        "post-warn FlowTimer should hold at 0.9x scale"
+    );
+    assert!(
+        (watch_inst.params[3] - 0.92f32.powi(5) * 64.0).abs() < 0.05,
+        "FlowTimer fade should ramp blur toward 64px, got {}",
+        watch_inst.params[3]
+    );
+
+    // 5. PortalSprite one-shot shrink 1.0 -> 0.9 over 2s (no cosine bounce).
+    let portal = Tile::from_def(
+        &TileDef {
+            x: 0,
+            y: 0,
+            shape: PieceShape::Spigot,
+            piece_type: PieceType::Portal,
+            direction: 0,
+            is_moveable: false,
+            can_rotate: false,
+            is_gate: false,
+            is_freeze: false,
+            is_magic: false,
+            secondary_color: Some(GameColor::Violet),
+        },
+        &minimal_test_level(),
+    );
+    let portal_tid = renderer.bank.named("YellowPortalBitmap").unwrap().0;
+    let portal_width_at = |t: f32| -> f32 {
+        let mut c = Canvas::new();
+        BoardRenderer::new().draw_board(
+            &mut c,
+            &renderer.bank,
+            &renderer.fonts,
+            &[vec![portal.clone()]],
+            layout1,
+            None,
+            &[],
+            None,
+            0.0,
+            &[],
+            false,
+            false,
+            BoardAnim::Active,
+            t,
+        );
+        c.cmds
+            .iter()
+            .find_map(|cmd| match cmd {
+                DrawCmd::SpriteTex(tid, s) if *tid == portal_tid => Some(s.row0[3]),
+                _ => None,
+            })
+            .unwrap()
+    };
+    assert!((portal_width_at(0.0) - 128.0).abs() < 1e-2);
+    let pw2 = portal_width_at(2.0);
+    let pw4 = portal_width_at(4.0);
+    let pw6 = portal_width_at(6.0);
+    assert!((pw2 - 115.2).abs() < 1e-2 && (pw4 - pw2).abs() < 1e-2 && (pw6 - pw2).abs() < 1e-2);
+
+    // 6. Blocker tile renders color-blind badge when enabled.
+    let mut blocker = dummy.clone();
+    blocker.x = 0;
+    blocker.y = 0;
+    let mut c_cb_off = Canvas::new();
+    c_cb_off.clear((0, 0, 0));
+    BoardRenderer::new().draw_board(
+        &mut c_cb_off,
+        &renderer.bank,
+        &renderer.fonts,
+        &[vec![blocker.clone()]],
+        layout1,
+        None,
+        &[],
+        None,
+        0.0,
+        &[],
+        false,
+        false,
+        BoardAnim::Active,
+        0.0,
+    );
+    let mut c_cb_on = Canvas::new();
+    c_cb_on.clear((0, 0, 0));
+    BoardRenderer::new().draw_board(
+        &mut c_cb_on,
+        &renderer.bank,
+        &renderer.fonts,
+        &[vec![blocker]],
+        layout1,
+        None,
+        &[],
+        None,
+        0.0,
+        &[],
+        true,
+        false,
+        BoardAnim::Active,
+        0.0,
+    );
+    assert_ne!(
+        gpu.render_to_rgba(&c_cb_off, &renderer.bank, 800, 600),
+        gpu.render_to_rgba(&c_cb_on, &renderer.bank, 800, 600),
+        "color_blind=true must draw badge on Blocker tiles"
+    );
+
+    // 7. Board-level PipeDropShadow renders strictly behind all tile bodies + Selection ramps 0..0.8s once.
+    let elbow0 = Tile::from_def(
+        &TileDef {
+            x: 0,
+            y: 0,
+            shape: PieceShape::Elbow,
+            piece_type: PieceType::Pipe,
+            direction: 0,
+            is_moveable: true,
+            can_rotate: false,
+            is_gate: false,
+            is_freeze: false,
+            is_magic: false,
+            secondary_color: None,
+        },
+        &minimal_test_level(),
+    );
+    let mut elbow1 = elbow0.clone();
+    elbow1.x = 1;
+    let layout2 = BoardLayout::compute(2, 1, Rect::new(272.0, 236.0, 256.0, 128.0));
+    let sh_tid = renderer
+        .bank
+        .glow_named("ElbowClearBitmap", GlowPreset::PipeDropShadow)
+        .unwrap()
+        .0;
+    let body_tid = renderer.bank.named("ElbowClearBitmap").unwrap().0;
+    let sel_cmat = color_mat_id(Some((elbow0.pipe_color, true))) as f32;
+
+    let mut c_board = Canvas::new();
+    BoardRenderer::new().draw_board(
+        &mut c_board,
+        &renderer.bank,
+        &renderer.fonts,
+        &[vec![elbow0.clone(), elbow1.clone()]],
+        layout2,
+        Some((0, 0)),
+        &[],
+        None,
+        0.4,
+        &[],
+        false,
+        false,
+        BoardAnim::Active,
+        0.0,
+    );
+    let last_sh = c_board
+        .cmds
+        .iter()
+        .rposition(|cmd| matches!(cmd, DrawCmd::SpriteTex(tid, _) if *tid == sh_tid))
+        .unwrap();
+    let first_body = c_board
+        .cmds
+        .iter()
+        .position(|cmd| matches!(cmd, DrawCmd::SpriteTex(tid, _) if *tid == body_tid))
+        .unwrap();
+    assert!(
+        last_sh < first_body,
+        "all board PipeDropShadows ({last_sh}) must emit before first tile body ({first_body})"
+    );
+    let sel_alpha_at = |sa: f32| -> Option<f32> {
+        let mut c = Canvas::new();
+        BoardRenderer::new().draw_board(
+            &mut c,
+            &renderer.bank,
+            &renderer.fonts,
+            &[vec![elbow0.clone()]],
+            layout1,
+            Some((0, 0)),
+            &[],
+            None,
+            sa,
+            &[],
+            false,
+            false,
+            BoardAnim::Active,
+            0.0,
+        );
+        c.cmds.iter().find_map(|cmd| match cmd {
+            DrawCmd::SpriteTex(tid, s)
+                if *tid == body_tid && (s.params[0] - sel_cmat).abs() < 0.1 =>
+            {
+                Some(s.params[2])
+            }
+            _ => None,
+        })
+    };
+    assert!(sel_alpha_at(0.0).is_none());
+    assert!((sel_alpha_at(0.4).unwrap() - 0.75).abs() < 1e-4);
+    assert!((sel_alpha_at(0.8).unwrap() - 1.0).abs() < 1e-4);
+    assert!((sel_alpha_at(1.6).unwrap() - 1.0).abs() < 1e-4);
+
+    // 8. pipe_mask.wgsl and leak.wgsl render blurred alpha without clipping.
+    let full_tid = renderer.bank.named("StraightFullBitmap").unwrap().0;
+    let caps = [[64.0, 0.0, 64.0, 128.0], [0.0; 4], [0.0; 4], [0.0; 4]];
+    let radii = [24.0, 0.0, 0.0, 0.0];
+    let mut c_sharp = Canvas::new();
+    c_sharp.clear((0, 0, 0));
+    c_sharp.draw_pipe_masked(
+        full_tid,
+        400.0,
+        300.0,
+        128.0,
+        128.0,
+        0.0,
+        false,
+        caps,
+        radii,
+        1,
+        GameColor::Blue,
+        1.0,
+        (0.0, 0.0),
+    );
+    let px_sharp = gpu.render_to_rgba(&c_sharp, &renderer.bank, 800, 600);
+
+    let mut c_blur = Canvas::new();
+    c_blur.clear((0, 0, 0));
+    c_blur.draw_pipe_masked(
+        full_tid,
+        400.0,
+        300.0,
+        128.0,
+        128.0,
+        0.0,
+        false,
+        caps,
+        radii,
+        1,
+        GameColor::Blue,
+        1.0,
+        (16.0, 16.0),
+    );
+    let px_blur = gpu.render_to_rgba(&c_blur, &renderer.bank, 800, 600);
+    // Above the tile top boundary (y < 236), sharp has zero ink while expanded blurred quad spreads upward.
+    let sharp_edge = (231usize..236).any(|y| px_sharp[(y * 800 + 400) * 4 + 2] > 0);
+    let blur_edge = (231usize..236).any(|y| px_blur[(y * 800 + 400) * 4 + 2] > 5);
+    assert!(
+        !sharp_edge && blur_edge,
+        "blurred pipe_mask must spread outside sharp bounds"
+    );
+
+    let mut emitter = LeakEmitter::new((0, 0), 200.0, Side::Right, GameColor::Blue);
+    for _ in 0..8 {
+        emitter.update(1.0 / 30.0);
+    }
+    let mut c_lk_blur = Canvas::new();
+    c_lk_blur.clear((0, 0, 0));
+    emitter.draw_at_fx(&mut c_lk_blur, 200.0, 200.0, 0.5, 16.0);
+    let px_lk = gpu.render_to_rgba(&c_lk_blur, &renderer.bank, 800, 600);
+    let lk_peak = (176usize..224)
+        .map(|y| px_lk[(y * 800 + 218) * 4 + 2])
+        .max()
+        .unwrap();
+    assert!(
+        lk_peak > 20 && lk_peak < 180,
+        "expected attenuated blurred leak peak, got {lk_peak}"
+    );
+    let _ = FontFamily::Neuropol;
 }

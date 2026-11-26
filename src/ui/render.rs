@@ -223,7 +223,14 @@ impl GameApp {
         };
         let layout =
             BoardLayout::compute(sim.level.cols, sim.level.rows, hud::campaign_board_area());
-        let hover = if self.modals.is_empty() && !paused && self.screen != Screen::Summary {
+        let hover = if self.modals.is_empty()
+            && !paused
+            && self.screen != Screen::Summary
+            && !self.is_board_busy()
+            && sim.is_ready
+            && (sim.is_started || sim.active_tutorial().is_some())
+            && !sim.active_tutorial().is_some_and(|t| t.click_to_continue())
+        {
             layout.hit_test(self.mouse_pos.0, self.mouse_pos.1)
         } else {
             None
@@ -232,10 +239,6 @@ impl GameApp {
             .selected
             .map(|s| sim.get_swap_eligible(s))
             .unwrap_or_default();
-        let tut_tiles = sim
-            .active_tutorial()
-            .map(|t| t.tiles.as_slice())
-            .unwrap_or(&[]);
 
         self.renderer.draw_board(
             canvas,
@@ -244,12 +247,12 @@ impl GameApp {
             sim.selected,
             &swap_elig,
             hover,
-            tut_tiles,
+            sim.select_age,
             &self.leaks,
             self.save.config.color_blind,
             false,
             board_anim,
-            self.time,
+            self.board_age,
         );
         if !paused && self.screen != Screen::Summary {
             hud::render_campaign_hud(
@@ -286,7 +289,12 @@ impl GameApp {
         };
         let play_layout =
             BoardLayout::compute(sim.level.cols, sim.level.rows, hud::match_play_area());
-        let hover = if self.modals.is_empty() && !paused {
+        let hover = if self.modals.is_empty()
+            && !paused
+            && !self.is_board_busy()
+            && sim.is_ready
+            && sim.is_started
+        {
             play_layout.hit_test(self.mouse_pos.0, self.mouse_pos.1)
         } else {
             None
@@ -303,12 +311,12 @@ impl GameApp {
             sim.selected,
             &swap_elig,
             hover,
-            &[],
+            sim.select_age,
             &[],
             self.save.config.color_blind,
             false,
             board_anim,
-            self.time,
+            self.board_age,
         );
 
         if !paused && preview_alpha > 0.004 {
@@ -321,14 +329,14 @@ impl GameApp {
                 None,
                 &[],
                 None,
-                &[],
+                0.0,
                 &[],
                 self.save.config.color_blind,
                 sim.mirror_mode,
                 BoardAnim::Preview {
                     alpha: preview_alpha,
                 },
-                self.time,
+                self.board_age,
             );
         }
         if !paused {

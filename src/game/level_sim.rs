@@ -39,6 +39,7 @@ pub struct LevelSim {
     pub score: u32,
     pub current_speed: f32,
     pub selected: Option<(usize, usize)>,
+    pub select_age: f32,
     pub swapping_tiles: Vec<(usize, usize)>,
     pub(crate) pending_exits: Vec<(usize, usize, Side)>,
     pub path_complete: bool,
@@ -71,6 +72,7 @@ impl LevelSim {
             score: 0,
             current_speed,
             selected: None,
+            select_age: 0.0,
             swapping_tiles: Vec::new(),
             pending_exits: Vec::new(),
             path_complete: false,
@@ -231,6 +233,7 @@ impl LevelSim {
         if t.can_rotate {
             self.tiles[ty][tx].rotate_cw_timed(1, ACTION_TWEEN_SECS);
             self.selected = None;
+            self.select_age = 0.0;
             self.swapping_tiles = vec![(tx, ty)];
             events.push(SimEvent::PlaySfx("TwistPieceSound"));
             return events;
@@ -238,19 +241,23 @@ impl LevelSim {
         if let Some((sx, sy)) = self.selected {
             if (sx, sy) == (tx, ty) {
                 self.selected = None;
+                self.select_age = 0.0;
             } else if is_adjacent((sx, sy), (tx, ty))
                 && !self.tiles[sy][sx].is_locked_or_active()
                 && self.tiles[sy][sx].is_moveable
             {
                 self.selected = None;
+                self.select_age = 0.0;
                 swap_grid_tiles_timed(&mut self.tiles, (sx, sy), (tx, ty), ACTION_TWEEN_SECS);
                 self.swapping_tiles = vec![(sx, sy), (tx, ty)];
                 events.push(SimEvent::PlaySfx("SwapTwoSound"));
             } else {
                 self.selected = Some((tx, ty));
+                self.select_age = 0.0;
             }
         } else {
             self.selected = Some((tx, ty));
+            self.select_age = 0.0;
             events.push(SimEvent::PlaySfx("ClickTwoSound"));
             if self
                 .active_tutorial()
@@ -278,12 +285,14 @@ impl LevelSim {
         }
         if !self.tutorial_allows_drag(from, to) {
             self.selected = None;
+            self.select_age = 0.0;
             return Vec::new();
         }
         let a = &self.tiles[from.1][from.0];
         let b = &self.tiles[to.1][to.0];
         if a.is_moveable && b.is_moveable && !a.is_locked_or_active() && !b.is_locked_or_active() {
             self.selected = None;
+            self.select_age = 0.0;
             swap_grid_tiles_timed(&mut self.tiles, from, to, ACTION_TWEEN_SECS);
             self.swapping_tiles = vec![from, to];
             return vec![SimEvent::PlaySfx("SwapTwoSound")];
@@ -295,6 +304,11 @@ impl LevelSim {
         let mut events = Vec::new();
         if self.is_paused {
             return events;
+        }
+        if self.selected.is_some() {
+            self.select_age += dt;
+        } else {
+            self.select_age = 0.0;
         }
         for row in &mut self.tiles {
             for tile in row {

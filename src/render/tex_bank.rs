@@ -14,7 +14,7 @@ use rustc_hash::FxHashMap;
 use std::cell::{Ref, RefCell};
 use std::sync::Arc;
 
-pub const CURSOR_PAD: u32 = 16;
+pub const CURSOR_PAD: u32 = 26;
 pub const PATH_HL_PAD: u32 = 16;
 pub const TITLE_SHADOW_PAD: u32 = 28;
 
@@ -28,7 +28,6 @@ pub enum GlowPreset {
     PipeHover,
     PipeSelected,
     PipeAccent,
-    PipeTutorial,
 }
 
 impl GlowPreset {
@@ -36,10 +35,7 @@ impl GlowPreset {
         match self {
             Self::PipeAccent => 6,
             Self::ButtonWhite | Self::TrophyYellow | Self::TrophyShadow | Self::PipeHover => 10,
-            Self::FlowTimerYellow
-            | Self::PipeDropShadow
-            | Self::PipeSelected
-            | Self::PipeTutorial => 16,
+            Self::FlowTimerYellow | Self::PipeDropShadow | Self::PipeSelected => 16,
         }
     }
 }
@@ -218,17 +214,6 @@ impl TexBank {
                 GlowPreset::PipeAccent => {
                     bake_blur_texture(&self.gpu, src, 0.0, 0.0, (0, 255, 64), 1.0, 4.0, 1.0, pad)
                 }
-                GlowPreset::PipeTutorial => bake_blur_texture(
-                    &self.gpu,
-                    src,
-                    0.0,
-                    0.0,
-                    (0x2F, 0x97, 0xFF),
-                    1.0,
-                    15.0,
-                    3.0,
-                    pad,
-                ),
             }
         };
         let (tid, w, h) = self.alloc_tex(out);

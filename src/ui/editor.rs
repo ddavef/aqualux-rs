@@ -828,7 +828,7 @@ pub fn render_editor(
         None,
         &[],
         hover,
-        &[],
+        0.0,
         &[],
         color_blind,
         false,

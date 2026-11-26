@@ -305,9 +305,6 @@ impl GameApp {
             if !sim.is_ready || (!sim.is_started && sim.active_tutorial().is_none()) {
                 return CursorKind::Arrow;
             }
-            if sim.is_acting() {
-                return CursorKind::Wait;
-            }
             for b in hud::build_playing_buttons(Some(sim), None, false) {
                 if b.enabled && b.rect.contains(mx, my) {
                     return CursorKind::Arrow;
@@ -322,7 +319,11 @@ impl GameApp {
                 } else if t.is_moveable {
                     CursorKind::Arrow
                 } else if t.can_rotate {
-                    CursorKind::Rotate
+                    if sim.is_acting() {
+                        CursorKind::Wait
+                    } else {
+                        CursorKind::Rotate
+                    }
                 } else {
                     CursorKind::Stop
                 };
@@ -333,9 +334,6 @@ impl GameApp {
             };
             if !sim.is_ready || !sim.is_started {
                 return CursorKind::Arrow;
-            }
-            if sim.is_acting() {
-                return CursorKind::Wait;
             }
             for b in hud::build_playing_buttons(None, Some(sim), false) {
                 if b.enabled && b.rect.contains(mx, my) {
@@ -351,7 +349,11 @@ impl GameApp {
                 } else if t.is_moveable {
                     CursorKind::Arrow
                 } else if t.can_rotate {
-                    CursorKind::Rotate
+                    if sim.is_acting() {
+                        CursorKind::Wait
+                    } else {
+                        CursorKind::Rotate
+                    }
                 } else {
                     CursorKind::Stop
                 };

@@ -72,15 +72,18 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
     let p = in.pt;
     let d = sd_poly(p, n);
+    let blur = bitcast<f32>(leak.count_pad.y);
     let aa = max(fwidth(d), 0.05);
-    let cov = clamp(0.5 - d / aa, 0.0, 1.0);
+    let edge_w = max(aa, blur * 1.15);
+    let cov = clamp(0.5 - d / edge_w, 0.0, 1.0);
     if cov <= 0.001 {
         discard;
     }
 
     let off = vec2<f32>(11.313708, 11.313708);
-    let a1 = clamp(0.5 - sd_poly(p - off, n) / 7.2, 0.0, 1.0);
-    let a2 = clamp(0.5 - sd_poly(p + off, n) / 7.2, 0.0, 1.0);
+    let bevel_w = max(7.2, blur * 1.15);
+    let a1 = clamp(0.5 - sd_poly(p - off, n) / bevel_w, 0.0, 1.0);
+    let a2 = clamp(0.5 - sd_poly(p + off, n) / bevel_w, 0.0, 1.0);
     let diff = a2 - a1;
     var rgb = leak.rgb_alpha.rgb;
     if diff > 0.0 {
@@ -89,9 +92,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         rgb = mix(rgb, vec3<f32>(44.0 / 255.0, 51.0 / 255.0, 75.0 / 255.0), clamp(-diff * 0.8, 0.0, 1.0));
     }
 
-    let g_blur = clamp(0.5 - d / 5.4, 0.0, 1.0);
+    let glow_w = max(5.4, blur * 1.15);
+    let g_blur = clamp(0.5 - d / glow_w, 0.0, 1.0);
     let edge = clamp((1.0 - g_blur) * 0.6, 0.0, 1.0);
     rgb = mix(rgb, vec3<f32>(1.0), edge);
-    let a = cov * leak.rgb_alpha.a;
+    let a = cov * leak.rgb_alpha.a / (1.0 + blur * 0.025);
     return vec4<f32>(rgb * a, a);
 }

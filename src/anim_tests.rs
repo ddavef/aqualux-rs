@@ -214,7 +214,7 @@ fn portal_slime_reset_bonus_and_5s_timer_with_no_swish() {
         }
     }
     assert!(!saw_swish);
-    assert_eq!(alarm_count, 2);
+    assert_eq!(alarm_count, 3);
     assert!(sim.tiles[0][2].timer.is_some_and(|t| t.fading));
     for _ in 0..70 {
         sim.update(dt);

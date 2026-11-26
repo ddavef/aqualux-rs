@@ -18,6 +18,7 @@ pub struct MatchSim {
     pub goal_tiles: Vec<Vec<Tile>>,
     pub play_tiles: Vec<Vec<Tile>>,
     pub selected: Option<(usize, usize)>,
+    pub select_age: f32,
     pub swapping_tiles: Vec<(usize, usize)>,
     pub moves: u32,
     pub is_ready: bool,
@@ -43,6 +44,7 @@ impl MatchSim {
             goal_tiles,
             play_tiles,
             selected: None,
+            select_age: 0.0,
             swapping_tiles: Vec::new(),
             moves: 0,
             is_ready: false,
@@ -140,6 +142,7 @@ impl MatchSim {
         if tile.can_rotate {
             self.play_tiles[ty][tx].rotate_cw_timed(1, ACTION_TWEEN_SECS);
             self.selected = None;
+            self.select_age = 0.0;
             self.swapping_tiles = vec![(tx, ty)];
             events.push(SimEvent::PlaySfx("TwistPieceSound"));
             return events;
@@ -147,16 +150,20 @@ impl MatchSim {
         if let Some((sx, sy)) = self.selected {
             if (sx, sy) == (tx, ty) {
                 self.selected = None;
+                self.select_age = 0.0;
             } else if is_adjacent((sx, sy), (tx, ty)) && self.play_tiles[sy][sx].is_moveable {
                 self.selected = None;
+                self.select_age = 0.0;
                 swap_grid_tiles_timed(&mut self.play_tiles, (sx, sy), (tx, ty), ACTION_TWEEN_SECS);
                 self.swapping_tiles = vec![(sx, sy), (tx, ty)];
                 events.push(SimEvent::PlaySfx("SwapTwoSound"));
             } else {
                 self.selected = Some((tx, ty));
+                self.select_age = 0.0;
             }
         } else {
             self.selected = Some((tx, ty));
+            self.select_age = 0.0;
             events.push(SimEvent::PlaySfx("ClickTwoSound"));
         }
         events
@@ -179,6 +186,7 @@ impl MatchSim {
         }
         if self.play_tiles[from.1][from.0].is_moveable && self.play_tiles[to.1][to.0].is_moveable {
             self.selected = None;
+            self.select_age = 0.0;
             swap_grid_tiles_timed(&mut self.play_tiles, from, to, ACTION_TWEEN_SECS);
             self.swapping_tiles = vec![from, to];
             events.push(SimEvent::PlaySfx("SwapTwoSound"));
@@ -190,6 +198,11 @@ impl MatchSim {
         let mut events = Vec::new();
         if self.is_paused {
             return events;
+        }
+        if self.selected.is_some() {
+            self.select_age += dt;
+        } else {
+            self.select_age = 0.0;
         }
         if animate_grid_tiles(&mut self.play_tiles, dt, &self.swapping_tiles) {
             self.swapping_tiles.clear();

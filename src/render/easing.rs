@@ -50,10 +50,22 @@ pub fn bounce_out(t: f32) -> f32 {
     }
 }
 
-pub fn elastic_pulse(t: f32) -> f32 {
+pub fn elastic_in_out(t: f32) -> f32 {
     let u = t.clamp(0.0, 1.0);
-    if u == 0.0 || u == 1.0 {
+    if u <= 0.0 {
         return 0.0;
     }
-    (-(6.0 * u)).exp() * (u * PI * 4.0).sin()
+    if u >= 1.0 {
+        return 1.0;
+    }
+    let p = 0.45f32;
+    let s = p * 0.25;
+    let mut a = u * 2.0;
+    if a < 1.0 {
+        a -= 1.0;
+        -0.5 * (2.0f32.powf(10.0 * a) * ((a - s) * std::f32::consts::TAU / p).sin())
+    } else {
+        a -= 1.0;
+        0.5 * (2.0f32.powf(-10.0 * a) * ((a - s) * std::f32::consts::TAU / p).sin()) + 1.0
+    }
 }

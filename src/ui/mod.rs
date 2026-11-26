@@ -246,6 +246,8 @@ pub struct GameApp {
     pub(crate) board_pop_elapsed: Option<(f32, f32, f32, usize)>,
     /// `(elapsed, delay, done_time, next_step)`
     pub(crate) board_hide: Option<(f32, f32, f32, HideAfterBoard)>,
+    pub(crate) board_age: f32,
+    pub(crate) pause_elapsed: f32,
     pub(crate) pause_fade: f32,
     pub(crate) tut_age: f32,
     pub(crate) last_tut_idx: usize,
@@ -329,6 +331,8 @@ impl GameApp {
             temp_easy_revert: None,
             board_pop_elapsed: None,
             board_hide: None,
+            board_age: 0.0,
+            pause_elapsed: 0.0,
             pause_fade: 1.0,
             tut_age: 0.0,
             last_tut_idx: 0,
@@ -454,9 +458,15 @@ impl GameApp {
         }
 
         if self.screen == Screen::Paused {
-            self.pause_fade = (self.pause_fade - dt * 2.0).max(0.0);
+            self.pause_elapsed = (self.pause_elapsed + dt).min(0.5);
+            self.pause_fade =
+                1.0 - crate::render::easing::quad_out((self.pause_elapsed / 0.5).clamp(0.0, 1.0));
         } else {
+            self.pause_elapsed = 0.0;
             self.pause_fade = 1.0;
+            if self.campaign_sim.is_some() || self.match_sim.is_some() {
+                self.board_age += dt;
+            }
         }
 
         if self.screen != Screen::Paused {

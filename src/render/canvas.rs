@@ -389,6 +389,7 @@ impl Canvas {
         count: u32,
         color: GameColor,
         alpha: f32,
+        blur: (f32, f32),
     ) {
         let a = alpha.clamp(0.0, 1.0);
         if a <= 0.004 || count == 0 || draw_w <= 0.0 || draw_h <= 0.0 {
@@ -409,7 +410,7 @@ impl Canvas {
                     color_mat_id(Some((color, false))) as f32,
                     a,
                     count as f32,
-                    0.0,
+                    blur.0.max(blur.1).max(0.0),
                 ],
             },
         ));

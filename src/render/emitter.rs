@@ -149,8 +149,21 @@ impl LeakEmitter {
         self.particles.len()
     }
 
+    #[cfg(test)]
     pub fn draw_at(&self, canvas: &mut Canvas, origin_x: f32, origin_y: f32) {
-        if self.particles.is_empty() {
+        self.draw_at_fx(canvas, origin_x, origin_y, 1.0, 0.0);
+    }
+
+    pub fn draw_at_fx(
+        &self,
+        canvas: &mut Canvas,
+        origin_x: f32,
+        origin_y: f32,
+        alpha: f32,
+        blur: f32,
+    ) {
+        let eff_alpha = alpha.clamp(0.0, 1.0);
+        if self.particles.is_empty() || eff_alpha <= 0.004 {
             return;
         }
         let bottom_edge = (LOGICAL_H as f32 - origin_y) + 25.0;
@@ -171,7 +184,8 @@ impl LeakEmitter {
             return;
         }
 
-        let pad = 26.0;
+        let blur_px = blur.max(0.0);
+        let pad = 26.0 + blur_px * 0.65;
         let mut min_x = f32::INFINITY;
         let mut max_x = f32::NEG_INFINITY;
         let mut min_y = f32::INFINITY;
@@ -209,9 +223,9 @@ impl LeakEmitter {
                 self.rgb.0 as f32 / 255.0,
                 self.rgb.1 as f32 / 255.0,
                 self.rgb.2 as f32 / 255.0,
-                1.0,
+                eff_alpha,
             ],
-            count_pad: [n as u32, 0, 0, 0],
+            count_pad: [n as u32, blur_px.to_bits(), 0, 0],
             pts: packed,
         });
     }

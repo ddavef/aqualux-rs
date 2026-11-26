@@ -158,9 +158,16 @@ impl LevelSim {
                     }
                     continue;
                 }
+                if let Some(w) = &mut t.warn_elapsed {
+                    *w += dt;
+                }
                 t.remaining -= dt;
                 let sec = t.remaining.ceil().max(0.0) as i32;
-                if sec > 0 && sec < 3 && sec < t.last_alarm_sec {
+                if t.warn_elapsed.is_none() && sec <= 3 && t.total > 3.0 {
+                    t.warn_elapsed = Some(0.0);
+                }
+                if sec < 3 && sec < t.last_alarm_sec {
+                    t.warning_red = !t.warning_red;
                     events.push(SimEvent::PlaySfx("AlarmBeepSound"));
                 }
                 t.last_alarm_sec = sec;
@@ -299,6 +306,7 @@ impl LevelSim {
                     events.push(SimEvent::ScoreBlurb(mx as f32 + 0.5, my as f32 + 0.5, 100));
                     if self.selected == Some((mx, my)) {
                         self.selected = None;
+                        self.select_age = 0.0;
                     }
                     if self.is_accelerated {
                         self.tiles[my][mx].start_filling(Side::Center, true);
@@ -321,6 +329,7 @@ impl LevelSim {
             let (ux, uy) = (nx as usize, ny as usize);
             if self.selected == Some((ux, uy)) {
                 self.selected = None;
+                self.select_age = 0.0;
             }
             let fast_nozzle = self.is_accelerated || self.current_speed >= 15.0;
             if self.tiles[uy][ux]

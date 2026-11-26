@@ -3,7 +3,7 @@
 
 use crate::game::{FillPass, FlowTimerState, Side};
 use crate::render::canvas::{Canvas, Rect};
-use crate::render::easing::{bounce_out, elastic_pulse, quad_out, strong_in};
+use crate::render::easing::{bounce_out, elastic_in_out, quad_out, strong_in};
 use crate::render::tex_bank::{GlowPreset, TexBank};
 use crate::render::text::{FontFamily, FontSet, TextAlign};
 
@@ -98,11 +98,10 @@ pub fn draw_flow_timer(
     cx: f32,
     cy: f32,
     timer: &FlowTimerState,
-    time: f32,
     alpha: f32,
 ) {
     let fade_a = if timer.fading {
-        (1.0 - timer.fade_elapsed).clamp(0.0, 1.0)
+        1.0 - quad_out(timer.fade_elapsed.clamp(0.0, 1.0))
     } else {
         1.0
     };
@@ -117,20 +116,18 @@ pub fn draw_flow_timer(
     };
     let secs = timer.remaining;
     let s = secs.ceil().max(0.0) as i32;
-    let pulse = if secs <= 3.0 {
-        let warn_t = 3.0 - secs
-            + if timer.fading {
-                timer.fade_elapsed
-            } else {
-                0.0
-            };
-        1.0 + 0.18 * elastic_pulse((warn_t / 1.6).fract())
-    } else {
-        1.0
+    let pulse = match timer.warn_elapsed {
+        None => 1.0,
+        Some(w) if w < 0.9 => 1.0 + 0.2 * elastic_in_out(w),
+        Some(w) if w < 1.9 => {
+            let s0 = 1.0 + 0.2 * elastic_in_out(0.9);
+            s0 + (0.9 - s0) * elastic_in_out(w - 0.9)
+        }
+        Some(_) => 0.9,
     };
     let sc = (pop_scale * pulse).max(0.01);
     let bl = if timer.fading {
-        strong_in(timer.fade_elapsed.clamp(0.0, 1.0)) * 32.0
+        strong_in(timer.fade_elapsed.clamp(0.0, 1.0)) * 64.0
     } else if timer.age < 0.9 {
         (1.0 - timer.age / 0.9) * 4.0
     } else {
@@ -165,7 +162,7 @@ pub fn draw_flow_timer(
         return;
     }
     let label = format!("{}:{:02}", s / 60, s % 60);
-    let col = if s < 3 && ((time * 2.0) as i32 % 2 == 1) {
+    let col = if timer.warning_red {
         (255, 0, 0)
     } else {
         (0, 0, 0)

@@ -179,6 +179,8 @@ impl GameApp {
         let pop_end = 3.5 + tile_count as f32 * 0.1 + 0.6;
         self.board_pop_elapsed = Some((0.0, 3.5, pop_end, 0));
         self.board_hide = None;
+        self.board_age = 0.0;
+        self.pause_elapsed = 0.0;
         self.pause_fade = 1.0;
         self.tut_age = 0.0;
         self.last_tut_idx = 0;
@@ -215,6 +217,8 @@ impl GameApp {
         let pop_end = 1.5 + tile_count as f32 * 0.1 + 0.6;
         self.board_pop_elapsed = Some((0.0, 1.5, pop_end, 0));
         self.board_hide = None;
+        self.board_age = 0.0;
+        self.pause_elapsed = 0.0;
         self.pause_fade = 1.0;
 
         if idx == 0 && first_entry {
@@ -299,6 +303,9 @@ impl GameApp {
         self.champion_state = None;
         self.board_pop_elapsed = None;
         self.board_hide = None;
+        self.board_age = 0.0;
+        self.pause_elapsed = 0.0;
+        self.pause_fade = 1.0;
         self.tut_age = 0.0;
         self.last_tut_idx = 0;
         self.ff_hint_age = None;

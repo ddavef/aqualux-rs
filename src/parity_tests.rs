@@ -327,6 +327,8 @@ fn animated_text_and_counters_do_not_thrash_font_cache() {
             remaining,
             age: t.min(1.5),
             last_alarm_sec: 3,
+            warning_red: remaining < 3.0,
+            warn_elapsed: (remaining <= 3.0).then_some(3.0 - remaining),
             fading: false,
             fade_elapsed: 0.0,
         };
@@ -337,7 +339,6 @@ fn animated_text_and_counters_do_not_thrash_font_cache() {
             120.0,
             120.0,
             &timer,
-            t,
             1.0,
         );
         let blurb = ScoreBlurbFx {
@@ -1219,7 +1220,7 @@ fn hud_score_single_count_magic_moves_and_stationary_frozen_pipe_parity() {
         None,
         &[],
         None,
-        &[],
+        0.0,
         &[],
         false,
         false,
@@ -1227,7 +1228,7 @@ fn hud_score_single_count_magic_moves_and_stationary_frozen_pipe_parity() {
             elapsed: 0.0,
             delay: 0.0,
         },
-        app.time,
+        app.board_age,
     );
     let px_bg = gpu.render_to_rgba(&c_bg, &app.renderer.bank, 800, 600);
 
@@ -1359,4 +1360,254 @@ fn tutorial_html_preservation_and_delayed_pop_timing_parity() {
     }
     app.update(0.05);
     assert!(app.ff_hint_age.is_none());
+}
+
+#[test]
+fn cursor_wait_scope_hover_gating_and_flow_timer_beeps_parity() {
+    use crate::game::SimEvent;
+    use crate::render::canvas::DrawCmd;
+    use crate::render::tex_bank::GlowPreset;
+    use crate::render::{BoardLayout, Canvas, CursorKind};
+    use crate::ui::hud;
+
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+
+    // 1. 5s FlowTimer emits 3 AlarmBeepSounds (0:02, 0:01, 0:00), alternates warning_red, and freezes warn_elapsed during fade.
+    let timer_def = LevelDef {
+        index: 0,
+        title: "TimerTest".into(),
+        description: String::new(),
+        background_id: "NightHills".into(),
+        liquid_color: GameColor::Blue,
+        start_delay: 5.0,
+        liquid_speed: 6.0,
+        rotater_color: GameColor::White,
+        mover_color: GameColor::Yellow,
+        stationary_color: GameColor::Orange,
+        gate_color: GameColor::Violet,
+        freeze_color: GameColor::Yellow,
+        magic_color: GameColor::Green,
+        par_moves: 1,
+        par_pipes: 3,
+        par_time_ms: 5000,
+        cols: 3,
+        rows: 1,
+        tiles: vec![
+            TileDef {
+                x: 0,
+                y: 0,
+                shape: PieceShape::Spigot,
+                piece_type: PieceType::Source,
+                direction: 3,
+                is_moveable: false,
+                can_rotate: false,
+                is_gate: false,
+                is_freeze: false,
+                is_magic: false,
+                secondary_color: None,
+            },
+            TileDef {
+                x: 1,
+                y: 0,
+                shape: PieceShape::Straight,
+                piece_type: PieceType::Pipe,
+                direction: 1,
+                is_moveable: false,
+                can_rotate: false,
+                is_gate: false,
+                is_freeze: false,
+                is_magic: false,
+                secondary_color: None,
+            },
+            TileDef {
+                x: 2,
+                y: 0,
+                shape: PieceShape::Drain,
+                piece_type: PieceType::Drain,
+                direction: 1,
+                is_moveable: false,
+                can_rotate: false,
+                is_gate: false,
+                is_freeze: false,
+                is_magic: false,
+                secondary_color: None,
+            },
+        ],
+        tutorials: Vec::new(),
+    };
+    let mut sim = LevelSim::new(timer_def, Difficulty::Hard);
+    let _ = sim.start_level();
+    let mut alarm_states = Vec::new();
+    for _ in 0..340 {
+        for ev in sim.update(1.0 / 60.0) {
+            if matches!(ev, SimEvent::PlaySfx("AlarmBeepSound")) {
+                let tm = sim.tiles[0][0].timer.unwrap();
+                alarm_states.push((tm.last_alarm_sec, tm.warning_red));
+            }
+        }
+        if sim.tiles[0][0].timer.is_some_and(|t| t.fading) {
+            break;
+        }
+    }
+    assert_eq!(alarm_states, vec![(2, true), (1, false), (0, true)]);
+    let frozen_warn = sim.tiles[0][0].timer.unwrap().warn_elapsed;
+    sim.update(0.05);
+    assert_eq!(
+        sim.tiles[0][0].timer.and_then(|t| t.warn_elapsed),
+        frozen_warn,
+        "warn_elapsed must freeze once fade starts"
+    );
+
+    // 2. WaitCursor only covers swapping tiles and rotatable tiles during swaps; hover glow gated appropriately.
+    let gpu = test_gpu();
+    let mut app = GameApp::new(bundle, Some(60), gpu).expect("GameApp init");
+    let mut board_def = app.assets.campaign_levels[0].clone();
+    board_def.cols = 5;
+    board_def.rows = 2;
+    board_def.tiles = vec![
+        TileDef {
+            x: 0,
+            y: 0,
+            shape: PieceShape::Straight,
+            piece_type: PieceType::Pipe,
+            direction: 0,
+            is_moveable: true,
+            can_rotate: false,
+            is_gate: false,
+            is_freeze: false,
+            is_magic: false,
+            secondary_color: None,
+        },
+        TileDef {
+            x: 1,
+            y: 0,
+            shape: PieceShape::Straight,
+            piece_type: PieceType::Pipe,
+            direction: 0,
+            is_moveable: true,
+            can_rotate: false,
+            is_gate: false,
+            is_freeze: false,
+            is_magic: false,
+            secondary_color: None,
+        },
+        TileDef {
+            x: 2,
+            y: 0,
+            shape: PieceShape::Elbow,
+            piece_type: PieceType::Pipe,
+            direction: 0,
+            is_moveable: true,
+            can_rotate: false,
+            is_gate: false,
+            is_freeze: false,
+            is_magic: false,
+            secondary_color: None,
+        },
+        TileDef {
+            x: 3,
+            y: 0,
+            shape: PieceShape::Elbow,
+            piece_type: PieceType::Pipe,
+            direction: 0,
+            is_moveable: false,
+            can_rotate: true,
+            is_gate: false,
+            is_freeze: false,
+            is_magic: false,
+            secondary_color: None,
+        },
+        TileDef::dummy_blocker(),
+    ];
+    board_def.tiles[4].x = 4;
+    board_def.tiles[4].y = 0;
+
+    app.launch_level_def(board_def);
+    app.board_pop_elapsed = None;
+    if let Some(s) = app.campaign_sim.as_mut() {
+        s.tutorials_skipped = true;
+        s.is_ready = true;
+        s.is_started = true;
+        s.tiles[0][0].is_swapping = true;
+        s.tiles[0][1].is_swapping = true;
+        s.swapping_tiles = vec![(0, 0), (1, 0)];
+    }
+
+    let layout = {
+        let s = app.campaign_sim.as_ref().unwrap();
+        BoardLayout::compute(s.level.cols, s.level.rows, hud::campaign_board_area())
+    };
+    app.mouse_pos = layout.tile_center(0, 0);
+    assert_eq!(app.current_cursor(), CursorKind::Wait);
+    app.mouse_pos = layout.tile_center(2, 0);
+    assert_eq!(app.current_cursor(), CursorKind::Arrow);
+    app.mouse_pos = layout.tile_center(3, 0);
+    assert_eq!(app.current_cursor(), CursorKind::Wait);
+    app.mouse_pos = layout.tile_center(4, 0);
+    assert_eq!(app.current_cursor(), CursorKind::Stop);
+    app.mouse_pos = (35.0, 570.0);
+    assert_eq!(app.current_cursor(), CursorKind::Arrow);
+    app.mouse_pos = (5.0, 5.0);
+    assert_eq!(app.current_cursor(), CursorKind::Arrow);
+
+    // 3. Hover glow is suppressed during click-to-continue tutorial and during PopIn.
+    let hov_tid = app
+        .renderer
+        .bank
+        .glow_named("ElbowClearBitmap", GlowPreset::PipeHover)
+        .unwrap()
+        .0;
+    app.mouse_pos = layout.tile_center(2, 0);
+    let mut c_active = Canvas::new();
+    app.render(&mut c_active);
+    assert!(
+        c_active
+            .cmds
+            .iter()
+            .any(|cmd| matches!(cmd, DrawCmd::SpriteTex(tid, _) if *tid == hov_tid)),
+        "active non-swapping tile hover should draw PipeHover"
+    );
+
+    if let Some(s) = app.campaign_sim.as_mut() {
+        s.tutorials_skipped = false;
+        s.tutorial_idx = 0; // wait_* all empty -> click-to-continue
+    }
+    let mut c_ctc = Canvas::new();
+    app.render(&mut c_ctc);
+    assert!(
+        !c_ctc
+            .cmds
+            .iter()
+            .any(|cmd| matches!(cmd, DrawCmd::SpriteTex(tid, _) if *tid == hov_tid)),
+        "click-to-continue tutorial must suppress tile hover glow"
+    );
+
+    if let Some(s) = app.campaign_sim.as_mut() {
+        s.tutorials_skipped = true;
+    }
+    app.board_pop_elapsed = Some((3.8, 3.5, 4.7, 0));
+    let mut c_pop = Canvas::new();
+    app.render(&mut c_pop);
+    assert!(
+        !c_pop
+            .cmds
+            .iter()
+            .any(|cmd| matches!(cmd, DrawCmd::SpriteTex(tid, _) if *tid == hov_tid)),
+        "board pop-in must suppress tile hover glow"
+    );
+    app.board_pop_elapsed = None;
+
+    // 4. Pause fade uses Quad.easeOut over 0.5s (at 0.25s, alpha = 1 - 0.75 = 0.25).
+    app.screen = Screen::Paused;
+    for _ in 0..5 {
+        app.update(0.05);
+    }
+    assert!(
+        (app.pause_fade - 0.25).abs() < 1e-4,
+        "got {}",
+        app.pause_fade
+    );
 }

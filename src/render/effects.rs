@@ -364,34 +364,29 @@ pub fn draw_fireworks(
 
 pub fn draw_score_blurbs(canvas: &mut Canvas, fonts: &FontSet, blurbs: &[ScoreBlurbFx]) {
     for b in blurbs {
-        let (y_off, scale, alpha, col, glow_blur, glow_a, blur) = if b.age < 0.6 {
+        let c_mix = quad_out((b.age / 2.0).clamp(0.0, 1.0));
+        let col = (
+            (228.0 + (255.0 - 228.0) * c_mix) as u8,
+            (233.0 + (255.0 - 233.0) * c_mix) as u8,
+            (237.0 + (255.0 - 237.0) * c_mix) as u8,
+        );
+        let (y_off, scale, alpha, glow_blur, glow_a, blur) = if b.age < 0.6 {
             let u = (b.age / 0.6).clamp(0.0, 1.0);
             let e = sine_out(u);
-            let c_mix = quad_out(u);
-            let r = (228.0 + (255.0 - 228.0) * c_mix) as u8;
-            let g = (233.0 + (255.0 - 233.0) * c_mix) as u8;
-            let bl = (237.0 + (255.0 - 237.0) * c_mix) as u8;
             let a = 1.0 - 0.5 * e;
-            (
-                -60.0 * e,
-                1.0 + 0.3 * e,
-                a,
-                (r, g, bl),
-                24.0 * e,
-                0.55 * a,
-                (0.0, 0.0),
-            )
+            (-60.0 * e, 1.0 + 0.3 * e, a, 32.0 * e, 0.55 * a, (0.0, 0.0))
         } else {
             let u = ((b.age - 0.6) / 0.3).clamp(0.0, 1.0);
-            let e = back_in(u).clamp(0.0, 1.0);
+            let e = back_in(u);
+            let a = (0.5 * (1.0 - e)).clamp(0.0, 1.0);
+            let b_px = (16.0 * e).max(0.0);
             (
                 -60.0,
-                (1.3 * (1.0 - e)).max(0.1),
-                (0.5 * (1.0 - e)).clamp(0.0, 1.0),
-                (255, 255, 255),
-                0.0,
-                0.0,
-                (u * 16.0, u * 16.0),
+                (1.3 + (0.1 - 1.3) * e).max(0.05),
+                a,
+                32.0,
+                0.55 * a,
+                (b_px, b_px),
             )
         };
         let base_fsz = 40.0;

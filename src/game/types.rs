@@ -276,6 +276,8 @@ pub struct FlowTimerState {
     pub remaining: f32,
     pub age: f32,
     pub last_alarm_sec: i32,
+    pub warning_red: bool,
+    pub warn_elapsed: Option<f32>,
     pub fading: bool,
     pub fade_elapsed: f32,
 }
@@ -287,6 +289,8 @@ impl FlowTimerState {
             remaining: seconds,
             age: 0.0,
             last_alarm_sec: seconds.ceil() as i32,
+            warning_red: false,
+            warn_elapsed: None,
             fading: false,
             fade_elapsed: 0.0,
         }
