@@ -5,7 +5,6 @@ use crate::audio::music_for_background;
 use crate::game::generator::generate_custom_level_with_max_size;
 use crate::game::{AwardKind, Difficulty, LevelDef, LevelSim, MatchSim, SimEvent};
 use crate::render::{BoardLayout, LeakEmitter, ScoreBlurbFx};
-use crate::ui::title::TitleSubmenu;
 use crate::ui::widgets::{LaunchSource, ModalState, ScoreRoller};
 use crate::ui::{EndlessConfig, EndlessRules, GameApp, InfoBanner, PlayMode, Screen};
 
@@ -324,11 +323,7 @@ impl GameApp {
         } else {
             self.bg_anim.lighten(2.9);
             self.bg_anim.load("NightHills");
-            self.title_submenu = TitleSubmenu::Main;
-            self.title_age = 0.0;
-            self.title_submenu_age = 0.0;
-            self.title_hiding = None;
-            self.screen = Screen::Title;
+            self.enter_title_screen();
         }
     }
 

@@ -1696,3 +1696,139 @@ fn return_to_title_background_lighten_delay_and_summary_single_lighten_parity() 
     );
     assert_eq!(app.bg_anim.darken_delay, 0.0);
 }
+
+#[test]
+fn splash_overlay_first_run_enter_name_welcome_stagger_and_title_button_gating_parity() {
+    use crate::ui::title::{TitleMenuAnim, TitleProfileAnim};
+
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let gpu = test_gpu();
+    let mut app = GameApp::new(bundle, Some(60), gpu).expect("GameApp init");
+    app.save.profiles.clear();
+    app.save.current_profile = None;
+
+    let step = |app: &mut GameApp, mut rem: f32| {
+        while rem > 1e-6 {
+            let dt = rem.min(0.05);
+            app.update(dt);
+            rem -= dt;
+        }
+    };
+
+    // 1. Splash stays on Screen::Splash until 3.9s, then transitions to Title while keeping splash overlay up to 4.2s.
+    step(&mut app, 3.85);
+    assert_eq!(app.screen, Screen::Splash);
+    assert!(app.splash_overlay_age.is_none());
+
+    step(&mut app, 0.07);
+    assert_eq!(app.screen, Screen::Title);
+    assert!(app.splash_overlay_age.is_some());
+    assert!(app.title_wait_profile_latched);
+    assert!(app.modals.is_empty());
+    assert!(app.current_buttons().is_empty());
+
+    step(&mut app, 0.35);
+    assert!(app.splash_overlay_age.is_none());
+
+    // 2. First-run EnterName modal waits until TitleScreen.onShowComplete at 6.0s; title buttons stay gated while waiting.
+    step(&mut app, 5.58);
+    assert!(app.title_age > 5.9 && app.title_age < 6.0);
+    assert!(app.modals.is_empty());
+    assert!(app.current_buttons().is_empty());
+
+    step(&mut app, 0.10);
+    assert!(app.title_age >= 6.0);
+    assert!(matches!(
+        app.modals.last(),
+        Some(ModalState::EnterName {
+            allow_cancel: false,
+            ..
+        })
+    ));
+    assert!(app.current_buttons().len() <= 2);
+
+    // 3. Submitting first profile unlatches buttons and shows "Welcome, ..." + "[Change Profile]" with 0.1s delay.
+    if let Some(ModalState::EnterName { input, .. }) = app.modals.last_mut() {
+        *input = "Alex".to_string();
+    }
+    app.trigger_action(UiAction::SubmitName);
+    assert!(app.modals.is_empty());
+    assert!(!app.title_wait_profile_latched);
+    assert_eq!(
+        app.title_profile_anim,
+        Some(TitleProfileAnim::on_first_profile_created())
+    );
+    assert!(
+        !app.current_buttons()
+            .iter()
+            .any(|b| b.id == "btn_change_profile"),
+        "[Change Profile] must wait 0.6s after creation fade starts"
+    );
+    step(&mut app, 0.65);
+    assert!(
+        app.current_buttons()
+            .iter()
+            .any(|b| b.id == "btn_change_profile")
+    );
+
+    // 4. Re-entering Title with an existing profile uses "Welcome back, ..." (5.9s) and "[Change Profile]" (6.1s),
+    // and unlocks each button only after its slide/fade tween finishes.
+    app.enter_title_screen();
+    let expected_return = TitleProfileAnim::on_title_enter();
+    assert_eq!(app.title_profile_anim, Some(expected_return));
+    assert!(!expected_return.is_new_greeting);
+
+    step(&mut app, 5.45);
+    assert!(app.current_buttons().is_empty());
+
+    step(&mut app, 0.07); // 5.52s -> btn_start (4.0 + 1.5 = 5.5) unlocked
+    let ids = |a: &GameApp| -> Vec<&'static str> {
+        a.current_buttons().into_iter().map(|b| b.id).collect()
+    };
+    assert_eq!(ids(&app), vec!["btn_start"]);
+
+    step(&mut app, 0.10); // 5.62s -> btn_levelmaker (4.1 + 1.5 = 5.6) unlocked
+    assert_eq!(ids(&app), vec!["btn_start", "btn_levelmaker"]);
+
+    step(&mut app, 0.30); // 5.92s -> all 5 main buttons unlocked; profile & mmg still fading
+    assert_eq!(
+        ids(&app),
+        vec![
+            "btn_start",
+            "btn_levelmaker",
+            "btn_trophy",
+            "btn_options",
+            "btn_quit",
+        ]
+    );
+
+    step(&mut app, 0.70); // 6.62s -> [Change Profile] (6.1 + 0.5 = 6.6) unlocked, mmg (5.2 + 2.0 = 7.2) still fading
+    let ids_662 = ids(&app);
+    assert!(ids_662.contains(&"btn_change_profile"));
+    assert!(!ids_662.contains(&"btn_mmg"));
+
+    step(&mut app, 0.60); // 7.22s -> mmg unlocked
+    assert!(ids(&app).contains(&"btn_mmg"));
+
+    // 5. Submenu transitions fade in over 0.5s, Change Profile returns to Main, and ProfileAccept updates greeting immediately.
+    app.trigger_action(UiAction::OpenPlayMenu);
+    assert_eq!(app.title_menu_anim, TitleMenuAnim::FadeIn { elapsed: 0.0 });
+    step(&mut app, 0.25);
+    assert!(
+        !app.current_buttons().iter().any(|b| b.id == "btn_lotd"),
+        "play submenu buttons must gate clicks during 0.5s FadeIn"
+    );
+    step(&mut app, 0.30);
+    assert!(app.current_buttons().iter().any(|b| b.id == "btn_lotd"));
+
+    app.trigger_action(UiAction::OpenProfileModal);
+    assert_eq!(app.title_submenu, TitleSubmenu::Main);
+    app.trigger_action(UiAction::ProfileAccept);
+    assert_eq!(
+        app.title_profile_anim,
+        Some(TitleProfileAnim::immediate(true))
+    );
+}

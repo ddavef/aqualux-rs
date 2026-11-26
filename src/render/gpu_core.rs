@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 ddavef aqualux-rs
 
-use crate::render::canvas::{Canvas, DrawCmd, LOGICAL_H, LOGICAL_W};
+use crate::render::canvas::{Canvas, DrawCmd, LOGICAL_H, LOGICAL_W, Rect};
 use crate::render::gpu_pipelines::GpuPipelines;
 use crate::render::gpu_types::{
     PipeMaskInstance, ShapeInstance, SpriteInstance, StageUniform, TexId, build_color_matrix_table,
@@ -72,6 +72,7 @@ pub struct GpuCore {
 }
 
 enum PassOp {
+    SetClip(Option<Rect>),
     SpriteTex(TexId, Range<u32>),
     SpriteDirect(Arc<BindGroup>, Range<u32>),
     Shape(Range<u32>),
@@ -254,6 +255,7 @@ impl GpuCore {
                     &mut shapes,
                     &mut ops,
                 ),
+                DrawCmd::SetClip(rect) => ops.push(PassOp::SetClip(*rect)),
                 DrawCmd::SpriteTex(tid, inst) => {
                     let s = sprites.len() as u32;
                     sprites.push(*inst);
@@ -357,15 +359,38 @@ impl GpuCore {
                 multiview_mask: None,
             });
             rp.set_viewport(ox, oy, dw, dh, 0.0, 1.0);
-            rp.set_scissor_rect(ox as u32, oy as u32, dw as u32, dh as u32);
+            let (vp_x, vp_y, vp_w, vp_h) = (ox as u32, oy as u32, dw as u32, dh as u32);
+            rp.set_scissor_rect(vp_x, vp_y, vp_w, vp_h);
+            let mut clip_empty = false;
             let texs = bank.textures_ref();
             for op in ops {
                 match op {
+                    PassOp::SetClip(None) => {
+                        clip_empty = false;
+                        rp.set_scissor_rect(vp_x, vp_y, vp_w, vp_h);
+                    }
+                    PassOp::SetClip(Some(r)) => {
+                        let x0 = (ox + r.x * scale).floor().clamp(ox, ox + dw);
+                        let y0 = (oy + r.y * scale).floor().clamp(oy, oy + dh);
+                        let x1 = (ox + (r.x + r.w) * scale).ceil().clamp(x0, ox + dw);
+                        let y1 = (oy + (r.y + r.h) * scale).ceil().clamp(y0, oy + dh);
+                        let sx = (x0 as u32).min(phys_w);
+                        let sy = (y0 as u32).min(phys_h);
+                        let sw = ((x1 - x0) as u32).min(phys_w - sx);
+                        let sh = ((y1 - y0) as u32).min(phys_h - sy);
+                        if sw == 0 || sh == 0 {
+                            clip_empty = true;
+                        } else {
+                            clip_empty = false;
+                            rp.set_scissor_rect(sx, sy, sw, sh);
+                        }
+                    }
                     PassOp::SpriteTex(tid, rng) => {
-                        if let Some(bg) = texs
-                            .get(tid.0 as usize)
-                            .and_then(|o| o.as_ref())
-                            .map(|t| &t.bind_group)
+                        if !clip_empty
+                            && let Some(bg) = texs
+                                .get(tid.0 as usize)
+                                .and_then(|o| o.as_ref())
+                                .map(|t| &t.bind_group)
                             && let Some(vb) = &fbs.sprite.buf
                         {
                             rp.set_pipeline(&self.pipelines.sprite_target);
@@ -376,7 +401,7 @@ impl GpuCore {
                         }
                     }
                     PassOp::SpriteDirect(bg, rng) => {
-                        if let Some(vb) = &fbs.sprite.buf {
+                        if !clip_empty && let Some(vb) = &fbs.sprite.buf {
                             rp.set_pipeline(&self.pipelines.sprite_target);
                             rp.set_bind_group(0, &self.stage_cmat_bg, &[]);
                             rp.set_bind_group(1, bg.as_ref(), &[]);
@@ -385,7 +410,7 @@ impl GpuCore {
                         }
                     }
                     PassOp::Shape(rng) => {
-                        if let Some(vb) = &fbs.shape.buf {
+                        if !clip_empty && let Some(vb) = &fbs.shape.buf {
                             rp.set_pipeline(&self.pipelines.shape_target);
                             rp.set_bind_group(0, &self.stage_only_bg, &[]);
                             rp.set_vertex_buffer(0, vb.slice(..));
@@ -393,10 +418,11 @@ impl GpuCore {
                         }
                     }
                     PassOp::PipeMask(tid, rng) => {
-                        if let Some(bg) = texs
-                            .get(tid.0 as usize)
-                            .and_then(|o| o.as_ref())
-                            .map(|t| &t.bind_group)
+                        if !clip_empty
+                            && let Some(bg) = texs
+                                .get(tid.0 as usize)
+                                .and_then(|o| o.as_ref())
+                                .map(|t| &t.bind_group)
                             && let Some(vb) = &fbs.pipe.buf
                         {
                             rp.set_pipeline(&self.pipelines.pipe_mask);
@@ -407,10 +433,12 @@ impl GpuCore {
                         }
                     }
                     PassOp::Leak(leak_bg) => {
-                        rp.set_pipeline(&self.pipelines.leak);
-                        rp.set_bind_group(0, &self.stage_only_bg, &[]);
-                        rp.set_bind_group(1, &leak_bg, &[]);
-                        rp.draw(0..6, 0..1);
+                        if !clip_empty {
+                            rp.set_pipeline(&self.pipelines.leak);
+                            rp.set_bind_group(0, &self.stage_only_bg, &[]);
+                            rp.set_bind_group(1, &leak_bg, &[]);
+                            rp.draw(0..6, 0..1);
+                        }
                     }
                 }
             }

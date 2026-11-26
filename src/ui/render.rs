@@ -25,7 +25,11 @@ impl GameApp {
             Screen::Title => title::build_title_buttons(
                 self.title_submenu,
                 &self.save,
+                &self.renderer.fonts,
                 self.title_age,
+                self.title_menu_anim,
+                self.title_profile_anim,
+                self.title_wait_profile_latched,
                 self.title_hiding.as_ref().map(|h| h.0),
             ),
             Screen::CustomHub => {
@@ -81,8 +85,11 @@ impl GameApp {
                 &self.save,
                 self.title_submenu,
                 self.title_age,
-                self.title_submenu_age,
+                self.title_menu_anim,
+                self.title_profile_anim,
+                self.title_wait_profile_latched,
                 self.title_hiding.as_ref().map(|h| h.0),
+                !self.modals.is_empty(),
                 self.mouse_pos,
             );
         } else if self.screen == Screen::CustomHub {
@@ -187,6 +194,9 @@ impl GameApp {
                 self.time,
                 self.mouse_pos,
             );
+        }
+        if let Some(sa) = self.splash_overlay_age {
+            splash::render_splash_overlay(canvas, &self.renderer.bank, sa);
         }
         if self.cursor_in_window {
             draw_cursor(

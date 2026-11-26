@@ -3,7 +3,7 @@
 
 use crate::game::AwardKind;
 use crate::ui::summary::SummaryHideAction;
-use crate::ui::title::TitleSubmenu;
+use crate::ui::title::{TitleMenuAnim, TitleProfileAnim, TitleSubmenu};
 use crate::ui::widgets::{ModalState, QuestionId, UiAction};
 use crate::ui::{GameApp, PlayMode};
 
@@ -92,8 +92,16 @@ impl GameApp {
                     if let Some(chosen) = items.get(selected) {
                         self.save.apply_profile_list(chosen, &items);
                     }
-                    self.title_submenu = TitleSubmenu::Main;
-                    self.title_submenu_age = 0.0;
+                    let is_unsaved = self
+                        .save
+                        .active_profile()
+                        .is_none_or(|p| !p.has_saved_game());
+                    self.title_wait_profile_latched = false;
+                    self.title_profile_anim = Some(TitleProfileAnim::immediate(is_unsaved));
+                    if self.title_submenu != TitleSubmenu::Main {
+                        self.title_submenu = TitleSubmenu::Main;
+                        self.title_menu_anim = TitleMenuAnim::FadeIn { elapsed: 0.0 };
+                    }
                 }
             }
             _ => {}
@@ -143,6 +151,8 @@ impl GameApp {
         } else {
             self.modals.pop();
             self.save.set_or_create_profile(&trimmed);
+            self.title_wait_profile_latched = false;
+            self.title_profile_anim = Some(TitleProfileAnim::on_first_profile_created());
         }
     }
 
@@ -153,7 +163,7 @@ impl GameApp {
         match id {
             QuestionId::ConfirmNewGame => {
                 self.title_submenu = TitleSubmenu::DifficultyChoices;
-                self.title_submenu_age = 0.0;
+                self.title_menu_anim = TitleMenuAnim::Instant;
             }
             QuestionId::ConfirmMainMenuFromPause => {
                 self.return_to_main_menu();

@@ -15,6 +15,7 @@ pub const LOGICAL_H: usize = 600;
 
 pub enum DrawCmd {
     Clear(u8, u8, u8),
+    SetClip(Option<Rect>),
     SpriteTex(TexId, SpriteInstance),
     SpriteDirect(Arc<BindGroup>, SpriteInstance),
     Shape(ShapeInstance),
@@ -51,6 +52,10 @@ impl Canvas {
 
     pub fn clear(&mut self, rgb: (u8, u8, u8)) {
         self.cmds.push(DrawCmd::Clear(rgb.0, rgb.1, rgb.2));
+    }
+
+    pub fn set_clip(&mut self, rect: Option<Rect>) {
+        self.cmds.push(DrawCmd::SetClip(rect));
     }
 
     pub fn fill_rect_alpha(&mut self, rect: Rect, r: u8, g: u8, b: u8, a: u8) {

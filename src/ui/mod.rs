@@ -40,7 +40,7 @@ use rand::rngs::StdRng;
 use std::path::Path;
 use std::sync::Arc;
 use summary::SummaryState;
-use title::TitleSubmenu;
+use title::{TitleMenuAnim, TitleProfileAnim, TitleSubmenu};
 use widgets::{LaunchSource, ModalState, ScoreRoller};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -218,9 +218,13 @@ pub struct GameApp {
     pub(crate) modals: Vec<ModalState>,
     pub(crate) title_submenu: TitleSubmenu,
     pub(crate) splash_age: f32,
+    pub(crate) splash_overlay_age: Option<f32>,
     pub(crate) splash_music_started: bool,
     pub(crate) title_age: f32,
-    pub(crate) title_submenu_age: f32,
+    pub(crate) title_menu_anim: TitleMenuAnim,
+    pub(crate) title_wait_profile_latched: bool,
+    pub(crate) title_show_complete_fired: bool,
+    pub(crate) title_profile_anim: Option<TitleProfileAnim>,
     pub(crate) title_hiding: Option<(f32, LaunchSource)>,
     pub campaign_sim: Option<LevelSim>,
     pub match_sim: Option<MatchSim>,
@@ -305,9 +309,13 @@ impl GameApp {
             modals: Vec::new(),
             title_submenu: TitleSubmenu::Main,
             splash_age: 0.0,
+            splash_overlay_age: None,
             splash_music_started: false,
             title_age: 0.0,
-            title_submenu_age: 0.0,
+            title_menu_anim: TitleMenuAnim::InitialSlide,
+            title_wait_profile_latched: false,
+            title_show_complete_fired: false,
+            title_profile_anim: None,
             title_hiding: None,
             campaign_sim: None,
             match_sim: None,
@@ -379,11 +387,33 @@ impl GameApp {
         }
     }
 
+    pub(crate) fn enter_title_screen(&mut self) {
+        self.screen = Screen::Title;
+        self.title_submenu = TitleSubmenu::Main;
+        self.title_age = 0.0;
+        self.title_menu_anim = TitleMenuAnim::InitialSlide;
+        self.title_hiding = None;
+        self.title_show_complete_fired = false;
+        if self.save.has_profile() {
+            self.title_wait_profile_latched = false;
+            self.title_profile_anim = Some(TitleProfileAnim::on_title_enter());
+        } else {
+            self.title_wait_profile_latched = true;
+            self.title_profile_anim = None;
+        }
+    }
+
     pub fn update(&mut self, dt: f32) {
         let dt = dt.clamp(0.0, 0.05);
         self.time += dt;
         self.audio.update(dt);
         self.bg_anim.update(dt);
+        if let Some(sa) = &mut self.splash_overlay_age {
+            *sa += dt;
+            if *sa >= splash::SPLASH_END {
+                self.splash_overlay_age = None;
+            }
+        }
 
         if let Some((text, mut age)) = self.status_toast.take() {
             age += dt;
@@ -427,10 +457,25 @@ impl GameApp {
                 self.audio.play_music("LittleRayMusic", true);
             }
             if self.splash_age >= 3.9 {
-                self.screen = Screen::Title;
+                self.splash_overlay_age =
+                    (self.splash_age < splash::SPLASH_END).then_some(self.splash_age);
                 self.bg_anim = BgAnimState::new("NightHills");
-                self.title_age = 0.0;
-                if !self.save.has_profile() {
+                self.enter_title_screen();
+            }
+            return;
+        }
+
+        if self.screen == Screen::Title {
+            self.title_age += dt;
+            if let TitleMenuAnim::FadeIn { elapsed } = &mut self.title_menu_anim {
+                *elapsed += dt;
+            }
+            if let Some(pa) = &mut self.title_profile_anim {
+                pa.elapsed += dt;
+            }
+            if !self.title_show_complete_fired && self.title_age >= 6.0 {
+                self.title_show_complete_fired = true;
+                if self.title_wait_profile_latched && !self.save.has_profile() {
                     self.modals.push(ModalState::EnterName {
                         prompt: "Welcome To Aqualux!\n\nPlease enter your name:".to_string(),
                         input: String::new(),
@@ -440,12 +485,6 @@ impl GameApp {
                     });
                 }
             }
-            return;
-        }
-
-        if self.screen == Screen::Title {
-            self.title_age += dt;
-            self.title_submenu_age += dt;
             if let Some((elapsed, src)) = self.title_hiding.take() {
                 let next_e = elapsed + dt;
                 if next_e >= 1.5 {

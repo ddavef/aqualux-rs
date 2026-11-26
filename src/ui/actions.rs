@@ -5,7 +5,7 @@ use crate::game::Difficulty;
 use crate::render::BoardLayout;
 use crate::ui::hud;
 use crate::ui::summary::SummaryHideAction;
-use crate::ui::title::TitleSubmenu;
+use crate::ui::title::{TitleMenuAnim, TitleSubmenu};
 use crate::ui::widgets::{LaunchSource, ModalState, QuestionId, UiAction};
 use crate::ui::{GameApp, PlayMode, Screen};
 
@@ -31,15 +31,15 @@ impl GameApp {
         match action {
             UiAction::OpenPlayMenu => {
                 self.title_submenu = TitleSubmenu::PlayChoices;
-                self.title_submenu_age = 0.0;
+                self.title_menu_anim = TitleMenuAnim::FadeIn { elapsed: 0.0 };
             }
             UiAction::BackToMainMenu => {
                 self.title_submenu = TitleSubmenu::Main;
-                self.title_submenu_age = 0.0;
+                self.title_menu_anim = TitleMenuAnim::FadeIn { elapsed: 0.0 };
             }
             UiAction::BackToPlayMenu => {
                 self.title_submenu = TitleSubmenu::PlayChoices;
-                self.title_submenu_age = 0.0;
+                self.title_menu_anim = TitleMenuAnim::FadeIn { elapsed: 0.0 };
             }
             UiAction::StartOverPrompt => {
                 let has_save = self
@@ -56,7 +56,7 @@ impl GameApp {
                     });
                 } else {
                     self.title_submenu = TitleSubmenu::DifficultyChoices;
-                    self.title_submenu_age = 0.0;
+                    self.title_menu_anim = TitleMenuAnim::FadeIn { elapsed: 0.0 };
                 }
             }
             UiAction::ConfirmDifficultyCampaign(d) => {
@@ -207,7 +207,13 @@ impl GameApp {
                     allow_difficulty: allow_diff,
                 });
             }
-            UiAction::OpenProfileModal => self.open_profile_modal(),
+            UiAction::OpenProfileModal => {
+                self.open_profile_modal();
+                if self.screen == Screen::Title && self.title_submenu != TitleSubmenu::Main {
+                    self.title_submenu = TitleSubmenu::Main;
+                    self.title_menu_anim = TitleMenuAnim::FadeIn { elapsed: 0.0 };
+                }
+            }
             UiAction::QuitPrompt => {
                 self.modals.push(ModalState::Question {
                     id: QuestionId::ConfirmQuit,

@@ -1867,3 +1867,79 @@ fn background_popup_lexicographic_order_heights_darken_and_crossfade_parity() {
         }
     }
 }
+
+#[test]
+fn splash_crossfade_scissor_clip_and_text_ticker_parity() {
+    use crate::render::{LOGICAL_H, LOGICAL_W};
+    use crate::ui::splash::{render_splash, render_splash_overlay};
+    use crate::ui::title::{TICKER_CLIP_RECT, ticker_local_x};
+
+    let gpu = test_gpu();
+    let b = empty_bundle();
+    let bank = TexBank::new(gpu.clone(), &b);
+
+    // 1. Canvas::set_clip enforces hardware wgpu scissor bounds at TICKER_CLIP_RECT (x = 5..505).
+    let mut c_clip = Canvas::new();
+    c_clip.clear((0, 0, 0));
+    c_clip.set_clip(Some(TICKER_CLIP_RECT));
+    c_clip.fill_rect_alpha(Rect::new(0.0, 570.0, 700.0, 25.0), 0, 255, 0, 255);
+    c_clip.set_clip(None);
+    c_clip.fill_rect_alpha(Rect::new(520.0, 570.0, 40.0, 25.0), 255, 0, 0, 255);
+    let px_clip = gpu.render_to_rgba(&c_clip, &bank, LOGICAL_W as u32, LOGICAL_H as u32);
+    let px_at = |buf: &[u8], x: usize, y: usize| -> [u8; 4] {
+        let i = (y * LOGICAL_W + x) * 4;
+        [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]
+    };
+    assert_eq!(
+        px_at(&px_clip, 2, 580)[1],
+        0,
+        "x=2 left of clip must stay black"
+    );
+    assert_eq!(
+        px_at(&px_clip, 200, 580)[1],
+        255,
+        "x=200 inside clip must be green"
+    );
+    assert_eq!(
+        px_at(&px_clip, 504, 580)[1],
+        255,
+        "x=504 inside clip must be green"
+    );
+    assert_eq!(
+        px_at(&px_clip, 510, 580)[1],
+        0,
+        "x=510 right of clip must stay black"
+    );
+    assert_eq!(
+        px_at(&px_clip, 530, 580)[0],
+        255,
+        "after set_clip(None), x=530 must draw red"
+    );
+
+    // 2. TextTicker scroll equation: starts at x=0, scrolls -30 px/s, wraps to x=380 at -2*single_w.
+    assert!((ticker_local_x(0.0, 1000.0) - 0.0).abs() < 1e-4);
+    assert!((ticker_local_x(5.0, 1000.0) - -150.0).abs() < 1e-4);
+    assert!((ticker_local_x(2000.0 / 30.0 - 0.01, 1000.0) - -1999.7).abs() < 1e-2);
+    assert!((ticker_local_x(60.0, 900.0) - 380.0).abs() < 1e-4);
+    assert!((ticker_local_x(2000.1 / 30.0, 1000.0) - 379.9).abs() < 1e-2);
+    assert!((ticker_local_x(2380.0 / 30.0, 1000.0) - 0.0).abs() < 1e-2);
+    assert!((ticker_local_x(4380.3 / 30.0, 1000.0) - 379.7).abs() < 1e-2);
+
+    // 3. Splash white backdrop + Quad.easeOut fade-out overlay over blue Title stage.
+    let mut c_sp0 = Canvas::new();
+    render_splash(&mut c_sp0, &bank, 0.4);
+    let px_sp0 = gpu.render_to_rgba(&c_sp0, &bank, LOGICAL_W as u32, LOGICAL_H as u32);
+    let p0 = px_at(&px_sp0, 400, 300);
+    assert!(p0[0] > 250 && p0[1] > 250 && p0[2] > 250);
+
+    let mut c_sp1 = Canvas::new();
+    c_sp1.clear((0, 0, 200));
+    render_splash_overlay(&mut c_sp1, &bank, 4.0);
+    let px_sp1 = gpu.render_to_rgba(&c_sp1, &bank, LOGICAL_W as u32, LOGICAL_H as u32);
+    let p1 = px_at(&px_sp1, 400, 300);
+    assert!(
+        p1[0].abs_diff(64) <= 3 && p1[1].abs_diff(64) <= 3 && p1[2] >= 210,
+        "expected 0.25 Quad.easeOut white splash overlay over (0,0,200), got {:?}",
+        p1
+    );
+}
