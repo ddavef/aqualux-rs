@@ -9,8 +9,8 @@ use crate::game::solver::{SolveResult, ValidationIssue, validate_level_structure
 use crate::game::tile::build_tile_grid;
 use crate::game::types::{GameColor, LevelDef, PieceShape, PieceType, Side, TileDef};
 use crate::render::{
-    BoardAnim, BoardLayout, Canvas, FontFamily, FontSet, LOGICAL_H, LOGICAL_W, Rect, Renderer,
-    TexBank, TextAlign,
+    BoardAnim, BoardLayout, Canvas, FontFamily, FontSet, LOGICAL_W, Rect, Renderer, TexBank,
+    TextAlign,
 };
 use crate::ui::widgets::{
     UiAction, UiButton, draw_checkbox, draw_modal_bubble, draw_modal_button, draw_radio,
@@ -1769,13 +1769,6 @@ pub fn render_level_props_modal(
     props: &LevelPropsDraft,
     mouse_pos: (f32, f32),
 ) {
-    canvas.fill_rect_alpha(
-        Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32),
-        0,
-        0,
-        0,
-        110,
-    );
     draw_modal_bubble(canvas, Rect::new(124.0, 42.0, 552.0, 516.0));
     fonts.draw_stroked(
         canvas,

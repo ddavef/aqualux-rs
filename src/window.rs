@@ -239,6 +239,9 @@ impl ApplicationHandler for Runner {
                 app.save.save();
                 event_loop.exit();
             }
+            WindowEvent::Focused(focused) => {
+                app.set_window_focused(focused);
+            }
             WindowEvent::Resized(sz) => {
                 self.win_size = (sz.width, sz.height);
                 if let Some(ws) = &mut self.win_state {

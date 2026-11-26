@@ -50,13 +50,6 @@ pub fn render_profile_modal(
     selected: usize,
     mouse_pos: (f32, f32),
 ) {
-    canvas.fill_rect_alpha(
-        Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32),
-        0,
-        0,
-        0,
-        105,
-    );
     draw_modal_bubble(canvas, Rect::new(PM_X, PM_Y, PM_W, PM_H));
     fonts.draw(
         canvas,
@@ -175,13 +168,6 @@ pub fn render_enter_name_modal(
     time: f32,
     mouse_pos: (f32, f32),
 ) {
-    canvas.fill_rect_alpha(
-        Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32),
-        0,
-        0,
-        0,
-        105,
-    );
     let (bx, by, total_w, prompt_h) = enter_name_layout(fonts, prompt);
     let total_h = 15.0 + prompt_h + 22.0 + 24.0 + 30.0 + 53.0 + 15.0;
     draw_modal_bubble(canvas, Rect::new(bx, by, total_w, total_h));
@@ -208,10 +194,19 @@ pub fn render_enter_name_modal(
         (255, 255, 255, 255),
         Some((0, 0, 0, 255, 1.5)),
     );
+    let tw = fonts.measure_width(FontFamily::Neuropol, input, 15.0);
+    let scroll_x = (tw - (field_r.w - 16.0).max(1.0)).max(0.0);
+    let clip_r = Rect::new(
+        field_r.x + 2.0,
+        field_r.y + 1.0,
+        field_r.w - 4.0,
+        field_r.h - 2.0,
+    );
+    canvas.set_clip(Some(clip_r));
     fonts.draw(
         canvas,
         FontFamily::Neuropol,
-        field_r.x + 6.0,
+        field_r.x + 6.0 - scroll_x,
         field_r.y + 3.0,
         15.0,
         (0, 0, 0),
@@ -219,15 +214,15 @@ pub fn render_enter_name_modal(
         input,
     );
     if ((time * 2.0) as i32) % 2 == 0 {
-        let tw = fonts.measure_width(FontFamily::Neuropol, input, 15.0);
         canvas.fill_rect_alpha(
-            Rect::new(field_r.x + 8.0 + tw, field_r.y + 4.0, 2.0, 16.0),
+            Rect::new(field_r.x + 8.0 + tw - scroll_x, field_r.y + 4.0, 2.0, 16.0),
             0,
             0,
             0,
             255,
         );
     }
+    canvas.set_clip(None);
 
     let btn_y = field_y + 24.0 + 30.0;
     if allow_cancel {

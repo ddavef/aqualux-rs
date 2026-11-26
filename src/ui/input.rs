@@ -4,7 +4,7 @@
 use crate::render::{BoardLayout, CursorKind, Rect};
 use crate::ui::editor::{EditorTool, build_editor_buttons, editor_board_area};
 use crate::ui::hud;
-use crate::ui::modals::{OPTIONS_FX_Y, OPTIONS_MUSIC_Y, OPTIONS_SLIDER_X};
+use crate::ui::modals::{OPTIONS_SLIDER_X, options_layout};
 use crate::ui::title::TitleSubmenu;
 use crate::ui::widgets::{ModalState, QuestionId, UiAction};
 use crate::ui::{DragSlider, GameApp, Screen};
@@ -38,6 +38,23 @@ impl GameApp {
             self.hovered_button_id = next_key;
             if let Some((_, Some(sfx))) = new_btn {
                 self.audio.play_sfx(sfx);
+            }
+        }
+
+        if let Some(ModalState::TrophyRoom { page, hover_idx }) = self.modals.last_mut() {
+            let next_slot = crate::ui::trophy_room::hit_test_trophy_slot(
+                &self.assets,
+                &self.renderer.bank,
+                *page,
+                x,
+                y,
+            );
+            if next_slot != *hover_idx {
+                *hover_idx = next_slot;
+                self.trophy_hover_age = 0.0;
+                if next_slot.is_some() {
+                    self.audio.play_sfx("ClickOneSound");
+                }
             }
         }
 
@@ -87,15 +104,15 @@ impl GameApp {
 
     pub fn on_mouse_down(&mut self, x: f32, y: f32) {
         self.mouse_pos = (x, y);
-        if matches!(self.modals.last(), Some(ModalState::Options { .. })) {
-            if Rect::new(OPTIONS_SLIDER_X - 10.0, OPTIONS_FX_Y - 4.0, 140.0, 28.0).contains(x, y) {
+        if let Some(ModalState::Options { allow_difficulty }) = self.modals.last() {
+            let lay = options_layout(*allow_difficulty);
+            if Rect::new(OPTIONS_SLIDER_X - 10.0, lay.fx_y - 4.0, 140.0, 28.0).contains(x, y) {
                 self.dragging_slider = Some(DragSlider::Sfx);
                 let v = ((x - OPTIONS_SLIDER_X) / 120.0).clamp(0.0, 1.0);
                 self.trigger_action(UiAction::SetSfxVol(v));
                 return;
             }
-            if Rect::new(OPTIONS_SLIDER_X - 10.0, OPTIONS_MUSIC_Y - 4.0, 140.0, 28.0).contains(x, y)
-            {
+            if Rect::new(OPTIONS_SLIDER_X - 10.0, lay.music_y - 4.0, 140.0, 28.0).contains(x, y) {
                 self.dragging_slider = Some(DragSlider::Music);
                 let v = ((x - OPTIONS_SLIDER_X) / 120.0).clamp(0.0, 1.0);
                 self.trigger_action(UiAction::SetMusicVol(v));
@@ -239,8 +256,12 @@ impl GameApp {
     pub fn on_key_escape(&mut self) {
         if let Some(ModalState::EnterName { allow_cancel, .. }) = self.modals.last() {
             if *allow_cancel {
-                self.modals.pop();
+                self.pop_modal();
             }
+            return;
+        }
+        if let Some(ModalState::Options { .. }) = self.modals.last() {
+            self.commit_options_done();
             return;
         }
         if let Some(top) = self.modals.last() {
@@ -252,7 +273,7 @@ impl GameApp {
                     ..
                 } => return,
                 _ => {
-                    self.modals.pop();
+                    self.pop_modal();
                     return;
                 }
             }
@@ -305,7 +326,7 @@ impl GameApp {
             if !sim.is_ready || (!sim.is_started && sim.active_tutorial().is_none()) {
                 return CursorKind::Arrow;
             }
-            for b in hud::build_playing_buttons(Some(sim), None, false) {
+            for b in hud::build_playing_buttons(Some(sim), None, false, &self.hud_anim) {
                 if b.enabled && b.rect.contains(mx, my) {
                     return CursorKind::Arrow;
                 }
@@ -335,7 +356,7 @@ impl GameApp {
             if !sim.is_ready || !sim.is_started {
                 return CursorKind::Arrow;
             }
-            for b in hud::build_playing_buttons(None, Some(sim), false) {
+            for b in hud::build_playing_buttons(None, Some(sim), false, &self.hud_anim) {
                 if b.enabled && b.rect.contains(mx, my) {
                     return CursorKind::Arrow;
                 }

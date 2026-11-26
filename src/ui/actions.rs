@@ -13,7 +13,7 @@ const FPS_CYCLE: &[u32] = &[30, 60, 120, 144, 240, 0];
 
 impl GameApp {
     pub(crate) fn trigger_action(&mut self, action: UiAction) {
-        if !matches!(
+        let silent = matches!(
             action,
             UiAction::SetMusicVol(_)
                 | UiAction::SetSfxVol(_)
@@ -24,7 +24,17 @@ impl GameApp {
                 | UiAction::ToggleWindowed
                 | UiAction::EndlessToggleDifficulty(_)
                 | UiAction::NextTutorial
-        ) {
+                | UiAction::PauseGame
+                | UiAction::FastForward
+                | UiAction::SkipTutorials
+                | UiAction::OpenMmgNotice
+                | UiAction::TrophyPickLevel(_)
+                | UiAction::ProfileNew
+                | UiAction::ProfileDelete
+                | UiAction::SubmitName
+        ) || (matches!(action, UiAction::CloseTopModal)
+            && matches!(self.modals.last(), Some(ModalState::EnterName { .. })));
+        if !silent {
             self.audio.play_sfx("ClickOneSound");
         }
 
@@ -47,7 +57,7 @@ impl GameApp {
                     .active_profile()
                     .is_some_and(|p| p.has_saved_game());
                 if has_save {
-                    self.modals.push(ModalState::Question {
+                    self.push_modal(ModalState::Question {
                         id: QuestionId::ConfirmNewGame,
                         message: "Really start a new game? \n \n  Saved progress will be lost."
                             .to_string(),
@@ -69,8 +79,7 @@ impl GameApp {
                 self.start_title_hide(LaunchSource::Match { mirror: true })
             }
             UiAction::OpenEndlessSetup => {
-                self.modals
-                    .push(ModalState::EndlessSetup(self.endless_config));
+                self.push_modal(ModalState::EndlessSetup(self.endless_config));
             }
             UiAction::EndlessToggleDifficulty(d) => {
                 if let Some(ModalState::EndlessSetup(cfg)) = self.modals.last_mut() {
@@ -96,7 +105,7 @@ impl GameApp {
                 if let Some(&ModalState::EndlessSetup(cfg)) = self.modals.last()
                     && cfg.any_enabled()
                 {
-                    self.modals.pop();
+                    self.pop_modal();
                     self.endless_config = cfg;
                     if self.screen == Screen::Title {
                         self.start_title_hide(LaunchSource::Endless(cfg));
@@ -174,7 +183,8 @@ impl GameApp {
                 );
             }
             UiAction::OpenTrophyRoom => {
-                self.modals.push(ModalState::TrophyRoom {
+                self.trophy_hover_age = 0.0;
+                self.push_modal(ModalState::TrophyRoom {
                     page: 0,
                     hover_idx: None,
                 });
@@ -183,7 +193,7 @@ impl GameApp {
                     .active_profile()
                     .is_some_and(|p| p.has_saved_game());
                 if !has_save {
-                    self.modals.push(ModalState::Question {
+                    self.push_modal(ModalState::Question {
                         id: QuestionId::TrophyNeedSave,
                         message: "Start a new game from the main menu to start earning trophies!"
                             .to_string(),
@@ -203,7 +213,9 @@ impl GameApp {
                     }
                     _ => false,
                 };
-                self.modals.push(ModalState::Options {
+                self.options_pending_fullscreen = Some(self.save.config.fullscreen);
+                self.options_board_color_blind = Some(self.save.config.color_blind);
+                self.push_modal(ModalState::Options {
                     allow_difficulty: allow_diff,
                 });
             }
@@ -215,7 +227,7 @@ impl GameApp {
                 }
             }
             UiAction::QuitPrompt => {
-                self.modals.push(ModalState::Question {
+                self.push_modal(ModalState::Question {
                     id: QuestionId::ConfirmQuit,
                     message: "Really quit the game?".to_string(),
                     yes_label: "yes",
@@ -233,6 +245,7 @@ impl GameApp {
                 for l in &mut self.leaks {
                     l.paused = true;
                 }
+                self.hud_anim.hide_overlay();
                 self.bg_anim.darken(0.0);
                 self.screen = Screen::Paused;
             }
@@ -240,6 +253,13 @@ impl GameApp {
                 self.bg_anim.lighten(0.0);
                 for l in &mut self.leaks {
                     l.paused = false;
+                }
+                self.hud_anim.show_overlay();
+                if !self.is_board_busy()
+                    && !self.hud_tutorial_active
+                    && !self.campaign_sim.as_ref().is_some_and(|s| s.is_accelerated)
+                {
+                    self.hud_anim.show_action_buttons();
                 }
                 if let Some(s) = &mut self.campaign_sim {
                     s.is_paused = false;
@@ -252,6 +272,7 @@ impl GameApp {
                 }
             }
             UiAction::FastForward => {
+                self.hud_anim.hide_action_buttons();
                 self.dispatch_campaign_sim(|s| s.fast_forward());
             }
             UiAction::NextTutorial => {
@@ -259,6 +280,16 @@ impl GameApp {
             }
             UiAction::SkipTutorials => {
                 self.dispatch_campaign_sim(|s| s.skip_tutorials());
+                if self.hud_tutorial_active
+                    && !self
+                        .campaign_sim
+                        .as_ref()
+                        .is_some_and(|s| s.active_tutorial().is_some())
+                {
+                    self.hud_tutorial_active = false;
+                    self.hud_anim.hide_skip_tutorial();
+                    self.hud_anim.show_action_buttons();
+                }
             }
             UiAction::MainMenuPrompt => {
                 let msg = match self.play_mode {
@@ -269,7 +300,7 @@ impl GameApp {
                     PlayMode::EditorTest { .. } => "Return to the level editor?".to_string(),
                     PlayMode::Lotd | PlayMode::Endless { .. } => "Return to main menu?".to_string(),
                 };
-                self.modals.push(ModalState::Question {
+                self.push_modal(ModalState::Question {
                     id: QuestionId::ConfirmMainMenuFromPause,
                     message: msg,
                     yes_label: "yes",
@@ -288,7 +319,7 @@ impl GameApp {
                     PlayMode::EditorTest { .. } => "Return to the level editor?".to_string(),
                     PlayMode::Lotd | PlayMode::Endless { .. } => "Return to main menu?".to_string(),
                 };
-                self.modals.push(ModalState::Question {
+                self.push_modal(ModalState::Question {
                     id: QuestionId::ConfirmMainMenuFromSummary,
                     message: msg,
                     yes_label: "yes",
@@ -317,21 +348,20 @@ impl GameApp {
                 self.save.config.music_volume = v;
                 self.audio.music_volume = v;
                 self.audio.apply_volumes();
-                self.save.save();
             }
             UiAction::SetSfxVol(v) => {
                 self.save.config.sfx_volume = v;
                 self.audio.sfx_volume = v;
-                self.save.save();
             }
             UiAction::ToggleColorBlind => {
                 self.save.config.color_blind = !self.save.config.color_blind;
-                self.save.save();
             }
             UiAction::ToggleWindowed => {
-                self.save.config.fullscreen = !self.save.config.fullscreen;
-                self.sync_fullscreen_req = true;
-                self.save.save();
+                if let Some(f) = &mut self.options_pending_fullscreen {
+                    *f = !*f;
+                } else {
+                    self.save.config.fullscreen = !self.save.config.fullscreen;
+                }
             }
             UiAction::CycleFps => {
                 let cur = self.save.config.target_fps;
@@ -341,7 +371,6 @@ impl GameApp {
                     .map(|i| (i + 1) % FPS_CYCLE.len())
                     .unwrap_or(2);
                 self.save.config.target_fps = FPS_CYCLE[next_idx];
-                self.save.save();
             }
             UiAction::OpenOptionsDifficulty => {
                 let cur = self
@@ -349,14 +378,15 @@ impl GameApp {
                     .active_profile()
                     .map(|p| p.savable_difficulty)
                     .unwrap_or_default();
-                self.modals.push(ModalState::Difficulty {
+                self.push_modal(ModalState::Difficulty {
                     selected: cur,
                     ok_only: true,
                     trophy_level_idx: None,
                 });
             }
+            UiAction::OptionsDone => self.commit_options_done(),
             UiAction::CloseTopModal => {
-                self.modals.pop();
+                self.pop_modal();
             }
 
             UiAction::SelectDifficultyRadio(d) => {
@@ -369,9 +399,11 @@ impl GameApp {
             UiAction::TrophyNextPage => {
                 let total_slots = self.assets.campaign_levels.len() + 4;
                 let pages = total_slots.div_ceil(26);
-                if let Some(ModalState::TrophyRoom { page, .. }) = self.modals.last_mut() {
+                if let Some(ModalState::TrophyRoom { page, hover_idx }) = self.modals.last_mut() {
                     *page = if *page + 1 >= pages { 0 } else { *page + 1 };
+                    *hover_idx = None;
                 }
+                self.trophy_hover_age = 0.0;
             }
             UiAction::TrophyPickLevel(idx) => {
                 let cur = self
@@ -379,7 +411,7 @@ impl GameApp {
                     .active_profile()
                     .map(|p| p.savable_difficulty)
                     .unwrap_or_default();
-                self.modals.push(ModalState::Difficulty {
+                self.push_modal(ModalState::Difficulty {
                     selected: cur,
                     ok_only: false,
                     trophy_level_idx: Some(idx),
@@ -398,7 +430,7 @@ impl GameApp {
                 }
             }
             UiAction::InGameDiffYes => {
-                if let Some(ModalState::InGameDifficulty { level_only }) = self.modals.pop() {
+                if let Some(ModalState::InGameDifficulty { level_only }) = self.pop_modal() {
                     if let Some(prof) = self.save.active_profile_mut() {
                         let prev = prof.difficulty;
                         prof.difficulty = Difficulty::Easy;
@@ -416,7 +448,7 @@ impl GameApp {
                 }
             }
             UiAction::InGameDiffNo => {
-                self.modals.pop();
+                self.pop_modal();
                 self.show_status_toast(
                     "TIP: You can change the difficulty later from the options menu.",
                 );
@@ -425,7 +457,7 @@ impl GameApp {
 
             UiAction::QuestionYes => self.handle_question_yes(),
             UiAction::QuestionNo => {
-                self.modals.pop();
+                self.pop_modal();
             }
             UiAction::DismissAward => self.handle_dismiss_award(),
         }
@@ -450,7 +482,7 @@ impl GameApp {
     }
 
     fn push_notice(&mut self, message: &str) {
-        self.modals.push(ModalState::Question {
+        self.push_modal(ModalState::Question {
             id: QuestionId::SimpleNotice,
             message: message.to_string(),
             yes_label: "Ok",
@@ -463,7 +495,7 @@ impl GameApp {
             selected,
             ok_only,
             trophy_level_idx,
-        }) = self.modals.pop()
+        }) = self.pop_modal()
         else {
             return;
         };
@@ -475,7 +507,7 @@ impl GameApp {
             }
             self.save.save();
         } else if let Some(lvl_idx) = trophy_level_idx {
-            self.modals.clear();
+            self.clear_modals();
             self.start_title_hide(LaunchSource::RetryTrophy {
                 idx: lvl_idx,
                 difficulty: selected,

@@ -14,9 +14,9 @@ impl GameApp {
             .save
             .current_profile
             .as_deref()
-            .and_then(|c| items.iter().position(|n| n.eq_ignore_ascii_case(c)))
+            .and_then(|c| items.iter().position(|n| n == c))
             .unwrap_or(0);
-        self.modals.push(ModalState::Profile {
+        self.push_modal(ModalState::Profile {
             items,
             added: Vec::new(),
             selected: cur_idx,
@@ -39,7 +39,7 @@ impl GameApp {
                 if let Some(ModalState::Profile { items, .. }) = self.modals.last()
                     && items.len() >= 9
                 {
-                    self.modals.push(ModalState::Question {
+                    self.push_modal(ModalState::Question {
                         id: QuestionId::ProfileFull,
                         message: "No slots left; delete a profile to add a new one.".to_string(),
                         yes_label: "ok",
@@ -47,7 +47,7 @@ impl GameApp {
                     });
                     return;
                 }
-                self.modals.push(ModalState::EnterName {
+                self.push_modal(ModalState::EnterName {
                     prompt: "Enter your name:".to_string(),
                     input: String::new(),
                     allow_cancel: true,
@@ -76,7 +76,7 @@ impl GameApp {
                             target
                         )
                     };
-                    self.modals.push(ModalState::Question {
+                    self.push_modal(ModalState::Question {
                         id: QuestionId::ConfirmDeleteProfile(target),
                         message: msg,
                         yes_label: "yes",
@@ -87,7 +87,7 @@ impl GameApp {
             UiAction::ProfileAccept => {
                 if let Some(ModalState::Profile {
                     items, selected, ..
-                }) = self.modals.pop()
+                }) = self.pop_modal()
                 {
                     if let Some(chosen) = items.get(selected) {
                         self.save.apply_profile_list(chosen, &items);
@@ -128,7 +128,7 @@ impl GameApp {
                 matches!(m, ModalState::Profile { items, .. } if items.iter().any(|i| i.eq_ignore_ascii_case(&trimmed)))
             });
             if duplicate {
-                self.modals.push(ModalState::Question {
+                self.push_modal(ModalState::Question {
                     id: QuestionId::ProfileDuplicate,
                     message: format!("You already have a profile named '{}.'", trimmed),
                     yes_label: "ok",
@@ -136,7 +136,8 @@ impl GameApp {
                 });
                 return;
             }
-            self.modals.pop();
+            self.audio.play_sfx("ClickOneSound");
+            self.pop_modal();
             if let Some(ModalState::Profile {
                 items,
                 added,
@@ -149,7 +150,8 @@ impl GameApp {
                 *selected = items.len().saturating_sub(1);
             }
         } else {
-            self.modals.pop();
+            self.audio.play_sfx("ClickOneSound");
+            self.pop_modal();
             self.save.set_or_create_profile(&trimmed);
             self.title_wait_profile_latched = false;
             self.title_profile_anim = Some(TitleProfileAnim::on_first_profile_created());
@@ -157,7 +159,7 @@ impl GameApp {
     }
 
     pub(crate) fn handle_question_yes(&mut self) {
-        let Some(ModalState::Question { id, .. }) = self.modals.pop() else {
+        let Some(ModalState::Question { id, .. }) = self.pop_modal() else {
             return;
         };
         match id {
@@ -232,7 +234,7 @@ impl GameApp {
                 if let Some(ModalState::Profile {
                     items, selected, ..
                 }) = self.modals.last_mut()
-                    && let Some(pos) = items.iter().position(|n| n.eq_ignore_ascii_case(&name))
+                    && let Some(pos) = items.iter().position(|n| n == &name)
                 {
                     items.remove(pos);
                     if *selected >= items.len() {
@@ -249,7 +251,7 @@ impl GameApp {
             }
             QuestionId::UnlockMirrorNotice(need_ultra_award) => {
                 self.audio.play_sfx("BonusTwoSound");
-                self.modals.push(ModalState::Award {
+                self.push_modal(ModalState::Award {
                     kind: AwardKind::Champ,
                     then_champion: true,
                     then_ultralux: need_ultra_award,
@@ -269,13 +271,13 @@ impl GameApp {
             then_ultralux,
             then_unlock_match_level,
             ..
-        }) = self.modals.pop()
+        }) = self.pop_modal()
         else {
             return;
         };
         if let Some(lvl) = then_unlock_match_level {
             self.audio.play_sfx("BonusTwoSound");
-            self.modals.push(ModalState::Question {
+            self.push_modal(ModalState::Question {
                 id: QuestionId::UnlockMatchNotice(lvl),
                 message: "-SECRET UNLOCKED!-\n\nMATCH MODE has been unlocked on the main menu!"
                     .to_string(),
@@ -284,7 +286,7 @@ impl GameApp {
             });
         } else if then_ultralux {
             self.audio.play_sfx("BonusTwoSound");
-            self.modals.push(ModalState::Award {
+            self.push_modal(ModalState::Award {
                 kind: AwardKind::Ultralux,
                 then_champion,
                 then_ultralux: false,

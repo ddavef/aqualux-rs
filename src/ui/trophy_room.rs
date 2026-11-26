@@ -3,9 +3,7 @@
 
 use crate::assets::AssetBundle;
 use crate::game::{AwardKind, Trophy};
-use crate::render::{
-    Canvas, FontFamily, FontSet, GlowPreset, LOGICAL_H, LOGICAL_W, Rect, TexBank, TextAlign,
-};
+use crate::render::{Canvas, FontFamily, FontSet, GlowPreset, Rect, TexBank, TextAlign};
 use crate::save::SaveData;
 use crate::ui::widgets::{
     UiAction, UiButton, draw_modal_bubble, draw_modal_button, draw_text_button,
@@ -39,6 +37,28 @@ fn slot_dims(bank: &TexBank) -> (f32, f32) {
     }
 }
 
+pub fn hit_test_trophy_slot(
+    assets: &AssetBundle,
+    bank: &TexBank,
+    page: usize,
+    x: f32,
+    y: f32,
+) -> Option<usize> {
+    let total_slots = assets.campaign_levels.len() + 4;
+    let start = page * PER_PAGE;
+    let (bw, bh) = slot_dims(bank);
+    for i in 0..PER_PAGE {
+        let slot = start + i;
+        if slot >= total_slots {
+            break;
+        }
+        if slot_rect(i, bw, bh).contains(x, y) {
+            return Some(slot);
+        }
+    }
+    None
+}
+
 pub fn build_trophy_room_buttons(
     assets: &AssetBundle,
     bank: &TexBank,
@@ -64,7 +84,7 @@ pub fn build_trophy_room_buttons(
                 rect: slot_rect(i, bw, bh),
                 action: UiAction::TrophyPickLevel(slot),
                 enabled: unlocked,
-                hover_sfx: Some("ClickOneSound"),
+                hover_sfx: None,
             });
         }
     }
@@ -93,6 +113,7 @@ pub fn build_trophy_room_buttons(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_trophy_room(
     canvas: &mut Canvas,
     assets: &AssetBundle,
@@ -101,14 +122,8 @@ pub fn render_trophy_room(
     save: &SaveData,
     page: usize,
     mouse_pos: (f32, f32),
+    hover_age: f32,
 ) {
-    canvas.fill_rect_alpha(
-        Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32),
-        0,
-        0,
-        0,
-        105,
-    );
     draw_modal_bubble(canvas, Rect::new(MODAL_X, MODAL_Y, MODAL_W, MODAL_H));
     fonts.draw(
         canvas,
@@ -248,17 +263,24 @@ pub fn render_trophy_room(
         true,
     );
 
-    if let Some(card) = hovered {
-        let bx = (mouse_pos.0 + 35.0).min(730.0 - 15.0 - 165.0);
+    let tip_alpha = crate::render::easing::quad_out(((hover_age - 0.3) / 0.5).clamp(0.0, 1.0));
+    if let Some(card) = hovered
+        && tip_alpha > 0.004
+    {
+        let box_w = 139.0;
+        let box_h = 80.0;
+        let bx = (mouse_pos.0 + 35.0).min(MODAL_X + MODAL_W - 15.0 - box_w);
         let by = (mouse_pos.1 - 38.0).max(20.0);
-        let box_r = Rect::new(bx, by, 165.0, 80.0);
-        canvas.draw_rounded_rect(box_r, 4.0, (0, 0, 0, 212), Some((180, 190, 200, 180, 1.5)));
+        let cx = bx + box_w * 0.5;
+        let box_r = Rect::new(bx, by, box_w, box_h);
+        let tip_start = canvas.cmds.len();
+        canvas.draw_rounded_rect(box_r, 4.0, (0, 0, 0, 204), Some((180, 190, 200, 180, 1.5)));
         match card {
             HoverCard::Award(kind) => {
                 fonts.draw(
                     canvas,
                     FontFamily::Neuropol,
-                    bx + 82.5,
+                    cx,
                     by + 6.0,
                     16.0,
                     (255, 255, 0),
@@ -268,7 +290,7 @@ pub fn render_trophy_room(
                 fonts.draw(
                     canvas,
                     FontFamily::Neuropol,
-                    bx + 82.5,
+                    cx,
                     by + 32.0,
                     13.0,
                     (255, 255, 255),
@@ -278,7 +300,7 @@ pub fn render_trophy_room(
                 fonts.draw(
                     canvas,
                     FontFamily::Neuropol,
-                    bx + 82.5,
+                    cx,
                     by + 50.0,
                     13.0,
                     (255, 255, 255),
@@ -291,7 +313,7 @@ pub fn render_trophy_room(
                 fonts.draw(
                     canvas,
                     FontFamily::Neuropol,
-                    bx + 82.5,
+                    cx,
                     by + 6.0,
                     16.0,
                     (255, 255, 255),
@@ -302,7 +324,7 @@ pub fn render_trophy_room(
                     fonts.draw(
                         canvas,
                         FontFamily::Neuropol,
-                        bx + 8.0,
+                        bx + 6.0,
                         by + 32.0,
                         14.0,
                         (255, 255, 255),
@@ -312,7 +334,7 @@ pub fn render_trophy_room(
                     fonts.draw(
                         canvas,
                         FontFamily::Neuropol,
-                        bx + 78.0,
+                        bx + 74.0,
                         by + 32.0,
                         14.0,
                         trophy.status_color_rgb(),
@@ -322,7 +344,7 @@ pub fn render_trophy_room(
                     fonts.draw(
                         canvas,
                         FontFamily::Neuropol,
-                        bx + 8.0,
+                        bx + 6.0,
                         by + 52.0,
                         14.0,
                         (255, 255, 255),
@@ -333,7 +355,7 @@ pub fn render_trophy_room(
                     fonts.draw(
                         canvas,
                         FontFamily::Neuropol,
-                        bx + 8.0,
+                        bx + 6.0,
                         by + 32.0,
                         14.0,
                         (255, 255, 255),
@@ -343,7 +365,7 @@ pub fn render_trophy_room(
                     fonts.draw(
                         canvas,
                         FontFamily::Neuropol,
-                        bx + 8.0,
+                        bx + 6.0,
                         by + 52.0,
                         14.0,
                         (255, 255, 255),
@@ -361,9 +383,9 @@ pub fn render_trophy_room(
                 fonts.draw(
                     canvas,
                     FontFamily::Neuropol,
-                    bx + 82.5,
+                    cx,
                     by + 6.0,
-                    17.0,
+                    16.0,
                     (255, 255, 255),
                     TextAlign::Center,
                     "-LOCKED-",
@@ -371,9 +393,9 @@ pub fn render_trophy_room(
                 fonts.draw(
                     canvas,
                     FontFamily::Neuropol,
-                    bx + 82.5,
+                    cx,
                     by + 32.0,
-                    14.0,
+                    13.0,
                     (255, 255, 255),
                     TextAlign::Center,
                     &line1,
@@ -381,15 +403,16 @@ pub fn render_trophy_room(
                 fonts.draw(
                     canvas,
                     FontFamily::Neuropol,
-                    bx + 82.5,
+                    cx,
                     by + 52.0,
-                    14.0,
+                    13.0,
                     (255, 255, 255),
                     TextAlign::Center,
                     "unlock this level",
                 );
             }
         }
+        canvas.transform_cmds_since(tip_start, cx, by + 40.0, 1.0, tip_alpha);
     }
 }
 

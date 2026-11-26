@@ -22,8 +22,47 @@ use crate::ui::widgets::{
 };
 
 pub const OPTIONS_SLIDER_X: f32 = 435.0;
-pub const OPTIONS_FX_Y: f32 = 225.0;
-pub const OPTIONS_MUSIC_Y: f32 = 255.0;
+
+#[derive(Debug, Clone, Copy)]
+pub struct OptionsLayout {
+    pub bx: f32,
+    pub base_y: f32,
+    pub bh: f32,
+    pub fx_y: f32,
+    pub music_y: f32,
+    pub diff_y: f32,
+    pub cb_y: f32,
+    pub win_y: f32,
+    pub fps_y: f32,
+    pub done_y: f32,
+}
+
+pub fn options_layout(allow_difficulty: bool) -> OptionsLayout {
+    let bx = 215.0;
+    let diff_off = 125.0;
+    let cb_off = if allow_difficulty { 168.0 } else { 138.0 };
+    let win_off = cb_off + 30.0;
+    let fps_off = win_off + 30.0;
+    let done_off = fps_off + 38.0;
+    let bh = done_off + 53.0 + 18.0;
+    let base_y = (LOGICAL_H as f32 - bh) * 0.5;
+    OptionsLayout {
+        bx,
+        base_y,
+        bh,
+        fx_y: base_y + 65.0,
+        music_y: base_y + 95.0,
+        diff_y: base_y + diff_off,
+        cb_y: base_y + cb_off,
+        win_y: base_y + win_off,
+        fps_y: base_y + fps_off,
+        done_y: base_y + done_off,
+    }
+}
+
+const DIFF_BY: f32 = (LOGICAL_H as f32 - 285.0) * 0.5;
+const IGD_BY: f32 = (LOGICAL_H as f32 - 228.0) * 0.5;
+const AWARD_BY: f32 = (LOGICAL_H as f32 - 260.0) * 0.5;
 
 pub fn build_pause_buttons() -> Vec<UiButton> {
     let bx = 270.0;
@@ -57,14 +96,17 @@ pub fn render_pause_menu(
     fonts: &FontSet,
     exit_label: &str,
     mouse_pos: (f32, f32),
+    pause_elapsed: f32,
 ) {
     canvas.fill_rect_alpha(
         Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32),
         0,
         0,
         0,
-        95,
+        26,
     );
+    let menu_alpha = crate::render::easing::quad_out((pause_elapsed / 1.0).clamp(0.0, 1.0));
+    let start = canvas.cmds.len();
     fonts.draw_stroked(
         canvas,
         FontFamily::Neuropol,
@@ -95,6 +137,7 @@ pub fn render_pause_menu(
             1.0,
         );
     }
+    canvas.transform_cmds_since(start, 400.0, 300.0, 1.0, menu_alpha);
 }
 
 pub fn build_modal_buttons(
@@ -107,22 +150,12 @@ pub fn build_modal_buttons(
     match modal {
         ModalState::TrophyRoom { page, .. } => build_trophy_room_buttons(assets, bank, save, *page),
         ModalState::Options { allow_difficulty } => {
-            let bx = 215.0;
-            let base_y = 160.0;
-            let diff_y = base_y + 125.0;
-            let cb_y = if *allow_difficulty {
-                base_y + 168.0
-            } else {
-                base_y + 138.0
-            };
-            let win_y = cb_y + 30.0;
-            let fps_y = win_y + 30.0;
-            let done_y = fps_y + 38.0;
+            let lay = options_layout(*allow_difficulty);
             let mut out = Vec::new();
             if *allow_difficulty {
                 out.push(UiButton {
                     id: "opt_diff",
-                    rect: Rect::new(OPTIONS_SLIDER_X - 55.0, diff_y, 175.0, 24.0),
+                    rect: Rect::new(OPTIONS_SLIDER_X - 55.0, lay.diff_y, 175.0, 24.0),
                     action: UiAction::OpenOptionsDifficulty,
                     enabled: true,
                     hover_sfx: Some("PopTwoSound"),
@@ -130,53 +163,54 @@ pub fn build_modal_buttons(
             }
             out.push(UiButton {
                 id: "opt_cb",
-                rect: Rect::new(bx + 20.0, cb_y, 260.0, 22.0),
+                rect: Rect::new(lay.bx + 20.0, lay.cb_y, 260.0, 22.0),
                 action: UiAction::ToggleColorBlind,
                 enabled: true,
                 hover_sfx: None,
             });
             out.push(UiButton {
                 id: "opt_win",
-                rect: Rect::new(bx + 20.0, win_y, 260.0, 22.0),
+                rect: Rect::new(lay.bx + 20.0, lay.win_y, 260.0, 22.0),
                 action: UiAction::ToggleWindowed,
                 enabled: true,
                 hover_sfx: None,
             });
             out.push(UiButton {
                 id: "opt_fps",
-                rect: Rect::new(OPTIONS_SLIDER_X - 20.0, fps_y - 3.0, 145.0, 24.0),
+                rect: Rect::new(OPTIONS_SLIDER_X - 20.0, lay.fps_y - 3.0, 145.0, 24.0),
                 action: UiAction::CycleFps,
                 enabled: true,
                 hover_sfx: Some("PopTwoSound"),
             });
             out.push(UiButton {
                 id: "opt_done",
-                rect: Rect::new(400.0 - 47.0, done_y, 94.0, 53.0),
-                action: UiAction::CloseTopModal,
+                rect: Rect::new(400.0 - 47.0, lay.done_y, 94.0, 53.0),
+                action: UiAction::OptionsDone,
                 enabled: true,
                 hover_sfx: None,
             });
             out
         }
         ModalState::Difficulty { ok_only, .. } => {
+            let btn_y = DIFF_BY + 216.0;
             let mut out = vec![
                 UiButton {
                     id: "d_easy",
-                    rect: Rect::new(265.0, 290.0, 260.0, 26.0),
+                    rect: Rect::new(265.0, DIFF_BY + 110.0, 260.0, 26.0),
                     action: UiAction::SelectDifficultyRadio(Difficulty::Easy),
                     enabled: true,
                     hover_sfx: None,
                 },
                 UiButton {
                     id: "d_med",
-                    rect: Rect::new(265.0, 320.0, 260.0, 26.0),
+                    rect: Rect::new(265.0, DIFF_BY + 140.0, 260.0, 26.0),
                     action: UiAction::SelectDifficultyRadio(Difficulty::Medium),
                     enabled: true,
                     hover_sfx: None,
                 },
                 UiButton {
                     id: "d_hard",
-                    rect: Rect::new(265.0, 350.0, 260.0, 26.0),
+                    rect: Rect::new(265.0, DIFF_BY + 170.0, 260.0, 26.0),
                     action: UiAction::SelectDifficultyRadio(Difficulty::Hard),
                     enabled: true,
                     hover_sfx: None,
@@ -185,7 +219,7 @@ pub fn build_modal_buttons(
             if *ok_only {
                 out.push(UiButton {
                     id: "d_ok",
-                    rect: Rect::new(400.0 - 47.0, 396.0, 94.0, 53.0),
+                    rect: Rect::new(400.0 - 47.0, btn_y, 94.0, 53.0),
                     action: UiAction::ConfirmDifficultyModal,
                     enabled: true,
                     hover_sfx: None,
@@ -193,14 +227,14 @@ pub fn build_modal_buttons(
             } else {
                 out.push(UiButton {
                     id: "d_play",
-                    rect: Rect::new(298.0, 396.0, 94.0, 53.0),
+                    rect: Rect::new(301.0, btn_y, 94.0, 53.0),
                     action: UiAction::ConfirmDifficultyModal,
                     enabled: true,
                     hover_sfx: None,
                 });
                 out.push(UiButton {
                     id: "d_back",
-                    rect: Rect::new(408.0, 396.0, 94.0, 53.0),
+                    rect: Rect::new(405.0, btn_y, 94.0, 53.0),
                     action: UiAction::CloseTopModal,
                     enabled: true,
                     hover_sfx: None,
@@ -211,21 +245,21 @@ pub fn build_modal_buttons(
         ModalState::InGameDifficulty { .. } => vec![
             UiButton {
                 id: "igd_chk",
-                rect: Rect::new(280.0, 325.0, 240.0, 24.0),
+                rect: Rect::new(280.0, IGD_BY + 115.0, 240.0, 24.0),
                 action: UiAction::ToggleLevelOnlyCheckbox,
                 enabled: true,
                 hover_sfx: None,
             },
             UiButton {
                 id: "igd_yes",
-                rect: Rect::new(298.0, 368.0, 94.0, 53.0),
+                rect: Rect::new(301.0, IGD_BY + 158.0, 94.0, 53.0),
                 action: UiAction::InGameDiffYes,
                 enabled: true,
                 hover_sfx: None,
             },
             UiButton {
                 id: "igd_no",
-                rect: Rect::new(408.0, 368.0, 94.0, 53.0),
+                rect: Rect::new(405.0, IGD_BY + 158.0, 94.0, 53.0),
                 action: UiAction::InGameDiffNo,
                 enabled: true,
                 hover_sfx: None,
@@ -282,7 +316,7 @@ pub fn build_modal_buttons(
         }
         ModalState::Award { .. } => vec![UiButton {
             id: "aw_ok",
-            rect: Rect::new(400.0 - 47.0, 378.0, 94.0, 53.0),
+            rect: Rect::new(400.0 - 47.0, AWARD_BY + 193.0, 94.0, 53.0),
             action: UiAction::DismissAward,
             enabled: true,
             hover_sfx: None,
@@ -347,14 +381,14 @@ pub fn build_modal_buttons(
             },
             UiButton {
                 id: "end_play",
-                rect: Rect::new(298.0, 412.0, 94.0, 53.0),
+                rect: Rect::new(301.0, 412.0, 94.0, 53.0),
                 action: UiAction::StartEndlessRun,
                 enabled: cfg.any_enabled(),
                 hover_sfx: None,
             },
             UiButton {
                 id: "end_back",
-                rect: Rect::new(408.0, 412.0, 94.0, 53.0),
+                rect: Rect::new(405.0, 412.0, 94.0, 53.0),
                 action: UiAction::CloseTopModal,
                 enabled: true,
                 hover_sfx: None,
@@ -371,6 +405,9 @@ pub fn render_modal_stack(
     fonts: &FontSet,
     save: &SaveData,
     modals: &[ModalState],
+    modal_ages: &[f32],
+    trophy_hover_age: f32,
+    options_windowed_checked: bool,
     time: f32,
     mouse_pos: (f32, f32),
 ) {
@@ -381,12 +418,36 @@ pub fn render_modal_stack(
         } else {
             (-999.0, -999.0)
         };
+        canvas.fill_rect_alpha(
+            Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32),
+            0,
+            0,
+            0,
+            105,
+        );
+        let age = modal_ages.get(idx).copied().unwrap_or(1.0);
+        let t = (age / 0.52).clamp(0.0, 1.0);
+        let eased = crate::render::easing::back_out(t);
+        let start = canvas.cmds.len();
         match m {
             ModalState::TrophyRoom { page, .. } => {
-                render_trophy_room(canvas, assets, bank, fonts, save, *page, mpos);
+                let h_age = if idx == last_idx {
+                    trophy_hover_age
+                } else {
+                    0.0
+                };
+                render_trophy_room(canvas, assets, bank, fonts, save, *page, mpos, h_age);
             }
             ModalState::Options { allow_difficulty } => {
-                render_options_modal(canvas, bank, fonts, save, *allow_difficulty, mpos);
+                render_options_modal(
+                    canvas,
+                    bank,
+                    fonts,
+                    save,
+                    *allow_difficulty,
+                    options_windowed_checked,
+                    mpos,
+                );
             }
             ModalState::Difficulty {
                 selected, ok_only, ..
@@ -439,6 +500,13 @@ pub fn render_modal_stack(
                 render_endless_setup_modal(canvas, bank, fonts, *cfg, mpos);
             }
         }
+        if matches!(m, ModalState::TrophyRoom { .. }) {
+            canvas.transform_cmds_since(start, 400.0, 300.0, 1.0, eased.clamp(0.0, 1.0));
+        } else {
+            let pop_scale = (0.1 + 0.9 * eased).max(0.01);
+            let pop_alpha = (0.1 + 0.9 * eased).clamp(0.0, 1.0);
+            canvas.transform_cmds_since(start, 400.0, 300.0, pop_scale, pop_alpha);
+        }
     }
 }
 
@@ -448,34 +516,17 @@ fn render_options_modal(
     fonts: &FontSet,
     save: &SaveData,
     allow_difficulty: bool,
+    windowed_checked: bool,
     mouse_pos: (f32, f32),
 ) {
-    canvas.fill_rect_alpha(
-        Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32),
-        0,
-        0,
-        0,
-        105,
-    );
-    let bx = 215.0;
-    let base_y = 160.0;
-    let diff_y = base_y + 125.0;
-    let cb_y = if allow_difficulty {
-        base_y + 168.0
-    } else {
-        base_y + 138.0
-    };
-    let win_y = cb_y + 30.0;
-    let fps_y = win_y + 30.0;
-    let done_y = fps_y + 38.0;
-    let bh = (done_y + 53.0 + 18.0) - base_y;
-    draw_modal_bubble(canvas, Rect::new(bx, base_y, 370.0, bh));
+    let lay = options_layout(allow_difficulty);
+    draw_modal_bubble(canvas, Rect::new(lay.bx, lay.base_y, 370.0, lay.bh));
 
     fonts.draw(
         canvas,
         FontFamily::Neuropol,
         400.0,
-        base_y + 16.0,
+        lay.base_y + 16.0,
         22.0,
         (255, 255, 255),
         TextAlign::Center,
@@ -484,24 +535,19 @@ fn render_options_modal(
     fonts.draw(
         canvas,
         FontFamily::Neuropol,
-        bx + 20.0,
-        OPTIONS_FX_Y,
+        lay.bx + 20.0,
+        lay.fx_y,
         17.0,
         (255, 255, 255),
         TextAlign::Left,
         "fx volume:",
     );
-    draw_slider(
-        canvas,
-        OPTIONS_SLIDER_X,
-        OPTIONS_FX_Y,
-        save.config.sfx_volume,
-    );
+    draw_slider(canvas, OPTIONS_SLIDER_X, lay.fx_y, save.config.sfx_volume);
     fonts.draw(
         canvas,
         FontFamily::Neuropol,
-        bx + 20.0,
-        OPTIONS_MUSIC_Y,
+        lay.bx + 20.0,
+        lay.music_y,
         17.0,
         (255, 255, 255),
         TextAlign::Left,
@@ -510,7 +556,7 @@ fn render_options_modal(
     draw_slider(
         canvas,
         OPTIONS_SLIDER_X,
-        OPTIONS_MUSIC_Y,
+        lay.music_y,
         save.config.music_volume,
     );
 
@@ -518,8 +564,8 @@ fn render_options_modal(
         fonts.draw(
             canvas,
             FontFamily::Neuropol,
-            bx + 20.0,
-            diff_y,
+            lay.bx + 20.0,
+            lay.diff_y,
             17.0,
             (255, 255, 255),
             TextAlign::Left,
@@ -529,12 +575,12 @@ fn render_options_modal(
             .active_profile()
             .map(|p| p.difficulty.human_label())
             .unwrap_or("casual (medium)");
-        let r_df = Rect::new(OPTIONS_SLIDER_X - 55.0, diff_y, 175.0, 24.0);
+        let r_df = Rect::new(OPTIONS_SLIDER_X - 55.0, lay.diff_y, 175.0, 24.0);
         draw_plain_text_button(
             canvas,
             fonts,
             OPTIONS_SLIDER_X + 120.0,
-            diff_y + 1.0,
+            lay.diff_y + 1.0,
             16.0,
             TextAlign::Right,
             dlbl,
@@ -546,27 +592,27 @@ fn render_options_modal(
     draw_checkbox(
         canvas,
         fonts,
-        bx + 20.0,
-        cb_y,
+        lay.bx + 20.0,
+        lay.cb_y,
         "colorblind mode",
         save.config.color_blind,
-        Rect::new(bx + 20.0, cb_y, 260.0, 22.0).contains(mouse_pos.0, mouse_pos.1),
+        Rect::new(lay.bx + 20.0, lay.cb_y, 260.0, 22.0).contains(mouse_pos.0, mouse_pos.1),
     );
     draw_checkbox(
         canvas,
         fonts,
-        bx + 20.0,
-        win_y,
+        lay.bx + 20.0,
+        lay.win_y,
         "windowed mode",
-        !save.config.fullscreen,
-        Rect::new(bx + 20.0, win_y, 260.0, 22.0).contains(mouse_pos.0, mouse_pos.1),
+        windowed_checked,
+        Rect::new(lay.bx + 20.0, lay.win_y, 260.0, 22.0).contains(mouse_pos.0, mouse_pos.1),
     );
 
     fonts.draw(
         canvas,
         FontFamily::Neuropol,
-        bx + 20.0,
-        fps_y - 2.0,
+        lay.bx + 20.0,
+        lay.fps_y - 2.0,
         17.0,
         (255, 255, 255),
         TextAlign::Left,
@@ -577,12 +623,12 @@ fn render_options_modal(
     } else {
         format!("{} fps", save.config.target_fps)
     };
-    let r_fps = Rect::new(OPTIONS_SLIDER_X - 20.0, fps_y - 3.0, 145.0, 24.0);
+    let r_fps = Rect::new(OPTIONS_SLIDER_X - 20.0, lay.fps_y - 3.0, 145.0, 24.0);
     draw_plain_text_button(
         canvas,
         fonts,
         OPTIONS_SLIDER_X + 120.0,
-        fps_y - 2.0,
+        lay.fps_y - 2.0,
         16.0,
         TextAlign::Right,
         &fps_lbl,
@@ -590,7 +636,7 @@ fn render_options_modal(
         (0x42, 0x83, 0xB3),
     );
 
-    let r_done = Rect::new(400.0 - 47.0, done_y, 94.0, 53.0);
+    let r_done = Rect::new(400.0 - 47.0, lay.done_y, 94.0, 53.0);
     draw_modal_button(
         canvas,
         bank,
@@ -610,19 +656,12 @@ fn render_difficulty_modal(
     ok_only: bool,
     mouse_pos: (f32, f32),
 ) {
-    canvas.fill_rect_alpha(
-        Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32),
-        0,
-        0,
-        0,
-        105,
-    );
-    draw_modal_bubble(canvas, Rect::new(205.0, 180.0, 390.0, 285.0));
+    draw_modal_bubble(canvas, Rect::new(205.0, DIFF_BY, 390.0, 285.0));
     fonts.draw(
         canvas,
         FontFamily::Neuropol,
         400.0,
-        196.0,
+        DIFF_BY + 16.0,
         24.0,
         (255, 255, 255),
         TextAlign::Center,
@@ -632,7 +671,7 @@ fn render_difficulty_modal(
         canvas,
         FontFamily::Neuropol,
         400.0,
-        228.0,
+        DIFF_BY + 48.0,
         16.0,
         20.0,
         (0xC0, 0xC0, 0xC0),
@@ -643,14 +682,15 @@ fn render_difficulty_modal(
         1.0,
     );
     for (d, lbl, y) in [
-        (Difficulty::Easy, "Relaxed (Easy)", 290.0),
-        (Difficulty::Medium, "Casual (Medium)", 320.0),
-        (Difficulty::Hard, "Hardcore (Hard)", 350.0),
+        (Difficulty::Easy, "Relaxed (Easy)", DIFF_BY + 110.0),
+        (Difficulty::Medium, "Casual (Medium)", DIFF_BY + 140.0),
+        (Difficulty::Hard, "Hardcore (Hard)", DIFF_BY + 170.0),
     ] {
         draw_radio(canvas, fonts, 265.0, y, lbl, selected == d);
     }
+    let btn_y = DIFF_BY + 216.0;
     if ok_only {
-        let r_ok = Rect::new(400.0 - 47.0, 396.0, 94.0, 53.0);
+        let r_ok = Rect::new(400.0 - 47.0, btn_y, 94.0, 53.0);
         draw_modal_button(
             canvas,
             bank,
@@ -661,8 +701,8 @@ fn render_difficulty_modal(
             true,
         );
     } else {
-        let r_p = Rect::new(298.0, 396.0, 94.0, 53.0);
-        let r_b = Rect::new(408.0, 396.0, 94.0, 53.0);
+        let r_p = Rect::new(301.0, btn_y, 94.0, 53.0);
+        let r_b = Rect::new(405.0, btn_y, 94.0, 53.0);
         draw_modal_button(
             canvas,
             bank,
@@ -691,19 +731,12 @@ fn render_ingame_diff_modal(
     level_only: bool,
     mouse_pos: (f32, f32),
 ) {
-    canvas.fill_rect_alpha(
-        Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32),
-        0,
-        0,
-        0,
-        105,
-    );
-    draw_modal_bubble(canvas, Rect::new(200.0, 210.0, 400.0, 228.0));
+    draw_modal_bubble(canvas, Rect::new(200.0, IGD_BY, 400.0, 228.0));
     fonts.draw(
         canvas,
         FontFamily::Neuropol,
         400.0,
-        226.0,
+        IGD_BY + 16.0,
         24.0,
         (255, 255, 255),
         TextAlign::Center,
@@ -713,7 +746,7 @@ fn render_ingame_diff_modal(
         canvas,
         FontFamily::Neuropol,
         400.0,
-        270.0,
+        IGD_BY + 60.0,
         20.0,
         (255, 255, 255),
         TextAlign::Center,
@@ -723,13 +756,14 @@ fn render_ingame_diff_modal(
         canvas,
         fonts,
         285.0,
-        326.0,
+        IGD_BY + 116.0,
         "Only for this level",
         level_only,
-        Rect::new(280.0, 325.0, 240.0, 24.0).contains(mouse_pos.0, mouse_pos.1),
+        Rect::new(280.0, IGD_BY + 115.0, 240.0, 24.0).contains(mouse_pos.0, mouse_pos.1),
     );
-    let r_yes = Rect::new(298.0, 368.0, 94.0, 53.0);
-    let r_no = Rect::new(408.0, 368.0, 94.0, 53.0);
+    let btn_y = IGD_BY + 158.0;
+    let r_yes = Rect::new(301.0, btn_y, 94.0, 53.0);
+    let r_no = Rect::new(405.0, btn_y, 94.0, 53.0);
     draw_modal_button(
         canvas,
         bank,
@@ -759,13 +793,6 @@ fn render_question_modal(
     no_label: Option<&str>,
     mouse_pos: (f32, f32),
 ) {
-    canvas.fill_rect_alpha(
-        Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32),
-        0,
-        0,
-        0,
-        105,
-    );
     let lines = fonts.wrap_lines(FontFamily::Neuropol, message, 22.0, 370.0);
     let msg_h = (lines.len().max(1) as f32) * 26.0 + 15.0;
     let total_h = 15.0 + msg_h + 30.0 + 53.0 + 15.0;
@@ -830,15 +857,8 @@ fn render_award_modal(
     kind: AwardKind,
     mouse_pos: (f32, f32),
 ) {
-    canvas.fill_rect_alpha(
-        Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32),
-        0,
-        0,
-        0,
-        105,
-    );
     let bx = 175.0;
-    let by = 185.0;
+    let by = AWARD_BY;
     draw_modal_bubble(canvas, Rect::new(bx, by, 450.0, 260.0));
     if let Some((tid, bw, bh)) = bank.named(kind.bitmap_name()) {
         let w = bw as f32 * 0.7;
@@ -893,7 +913,7 @@ fn render_award_modal(
         kind.notification(),
         1.0,
     );
-    let r_ok = Rect::new(400.0 - 47.0, 378.0, 94.0, 53.0);
+    let r_ok = Rect::new(400.0 - 47.0, by + 193.0, 94.0, 53.0);
     draw_modal_button(
         canvas,
         bank,
@@ -912,13 +932,6 @@ fn render_endless_setup_modal(
     cfg: EndlessConfig,
     mouse_pos: (f32, f32),
 ) {
-    canvas.fill_rect_alpha(
-        Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32),
-        0,
-        0,
-        0,
-        105,
-    );
     draw_modal_bubble(canvas, Rect::new(185.0, 120.0, 430.0, 362.0));
     fonts.draw(
         canvas,
@@ -1092,8 +1105,8 @@ fn render_endless_setup_modal(
         );
     }
 
-    let r_play = Rect::new(298.0, 412.0, 94.0, 53.0);
-    let r_back = Rect::new(408.0, 412.0, 94.0, 53.0);
+    let r_play = Rect::new(301.0, 412.0, 94.0, 53.0);
+    let r_back = Rect::new(405.0, 412.0, 94.0, 53.0);
     draw_modal_button(
         canvas,
         bank,

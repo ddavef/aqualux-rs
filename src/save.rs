@@ -139,6 +139,9 @@ pub struct SaveData {
     pub current_profile: Option<String>,
     pub profiles: Vec<ProfileData>,
     pub config: AppConfig,
+    #[cfg(test)]
+    #[serde(skip)]
+    pub save_count: std::cell::Cell<u32>,
 }
 
 impl SaveData {
@@ -219,9 +222,11 @@ impl SaveData {
     }
 
     pub fn save(&self) {
-        if cfg!(test) {
-            return;
+        #[cfg(test)]
+        {
+            self.save_count.set(self.save_count.get() + 1);
         }
+        #[cfg(not(test))]
         let _ = self.write_save_to_path(&Self::save_path());
     }
 
@@ -231,16 +236,12 @@ impl SaveData {
 
     pub fn active_profile(&self) -> Option<&ProfileData> {
         let cur = self.current_profile.as_deref()?;
-        self.profiles
-            .iter()
-            .find(|p| p.name.eq_ignore_ascii_case(cur))
+        self.profiles.iter().find(|p| p.name == cur)
     }
 
     pub fn active_profile_mut(&mut self) -> Option<&mut ProfileData> {
         let cur = self.current_profile.as_deref()?;
-        self.profiles
-            .iter_mut()
-            .find(|p| p.name.eq_ignore_ascii_case(cur))
+        self.profiles.iter_mut().find(|p| p.name == cur)
     }
 
     pub fn set_or_create_profile(&mut self, name: &str) {
@@ -248,11 +249,7 @@ impl SaveData {
         if trimmed.is_empty() {
             return;
         }
-        if let Some(existing) = self
-            .profiles
-            .iter()
-            .find(|p| p.name.eq_ignore_ascii_case(trimmed))
-        {
+        if let Some(existing) = self.profiles.iter().find(|p| p.name == trimmed) {
             self.current_profile = Some(existing.name.clone());
         } else {
             let prof = ProfileData {
@@ -266,13 +263,10 @@ impl SaveData {
     }
 
     pub fn apply_profile_list(&mut self, selected: &str, remaining_names: &[String]) {
-        self.profiles.retain(|p| {
-            remaining_names
-                .iter()
-                .any(|n| n.eq_ignore_ascii_case(&p.name))
-        });
+        self.profiles
+            .retain(|p| remaining_names.iter().any(|n| n == &p.name));
         for n in remaining_names {
-            if !self.profiles.iter().any(|p| p.name.eq_ignore_ascii_case(n)) {
+            if !self.profiles.iter().any(|p| p.name == *n) {
                 self.profiles.push(ProfileData {
                     name: n.clone(),
                     ..Default::default()

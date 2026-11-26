@@ -44,6 +44,7 @@ impl GameApp {
                 self.campaign_sim.as_ref(),
                 self.match_sim.as_ref(),
                 self.is_board_busy(),
+                &self.hud_anim,
             ),
             Screen::Paused => modals::build_pause_buttons(),
             Screen::Summary => self
@@ -143,7 +144,9 @@ impl GameApp {
                 .draw_background(canvas, &self.assets, &self.bg_anim);
             let keep_paused_dim = self.screen == Screen::Paused;
             if self.campaign_sim.is_some()
-                && (self.screen != Screen::Summary || self.board_hide.is_some())
+                && (self.screen != Screen::Summary
+                    || self.board_hide.is_some()
+                    || self.hud_anim.overlay_alpha > 0.004)
             {
                 self.render_campaign(canvas, keep_paused_dim);
             } else if self.match_sim.is_some() {
@@ -155,7 +158,18 @@ impl GameApp {
                     PlayMode::CustomPack { .. } => "Custom Packs",
                     _ => "Main Menu",
                 };
-                modals::render_pause_menu(canvas, &self.renderer.fonts, exit_label, self.mouse_pos);
+                let pause_mouse = if self.modals.is_empty() {
+                    self.mouse_pos
+                } else {
+                    (-999.0, -999.0)
+                };
+                modals::render_pause_menu(
+                    canvas,
+                    &self.renderer.fonts,
+                    exit_label,
+                    pause_mouse,
+                    self.pause_elapsed,
+                );
             } else if self.screen == Screen::Summary
                 && let Some(sum) = &self.summary_state
             {
@@ -193,6 +207,9 @@ impl GameApp {
             }
         }
         if !self.modals.is_empty() {
+            let win_chk = !self
+                .options_pending_fullscreen
+                .unwrap_or(self.save.config.fullscreen);
             modals::render_modal_stack(
                 canvas,
                 &self.assets,
@@ -200,6 +217,9 @@ impl GameApp {
                 &self.renderer.fonts,
                 &self.save,
                 &self.modals,
+                &self.modal_ages,
+                self.trophy_hover_age,
+                win_chk,
                 self.time,
                 self.mouse_pos,
             );
@@ -258,22 +278,29 @@ impl GameApp {
             .selected
             .map(|s| sim.get_swap_eligible(s))
             .unwrap_or_default();
+        let color_blind = self
+            .options_board_color_blind
+            .unwrap_or(self.save.config.color_blind);
 
-        self.renderer.draw_board(
-            canvas,
-            &sim.tiles,
-            layout,
-            sim.selected,
-            &swap_elig,
-            hover,
-            sim.select_age,
-            &self.leaks,
-            self.save.config.color_blind,
-            false,
-            board_anim,
-            self.board_age,
-        );
-        if !paused && self.screen != Screen::Summary {
+        if self.screen != Screen::Summary || self.board_hide.is_some() {
+            self.renderer.draw_board(
+                canvas,
+                &sim.tiles,
+                layout,
+                sim.selected,
+                &swap_elig,
+                hover,
+                sim.select_age,
+                &self.leaks,
+                color_blind,
+                false,
+                board_anim,
+                self.board_age,
+            );
+        }
+        if self.hud_anim.overlay_alpha > 0.004
+            || (!paused && self.screen != Screen::Summary && sim.active_tutorial().is_some())
+        {
             hud::render_campaign_hud(
                 canvas,
                 &self.renderer.bank,
@@ -281,11 +308,15 @@ impl GameApp {
                 sim,
                 layout,
                 self.hud_score_roller.value(),
+                self.hud_moves_roller.value(),
+                self.hud_time_roller.value(),
                 self.tut_age,
                 self.ff_hint_age,
                 self.mouse_pos,
                 self.is_board_busy(),
                 self.play_mode == PlayMode::Campaign,
+                &self.hud_anim,
+                !paused && self.screen != Screen::Summary,
             );
         }
     }
@@ -322,6 +353,9 @@ impl GameApp {
             .selected
             .map(|s| sim.get_swap_eligible(s))
             .unwrap_or_default();
+        let color_blind = self
+            .options_board_color_blind
+            .unwrap_or(self.save.config.color_blind);
 
         self.renderer.draw_board(
             canvas,
@@ -332,7 +366,7 @@ impl GameApp {
             hover,
             sim.select_age,
             &[],
-            self.save.config.color_blind,
+            color_blind,
             false,
             board_anim,
             self.board_age,
@@ -350,7 +384,7 @@ impl GameApp {
                 None,
                 0.0,
                 &[],
-                self.save.config.color_blind,
+                color_blind,
                 sim.mirror_mode,
                 BoardAnim::Preview {
                     alpha: preview_alpha,
@@ -358,7 +392,7 @@ impl GameApp {
                 self.board_age,
             );
         }
-        if !paused {
+        if self.hud_anim.overlay_alpha > 0.004 || (!paused && preview_alpha > 0.004) {
             hud::render_match_hud(
                 canvas,
                 &self.renderer.bank,
@@ -368,6 +402,8 @@ impl GameApp {
                 self.mouse_pos,
                 self.is_board_busy(),
                 preview_alpha,
+                &self.hud_anim,
+                !paused,
             );
         }
     }

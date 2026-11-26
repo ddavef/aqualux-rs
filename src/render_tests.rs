@@ -976,11 +976,15 @@ fn ui_colors_and_text_outline_shadow_parity() {
         &sim,
         layout,
         1000,
+        sim.moves,
+        sim.elapsed_ms as u32,
         0.0,
         None,
         (0.0, 0.0),
         false,
         false,
+        &hud::HudAnimState::fully_visible(),
+        true,
     );
     let px_hud = gpu.render_to_rgba(&c_hud, &renderer.bank, 800, 600);
     let mut saw_par_grey_stroke = false;
@@ -2158,4 +2162,299 @@ fn rainbow_opacity_glow_pop_summary_layout_and_champion_brightness_parity() {
     };
     assert!((champ_glow_at(5.5) - 32.0).abs() < 1e-4);
     assert!((champ_glow_at(5.9) - 32.0).abs() < 1e-4);
+}
+
+#[test]
+fn modal_pop_in_pause_scrim_enter_name_clip_and_trophy_tooltip_render_parity() {
+    use crate::game::{AwardKind, Difficulty, Trophy};
+    use crate::render::canvas::DrawCmd;
+    use crate::render::{LOGICAL_H, LOGICAL_W};
+    use crate::save::{LevelRecord, ProfileData};
+    use crate::ui::modals::{
+        build_modal_buttons, options_layout, render_modal_stack, render_pause_menu,
+    };
+    use crate::ui::widgets::QuestionId;
+
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let px_at = |buf: &[u8], x: usize, y: usize| -> [u8; 4] {
+        let i = (y * LOGICAL_W + x) * 4;
+        [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]
+    };
+    let gpu = test_gpu();
+    let mut app = GameApp::new(bundle, Some(60), gpu.clone()).expect("GameApp init");
+    app.save.profiles = vec![ProfileData {
+        name: "Tester".into(),
+        records: [(
+            0,
+            LevelRecord {
+                best_trophy: Trophy::Gold,
+                best_score: 1000,
+                best_moves: Some(4),
+                best_time_ms: Some(5000),
+            },
+        )]
+        .into_iter()
+        .collect(),
+        awards: [true, false, false, false],
+        ..Default::default()
+    }];
+    app.save.current_profile = Some("Tester".into());
+
+    // 1. Standard modal pops in from 0.1x scale over 0.52s Back.easeOut; TrophyRoom fades in at 1.0x scale.
+    let q_modal = [ModalState::Question {
+        id: QuestionId::SimpleNotice,
+        message: "Test".into(),
+        yes_label: "Ok",
+        no_label: None,
+    }];
+    let render_stack_at = |modals: &[ModalState],
+                           ages: &[f32],
+                           hover_age: f32,
+                           mpos: (f32, f32)|
+     -> (Canvas, Vec<u8>) {
+        let mut c = Canvas::new();
+        c.clear((0, 0, 0));
+        render_modal_stack(
+            &mut c,
+            &app.assets,
+            &app.renderer.bank,
+            &app.renderer.fonts,
+            &app.save,
+            modals,
+            ages,
+            hover_age,
+            true,
+            0.0,
+            mpos,
+        );
+        let rgba = gpu.render_to_rgba(&c, &app.renderer.bank, LOGICAL_W as u32, LOGICAL_H as u32);
+        (c, rgba)
+    };
+
+    let (c_q0, _) = render_stack_at(&q_modal, &[0.0], 0.0, (-999.0, -999.0));
+    let q0_bubble = c_q0
+        .cmds
+        .iter()
+        .find_map(|cmd| match cmd {
+            DrawCmd::Shape(sh) if (sh.meta[0] - 2.0).abs() < 0.1 => Some(sh.p0),
+            _ => None,
+        })
+        .expect("Question bubble should emit at t=0");
+    assert!(
+        (q0_bubble[2] - 40.0).abs() < 1.0,
+        "Question modal must start at 0.1x width (~40px), got {:?}",
+        q0_bubble
+    );
+
+    let (c_q1, _) = render_stack_at(&q_modal, &[0.52], 0.0, (-999.0, -999.0));
+    let q1_bubble = c_q1
+        .cmds
+        .iter()
+        .find_map(|cmd| match cmd {
+            DrawCmd::Shape(sh) if (sh.meta[0] - 2.0).abs() < 0.1 => Some(sh.p0),
+            _ => None,
+        })
+        .expect("Question bubble at 0.52s");
+    assert!(
+        (q1_bubble[2] - 400.0).abs() < 1.0,
+        "Question modal must settle to 400px at 0.52s, got {:?}",
+        q1_bubble
+    );
+
+    let tr_modal = [ModalState::TrophyRoom {
+        page: 0,
+        hover_idx: None,
+    }];
+    let (c_tr0, _) = render_stack_at(&tr_modal, &[0.0], 0.0, (-999.0, -999.0));
+    assert!(
+        !c_tr0
+            .cmds
+            .iter()
+            .any(|cmd| matches!(cmd, DrawCmd::Shape(sh) if (sh.meta[0] - 2.0).abs() < 0.1)),
+        "TrophyRoom at age=0 must be invisible (alpha=0)"
+    );
+    let (c_tr_mid, _) = render_stack_at(&tr_modal, &[0.12], 0.0, (-999.0, -999.0));
+    let tr_mid_bubble = c_tr_mid
+        .cmds
+        .iter()
+        .find_map(|cmd| match cmd {
+            DrawCmd::Shape(sh) if (sh.meta[0] - 2.0).abs() < 0.1 => Some((sh.p0, sh.fill[3])),
+            _ => None,
+        })
+        .expect("TrophyRoom bubble at 0.12s");
+    assert!(
+        (tr_mid_bubble.0[2] - 716.0).abs() < 0.5 && tr_mid_bubble.1 < 0.9,
+        "TrophyRoom must stay at full 716px width while fading alpha, got {:?}",
+        tr_mid_bubble
+    );
+
+    // 2. PauseMenu uses 0.1 (~26/255) scrim and 1.0s fade-in.
+    let mut c_p0 = Canvas::new();
+    c_p0.clear((255, 255, 255));
+    render_pause_menu(&mut c_p0, &app.renderer.fonts, "Main Menu", (0.0, 0.0), 0.0);
+    let px_p0 = gpu.render_to_rgba(
+        &c_p0,
+        &app.renderer.bank,
+        LOGICAL_W as u32,
+        LOGICAL_H as u32,
+    );
+    let bg_p0 = px_at(&px_p0, 20, 20);
+    assert!(
+        bg_p0[0].abs_diff(229) <= 2,
+        "PauseMenu 0.1 scrim over white must leave ~229 (26/255 dim), got {:?}",
+        bg_p0
+    );
+    let pause_has_title = |elapsed: f32| -> bool {
+        let mut c = Canvas::new();
+        c.clear((0, 0, 0));
+        render_pause_menu(
+            &mut c,
+            &app.renderer.fonts,
+            "Main Menu",
+            (0.0, 0.0),
+            elapsed,
+        );
+        c.cmds
+            .iter()
+            .any(|cmd| matches!(cmd, DrawCmd::SpriteDirect(_, _)))
+    };
+    assert!(!pause_has_title(0.0));
+    assert!(pause_has_title(0.5));
+    assert!(pause_has_title(1.0));
+
+    // 3. Modals are vertically centered and two-button pairs use 10px spacing (x=301 and x=405).
+    let opts = options_layout(true);
+    assert!(
+        ((opts.base_y + opts.bh * 0.5) - 300.0).abs() < 0.5,
+        "Options modal should be vertically centered at y=300"
+    );
+    for m in [
+        ModalState::Difficulty {
+            selected: Difficulty::Medium,
+            ok_only: false,
+            trophy_level_idx: None,
+        },
+        ModalState::InGameDifficulty { level_only: false },
+        ModalState::Award {
+            kind: AwardKind::LightWater,
+            then_champion: false,
+            then_ultralux: false,
+            then_unlock_match_level: None,
+        },
+        ModalState::EndlessSetup(Default::default()),
+    ] {
+        let (c_m, _) = render_stack_at(std::slice::from_ref(&m), &[1.0], 0.0, (-999.0, -999.0));
+        let b = c_m
+            .cmds
+            .iter()
+            .find_map(|cmd| match cmd {
+                DrawCmd::Shape(sh) if (sh.meta[0] - 2.0).abs() < 0.1 => Some(sh.p0),
+                _ => None,
+            })
+            .unwrap();
+        let center_y = b[1] + b[3] * 0.5;
+        assert!(
+            (center_y - 300.0).abs() <= 1.5,
+            "Modal {:?} center_y={center_y} should sit near 300",
+            m
+        );
+        let modal_btns: Vec<_> = build_modal_buttons(
+            &m,
+            &app.assets,
+            &app.renderer.bank,
+            &app.renderer.fonts,
+            &app.save,
+        )
+        .into_iter()
+        .filter(|bt| (bt.rect.w - 94.0).abs() < 0.5)
+        .collect();
+        if modal_btns.len() == 2 {
+            let gap = modal_btns[1].rect.x - (modal_btns[0].rect.x + modal_btns[0].rect.w);
+            assert!(
+                (gap - 10.0).abs() < 0.1,
+                "Modal two-button gap must be 10px, got {gap}"
+            );
+        }
+    }
+
+    // 4. EnterName clips text & caret horizontally inside the white input field.
+    let long_name = "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW".to_string();
+    let en_modal = [ModalState::EnterName {
+        prompt: "Enter your name:".into(),
+        input: long_name,
+        allow_cancel: true,
+        creating_for_profile_list: true,
+        pending_launch_after: false,
+    }];
+    let mut c_en = Canvas::new();
+    c_en.clear((200, 200, 200));
+    render_modal_stack(
+        &mut c_en,
+        &app.assets,
+        &app.renderer.bank,
+        &app.renderer.fonts,
+        &app.save,
+        &en_modal,
+        &[1.0],
+        0.0,
+        true,
+        0.0,
+        (-999.0, -999.0),
+    );
+    let px_en = gpu.render_to_rgba(
+        &c_en,
+        &app.renderer.bank,
+        LOGICAL_W as u32,
+        LOGICAL_H as u32,
+    );
+    let clip_rect = c_en
+        .cmds
+        .iter()
+        .find_map(|cmd| match cmd {
+            DrawCmd::SetClip(Some(r)) => Some(*r),
+            _ => None,
+        })
+        .expect("EnterName must set scissor clip on the input field");
+    let right_x = (clip_rect.x + clip_rect.w).ceil() as usize;
+    let clip_mid_y = (clip_rect.y + clip_rect.h * 0.5).round() as usize;
+    let leaked_black = ((right_x + 3)..589).chain(602..790).any(|x| {
+        let rgb = px_at(&px_en, x, clip_mid_y);
+        rgb[0] < 15 && rgb[1] < 15 && rgb[2] < 15
+    });
+    assert!(
+        !leaked_black,
+        "EnterName text/caret must clip cleanly at right edge of input box"
+    );
+
+    // 5. TrophyRoom tooltip delays 0.3s, fades over 0.5s, and uses 139x80 dimensions.
+    let slot0_pos = (100.0, 130.0);
+    let tr_hov_modal = [ModalState::TrophyRoom {
+        page: 0,
+        hover_idx: Some(0),
+    }];
+    let tooltip_shape = |h_age: f32| -> Option<(f32, f32)> {
+        let (c, _) = render_stack_at(&tr_hov_modal, &[1.0], h_age, slot0_pos);
+        c.cmds.iter().find_map(|cmd| match cmd {
+            DrawCmd::Shape(sh)
+                if (sh.meta[0] - 1.0).abs() < 0.1
+                    && (sh.p0[3] - 80.0).abs() < 0.5
+                    && (sh.p0[2] - 139.0).abs() < 0.5 =>
+            {
+                Some((sh.p0[2], sh.fill[3]))
+            }
+            _ => None,
+        })
+    };
+    assert!(
+        tooltip_shape(0.25).is_none(),
+        "Tooltip must stay hidden before 0.3s delay"
+    );
+    let mid_tip = tooltip_shape(0.55).expect("Tooltip must fade in at 0.55s");
+    assert!(mid_tip.1 > 0.2 && mid_tip.1 < 0.78);
+    let full_tip = tooltip_shape(0.9).expect("Tooltip must reach full opacity at 0.8s+");
+    assert!((full_tip.0 - 139.0).abs() < 0.1);
+    assert!(full_tip.1 >= 0.79);
 }

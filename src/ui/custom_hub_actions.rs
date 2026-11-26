@@ -116,7 +116,7 @@ impl GameApp {
                 }
             }
             UiAction::HubNewPack => {
-                self.modals.push(ModalState::TextPrompt {
+                self.push_modal(ModalState::TextPrompt {
                     purpose: TextPromptPurpose::NewCustomPack,
                     prompt: "Enter new pack name:".to_string(),
                     input: String::new(),
@@ -127,7 +127,7 @@ impl GameApp {
                 if let Some(p) = self.custom_packs.packs.get(self.custom_hub.selected_pack)
                     && p.writable
                 {
-                    self.modals.push(ModalState::TextPrompt {
+                    self.push_modal(ModalState::TextPrompt {
                         purpose: TextPromptPurpose::RenameCustomPack(p.id.clone()),
                         prompt: "Enter new pack title:".to_string(),
                         input: p.pack.meta.name.clone(),
@@ -139,7 +139,7 @@ impl GameApp {
                 if let Some(p) = self.custom_packs.packs.get(self.custom_hub.selected_pack)
                     && p.writable
                 {
-                    self.modals.push(ModalState::Question {
+                    self.push_modal(ModalState::Question {
                         id: QuestionId::ConfirmDeletePack(p.id.clone()),
                         message: format!(
                             "Delete custom pack '{}'?\n\nThis removes the XML file from disk.",
@@ -346,7 +346,7 @@ impl GameApp {
                     return;
                 }
                 let lvl = &entry.pack.levels[self.custom_hub.selected_level];
-                self.modals.push(ModalState::Question {
+                self.push_modal(ModalState::Question {
                     id: QuestionId::ConfirmDeleteCustomLevel {
                         pack_id: entry.id.clone(),
                         level_idx: self.custom_hub.selected_level,
@@ -419,7 +419,7 @@ impl GameApp {
     }
 
     pub(crate) fn handle_submit_text_prompt(&mut self) {
-        let Some(ModalState::TextPrompt { purpose, input, .. }) = self.modals.pop() else {
+        let Some(ModalState::TextPrompt { purpose, input, .. }) = self.pop_modal() else {
             return;
         };
         let trimmed = input.trim();

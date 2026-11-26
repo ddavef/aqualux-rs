@@ -216,6 +216,10 @@ pub struct GameApp {
     pub bg_anim: BgAnimState,
     pub screen: Screen,
     pub(crate) modals: Vec<ModalState>,
+    pub(crate) modal_ages: Vec<f32>,
+    pub(crate) trophy_hover_age: f32,
+    pub(crate) options_pending_fullscreen: Option<bool>,
+    pub(crate) options_board_color_blind: Option<bool>,
     pub(crate) title_submenu: TitleSubmenu,
     pub(crate) splash_age: f32,
     pub(crate) splash_overlay_age: Option<f32>,
@@ -256,7 +260,11 @@ pub struct GameApp {
     pub(crate) tut_age: f32,
     pub(crate) last_tut_idx: usize,
     pub(crate) ff_hint_age: Option<f32>,
+    pub(crate) hud_anim: hud::HudAnimState,
+    pub(crate) hud_tutorial_active: bool,
     pub(crate) hud_score_roller: ScoreRoller,
+    pub(crate) hud_moves_roller: ScoreRoller,
+    pub(crate) hud_time_roller: ScoreRoller,
     pub mouse_pos: (f32, f32),
     pub cursor_in_window: bool,
     pub drag_start_tile: Option<(usize, usize)>,
@@ -307,6 +315,10 @@ impl GameApp {
             bg_anim: BgAnimState::new("NightHills"),
             screen: Screen::Splash,
             modals: Vec::new(),
+            modal_ages: Vec::new(),
+            trophy_hover_age: 0.0,
+            options_pending_fullscreen: None,
+            options_board_color_blind: None,
             title_submenu: TitleSubmenu::Main,
             splash_age: 0.0,
             splash_overlay_age: None,
@@ -345,7 +357,11 @@ impl GameApp {
             tut_age: 0.0,
             last_tut_idx: 0,
             ff_hint_age: None,
+            hud_anim: hud::HudAnimState::default(),
+            hud_tutorial_active: false,
             hud_score_roller: ScoreRoller::new(init_score),
+            hud_moves_roller: ScoreRoller::new(0),
+            hud_time_roller: ScoreRoller::new(0),
             mouse_pos: (400.0, 300.0),
             cursor_in_window: true,
             drag_start_tile: None,
@@ -364,6 +380,39 @@ impl GameApp {
 
     pub fn target_fps(&self) -> u32 {
         self.save.config.target_fps
+    }
+
+    pub fn set_window_focused(&mut self, focused: bool) {
+        self.audio.set_window_focused(focused);
+    }
+
+    pub(crate) fn push_modal(&mut self, modal: ModalState) {
+        self.modal_ages.resize(self.modals.len(), 1.0);
+        self.modals.push(modal);
+        self.modal_ages.push(0.0);
+    }
+
+    pub(crate) fn pop_modal(&mut self) -> Option<ModalState> {
+        let m = self.modals.pop();
+        self.modal_ages.truncate(self.modals.len());
+        m
+    }
+
+    pub(crate) fn clear_modals(&mut self) {
+        self.modals.clear();
+        self.modal_ages.clear();
+    }
+
+    pub(crate) fn commit_options_done(&mut self) {
+        self.pop_modal();
+        if let Some(want_full) = self.options_pending_fullscreen.take()
+            && want_full != self.save.config.fullscreen
+        {
+            self.save.config.fullscreen = want_full;
+            self.sync_fullscreen_req = true;
+        }
+        self.options_board_color_blind = None;
+        self.save.save();
     }
 
     pub(crate) fn is_board_busy(&self) -> bool {
@@ -455,6 +504,35 @@ impl GameApp {
         let target_hud = self.display_base_score() + sim_live_score;
         self.hud_score_roller.roll_to(target_hud, 1.0, 0.0);
         self.hud_score_roller.update(dt);
+        if let Some(sim) = &self.campaign_sim {
+            self.hud_moves_roller
+                .roll_to(sim.moves, if sim.moves == 0 { 1.0 } else { 0.0 }, 0.0);
+            let time_ms = sim.elapsed_ms as u32;
+            self.hud_time_roller
+                .roll_to(time_ms, if time_ms == 0 { 1.0 } else { 0.0 }, 0.0);
+        }
+        self.hud_moves_roller.update(dt);
+        self.hud_time_roller.update(dt);
+
+        self.modal_ages.truncate(self.modals.len());
+        if self.modal_ages.len() < self.modals.len() {
+            self.modal_ages.resize(self.modals.len(), 1.0);
+        }
+        for age in &mut self.modal_ages {
+            *age += dt;
+        }
+        if matches!(
+            self.modals.last(),
+            Some(ModalState::TrophyRoom {
+                hover_idx: Some(_),
+                ..
+            })
+        ) {
+            self.trophy_hover_age += dt;
+        } else {
+            self.trophy_hover_age = 0.0;
+        }
+        self.hud_anim.update(dt);
 
         if self.screen == Screen::Splash {
             self.splash_age += dt;
@@ -482,7 +560,7 @@ impl GameApp {
             if !self.title_show_complete_fired && self.title_age >= 6.0 {
                 self.title_show_complete_fired = true;
                 if self.title_wait_profile_latched && !self.save.has_profile() {
-                    self.modals.push(ModalState::EnterName {
+                    self.push_modal(ModalState::EnterName {
                         prompt: "Welcome To Aqualux!\n\nPlease enter your name:".to_string(),
                         input: String::new(),
                         allow_cancel: false,
@@ -503,7 +581,7 @@ impl GameApp {
         }
 
         if self.screen == Screen::Paused {
-            self.pause_elapsed = (self.pause_elapsed + dt).min(0.5);
+            self.pause_elapsed = (self.pause_elapsed + dt).min(1.0);
             self.pause_fade =
                 1.0 - crate::render::easing::quad_out((self.pause_elapsed / 0.5).clamp(0.0, 1.0));
         } else {
@@ -537,9 +615,22 @@ impl GameApp {
                             hud::campaign_board_area(),
                         );
                         self.handle_sim_events(evs, l);
+                        if self
+                            .campaign_sim
+                            .as_ref()
+                            .is_some_and(|s| s.active_tutorial().is_some())
+                        {
+                            self.hud_tutorial_active = true;
+                            self.hud_anim.show_skip_tutorial();
+                            self.hud_anim.hide_action_buttons();
+                        } else {
+                            self.hud_tutorial_active = false;
+                            self.hud_anim.show_action_buttons();
+                        }
                     }
                     if let Some(ms) = &mut self.match_sim {
                         ms.start_level();
+                        self.hud_anim.show_action_buttons();
                     }
                 } else {
                     self.board_pop_elapsed = Some((elapsed, start_d, done_t, sfx_done));
@@ -554,8 +645,7 @@ impl GameApp {
                         HideAfterBoard::None => {}
                         HideAfterBoard::RepeatLevel => self.repeat_current_level(),
                         HideAfterBoard::OfferEasyDifficulty => {
-                            self.modals
-                                .push(ModalState::InGameDifficulty { level_only: false });
+                            self.push_modal(ModalState::InGameDifficulty { level_only: false });
                         }
                         HideAfterBoard::AdvanceMatch => self.advance_after_match(),
                     }
@@ -591,6 +681,19 @@ impl GameApp {
                 .unwrap_or_default();
             if let Some(layout) = layout_opt {
                 self.handle_sim_events(events, layout);
+            }
+            let now_tut = self
+                .campaign_sim
+                .as_ref()
+                .is_some_and(|s| s.active_tutorial().is_some());
+            if now_tut && !self.hud_tutorial_active {
+                self.hud_tutorial_active = true;
+                self.hud_anim.show_skip_tutorial();
+                self.hud_anim.hide_action_buttons();
+            } else if !now_tut && self.hud_tutorial_active {
+                self.hud_tutorial_active = false;
+                self.hud_anim.hide_skip_tutorial();
+                self.hud_anim.show_action_buttons();
             }
             let show_ff_hint = self.play_mode == PlayMode::Campaign
                 && self.campaign_sim.as_ref().is_some_and(|s| {

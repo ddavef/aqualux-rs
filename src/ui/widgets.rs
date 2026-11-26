@@ -207,6 +207,7 @@ pub enum UiAction {
     ToggleWindowed,
     CycleFps,
     OpenOptionsDifficulty,
+    OptionsDone,
     CloseTopModal,
 
     // Difficulty modal

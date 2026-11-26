@@ -68,6 +68,9 @@ impl GameApp {
 
         let drop_dur = (0.15 * (rows * cols) as f32).min(1.8) + 1.2;
         self.board_hide = Some((0.0, 0.0, drop_dur, HideAfterBoard::None));
+        self.hud_anim.hide_skip_tutorial();
+        self.hud_anim.hide_overlay();
+        self.hud_tutorial_active = false;
         self.audio.play_music_delayed("GlideSuccess", 0.6, true);
         self.bg_anim.darken(0.0);
         self.screen = Screen::Summary;
@@ -92,7 +95,7 @@ impl GameApp {
             self.summary_state = None;
             self.pending_summary = Some((res, old_total, new_total));
             self.audio.play_sfx("BonusTwoSound");
-            self.modals.push(ModalState::Award {
+            self.push_modal(ModalState::Award {
                 kind: AwardKind::Ultralux,
                 then_champion: false,
                 then_ultralux: false,
@@ -271,7 +274,7 @@ impl GameApp {
 
         if need_champ_award {
             self.audio.play_sfx("BonusTwoSound");
-            self.modals.push(ModalState::Question {
+            self.push_modal(ModalState::Question {
                 id: QuestionId::UnlockMirrorNotice(need_ultra_award),
                 message: "-SECRET UNLOCKED!-\n\nMIRROR MATCH has been unlocked on the main menu!"
                     .to_string(),
@@ -280,7 +283,7 @@ impl GameApp {
             });
         } else if need_ultra_award {
             self.audio.play_sfx("BonusTwoSound");
-            self.modals.push(ModalState::Award {
+            self.push_modal(ModalState::Award {
                 kind: AwardKind::Ultralux,
                 then_champion: true,
                 then_ultralux: false,
@@ -313,7 +316,7 @@ impl GameApp {
         if trigger_mirror_award {
             self.info_banner = None;
             self.audio.play_sfx("BonusTwoSound");
-            self.modals.push(ModalState::Award {
+            self.push_modal(ModalState::Award {
                 kind: AwardKind::MirrorMaster,
                 then_champion: false,
                 then_ultralux: false,
@@ -328,6 +331,8 @@ impl GameApp {
         self.campaign_sim = None;
         self.match_sim = None;
         self.summary_state = None;
+        self.hud_anim = crate::ui::hud::HudAnimState::default();
+        self.hud_tutorial_active = false;
         self.screen = Screen::Champion;
         self.champion_state = Some(ChampionState::new(score, has_ultra, &mut self.rng));
         self.audio.clear_delayed();
@@ -415,7 +420,6 @@ impl GameApp {
             return;
         }
         if !already {
-            self.audio.play_sfx("SwapTwoSound");
             let more = match &self.play_mode {
                 PlayMode::Lotd | PlayMode::Endless { .. } => true,
                 PlayMode::EditorTest { .. } => false,

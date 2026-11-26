@@ -25,6 +25,15 @@ impl ScoreRoller {
 
     pub fn roll_to(&mut self, target: u32, duration: f32, delay: f32) {
         let tgt = target as f32;
+        if duration <= 0.0 && delay <= 0.0 {
+            self.current = tgt;
+            self.start = tgt;
+            self.target = tgt;
+            self.elapsed = 0.0;
+            self.duration = 0.0;
+            self.delay = 0.0;
+            return;
+        }
         if (self.target - tgt).abs() < 0.5 && self.duration > 0.0 {
             return;
         }

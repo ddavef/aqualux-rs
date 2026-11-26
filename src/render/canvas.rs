@@ -424,6 +424,100 @@ impl Canvas {
     pub fn draw_leak(&mut self, uni: LeakUniform) {
         self.cmds.push(DrawCmd::Leak(Box::new(uni)));
     }
+
+    pub fn transform_cmds_since(
+        &mut self,
+        start_idx: usize,
+        cx: f32,
+        cy: f32,
+        scale: f32,
+        alpha: f32,
+    ) {
+        let a = alpha.clamp(0.0, 1.0);
+        let s = scale.max(0.0);
+        if a <= 0.004 || s <= 0.001 {
+            self.cmds.truncate(start_idx);
+            return;
+        }
+        if (s - 1.0).abs() < 1e-5 && (a - 1.0).abs() < 1e-5 {
+            return;
+        }
+        let tx = |v: f32| cx + (v - cx) * s;
+        let ty = |v: f32| cy + (v - cy) * s;
+        for cmd in &mut self.cmds[start_idx..] {
+            match cmd {
+                DrawCmd::SetClip(Some(r)) => {
+                    r.x = tx(r.x);
+                    r.y = ty(r.y);
+                    r.w *= s;
+                    r.h *= s;
+                }
+                DrawCmd::SpriteTex(_, sp) | DrawCmd::SpriteDirect(_, sp) => {
+                    sp.row0[0] *= s;
+                    sp.row0[1] *= s;
+                    sp.row0[2] = tx(sp.row0[2]);
+                    sp.row1[0] *= s;
+                    sp.row1[1] *= s;
+                    sp.row1[2] = ty(sp.row1[2]);
+                    sp.params[2] = (sp.params[2] * a).clamp(0.0, 1.0);
+                }
+                DrawCmd::Shape(sh) => {
+                    sh.bounds[0] = tx(sh.bounds[0]);
+                    sh.bounds[1] = ty(sh.bounds[1]);
+                    sh.bounds[2] *= s;
+                    sh.bounds[3] *= s;
+                    sh.fill[3] *= a;
+                    sh.stroke[3] *= a;
+                    match sh.meta[0].round() as u32 {
+                        1 | 2 => {
+                            sh.p0[0] = tx(sh.p0[0]);
+                            sh.p0[1] = ty(sh.p0[1]);
+                            sh.p0[2] *= s;
+                            sh.p0[3] *= s;
+                            sh.meta[1] *= s;
+                            sh.meta[2] *= s;
+                        }
+                        3 => {
+                            sh.p0[0] = tx(sh.p0[0]);
+                            sh.p0[1] = ty(sh.p0[1]);
+                            sh.meta[1] *= s;
+                            sh.meta[2] *= s;
+                        }
+                        4 => {
+                            sh.p0[0] = tx(sh.p0[0]);
+                            sh.p0[1] = ty(sh.p0[1]);
+                            sh.p0[2] = tx(sh.p0[2]);
+                            sh.p0[3] = ty(sh.p0[3]);
+                            sh.meta[2] *= s;
+                        }
+                        5 => {
+                            sh.p0[0] = tx(sh.p0[0]);
+                            sh.p0[1] = ty(sh.p0[1]);
+                            sh.p0[2] *= s;
+                            sh.p0[3] *= s;
+                            sh.p1[0] = tx(sh.p1[0]);
+                            sh.p1[1] *= s;
+                            sh.p1[2] *= s;
+                            sh.meta[1] *= s;
+                            sh.meta[2] *= s;
+                            sh.meta[3] *= s;
+                        }
+                        _ => {}
+                    }
+                }
+                DrawCmd::PipeMask(_, pm) => {
+                    pm.row0[0] *= s;
+                    pm.row0[1] *= s;
+                    pm.row0[2] = tx(pm.row0[2]);
+                    pm.row1[0] *= s;
+                    pm.row1[1] *= s;
+                    pm.row1[2] = ty(pm.row1[2]);
+                    pm.params[1] = (pm.params[1] * a).clamp(0.0, 1.0);
+                }
+                DrawCmd::Clear(..) | DrawCmd::SetClip(None) | DrawCmd::Leak(_) => {}
+            }
+        }
+    }
 }
 
 fn rotated_rows(

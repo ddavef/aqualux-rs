@@ -358,10 +358,14 @@ fn animated_text_and_counters_do_not_thrash_font_cache() {
             &sim,
             layout,
             12_345 + frame * 7,
+            sim.moves,
+            sim.elapsed_ms as u32,
             1.0,
             Some(1.0),
             (0.0, 0.0),
             false,
+            true,
+            &hud::HudAnimState::fully_visible(),
             true,
         );
         render_summary_screen(
@@ -838,6 +842,8 @@ fn match_mode_rotatable_scramble_and_preview_fade_parity() {
             (0.0, 0.0),
             false,
             alpha,
+            &hud::HudAnimState::fully_visible(),
+            true,
         );
         let px = gpu.render_to_rgba(&c, &app.renderer.bank, 800, 600);
         let mut max_c = 0u8;
@@ -1142,11 +1148,15 @@ fn hud_score_single_count_magic_moves_and_stationary_frozen_pipe_parity() {
         &sim_clone,
         layout,
         1300,
+        sim_clone.moves,
+        sim_clone.elapsed_ms as u32,
         0.0,
         None,
         (0.0, 0.0),
         false,
         false,
+        &hud::HudAnimState::fully_visible(),
+        true,
     );
     let px_a = gpu.render_to_rgba(&c_hud_a, &app.renderer.bank, 800, 600);
 
@@ -1160,11 +1170,15 @@ fn hud_score_single_count_magic_moves_and_stationary_frozen_pipe_parity() {
         &sim_clone,
         layout,
         1300,
+        sim_clone.moves,
+        sim_clone.elapsed_ms as u32,
         0.0,
         None,
         (0.0, 0.0),
         false,
         false,
+        &hud::HudAnimState::fully_visible(),
+        true,
     );
     let px_b = gpu.render_to_rgba(&c_hud_b, &app.renderer.bank, 800, 600);
     for y in 560usize..598 {
@@ -1240,6 +1254,7 @@ fn hud_score_single_count_magic_moves_and_stationary_frozen_pipe_parity() {
     let px_sum = gpu.render_to_rgba(&c_sum, &app.renderer.bank, 800, 600);
 
     app.screen = Screen::Playing;
+    app.hud_anim = hud::HudAnimState::fully_visible();
     let mut c_play = Canvas::new();
     app.render(&mut c_play);
     let px_play = gpu.render_to_rgba(&c_play, &app.renderer.bank, 800, 600);
@@ -1929,4 +1944,300 @@ fn summary_unlock_hitbox_and_champion_crossfade_parity() {
         app.update(0.05);
     }
     assert!(app.should_quit);
+}
+
+#[test]
+fn options_save_on_done_case_sensitive_profile_prune_and_trophy_hover_sfx_parity() {
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let gpu = test_gpu();
+    let mut app = GameApp::new(bundle, Some(60), gpu).expect("GameApp init");
+    app.save.profiles = vec![ProfileData {
+        name: "Alex".into(),
+        records: [(
+            0,
+            LevelRecord {
+                best_trophy: Trophy::Gold,
+                best_score: 1200,
+                best_moves: Some(5),
+                best_time_ms: Some(4000),
+            },
+        )]
+        .into_iter()
+        .collect(),
+        ..Default::default()
+    }];
+    app.save.current_profile = Some("Alex".into());
+    app.screen = Screen::Title;
+
+    // 1. Options widgets update live state without saving or toggling fullscreen until Done.
+    let before_saves = app.save.save_count.get();
+    app.trigger_action(UiAction::OpenOptions);
+    app.trigger_action(UiAction::SetMusicVol(0.25));
+    app.trigger_action(UiAction::SetSfxVol(0.8));
+    app.trigger_action(UiAction::ToggleColorBlind);
+    app.trigger_action(UiAction::ToggleWindowed);
+    app.trigger_action(UiAction::CycleFps);
+    assert_eq!(
+        app.save.save_count.get(),
+        before_saves,
+        "Options controls must defer save until Done"
+    );
+    assert!(
+        !app.sync_fullscreen_req,
+        "Windowed toggle must defer fullscreen application until Done"
+    );
+    assert!(!app.save.config.fullscreen);
+    assert!(app.save.config.color_blind);
+
+    app.trigger_action(UiAction::OptionsDone);
+    assert!(app.modals.is_empty());
+    assert_eq!(app.save.save_count.get(), before_saves + 1);
+    assert!(app.save.config.fullscreen);
+    assert!(app.sync_fullscreen_req);
+
+    // 2. Profiles prune list is case-sensitive ("Alex" deleted, "alex" added has empty save).
+    let mut save_case = SaveData {
+        current_profile: Some("Alex".into()),
+        profiles: vec![ProfileData {
+            name: "Alex".into(),
+            records: [(
+                0,
+                LevelRecord {
+                    best_trophy: Trophy::Gold,
+                    best_score: 900,
+                    best_moves: None,
+                    best_time_ms: None,
+                },
+            )]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    save_case.apply_profile_list("alex", &["alex".into()]);
+    assert_eq!(save_case.profiles.len(), 1);
+    assert_eq!(save_case.profiles[0].name, "alex");
+    assert!(
+        !save_case.profiles[0].has_saved_game(),
+        "Deleting 'Alex' and adding 'alex' must prune case-sensitively"
+    );
+
+    // 3. Trophy Room hover plays ClickOneSound on unlocked, adjacent unlocked, locked, and award slots.
+    app.screen = Screen::Title;
+    app.trigger_action(UiAction::OpenTrophyRoom);
+    let _ = app.audio.take_sfx_log();
+    // Unlocked slot 0: col 0 row 0 -> center ~(100, 130)
+    app.on_mouse_move(100.0, 130.0);
+    for _ in 0..7 {
+        app.update(0.05);
+    }
+    assert!(app.trophy_hover_age >= 0.35);
+    assert_eq!(app.audio.take_sfx_log(), vec!["ClickOneSound"]);
+    // Adjacent unlocked slot 1: col 1 row 0 -> ~(190, 130)
+    app.on_mouse_move(190.0, 130.0);
+    assert_eq!(app.trophy_hover_age, 0.0);
+    assert_eq!(app.audio.take_sfx_log(), vec!["ClickOneSound"]);
+    // Locked slot 2: col 2 row 0 -> ~(280, 130)
+    app.on_mouse_move(280.0, 130.0);
+    assert_eq!(app.audio.take_sfx_log(), vec!["ClickOneSound"]);
+    // Award slot on last page: page 3 has campaign levels 78..100 (22 slots) + awards at local idx 22..26 -> row 3, col 1..4
+    app.modals.clear();
+    app.modals.push(ModalState::TrophyRoom {
+        page: 3,
+        hover_idx: None,
+    });
+    let award_y = 90.0 + 3.0 * 90.0 + 30.0;
+    let award_x = 57.0 + 1.0 * 90.0 + 30.0;
+    app.on_mouse_move(award_x, award_y);
+    assert_eq!(app.audio.take_sfx_log(), vec!["ClickOneSound"]);
+}
+
+#[test]
+fn hud_fades_click_gating_rollback_counters_and_audio_parity() {
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let gpu = test_gpu();
+    let mut app = GameApp::new(bundle, Some(60), gpu).expect("GameApp init");
+    app.save.profiles = vec![ProfileData {
+        name: "Tester".into(),
+        ..Default::default()
+    }];
+    app.save.current_profile = Some("Tester".into());
+
+    let step = |a: &mut GameApp, secs: f32| {
+        let mut rem = secs;
+        while rem > 1e-6 {
+            let dt = rem.min(0.05);
+            a.update(dt);
+            rem -= dt;
+        }
+    };
+
+    // 1. HUD overlay fades 0->1 over 1.0s, action buttons stay disabled until 0.8s Strong.easeOut fade after SHOW_COMPLETE.
+    app.execute_launch(LaunchSource::NewCampaign(Difficulty::Medium));
+    assert!(app.hud_anim.overlay_alpha < 0.01);
+    step(&mut app, 0.5);
+    assert!(app.hud_anim.overlay_alpha > 0.4 && app.hud_anim.overlay_alpha < 0.99);
+    step(&mut app, 0.55);
+    assert!((app.hud_anim.overlay_alpha - 1.0).abs() < 1e-4);
+
+    // Finish board pop-in on level 0 (tutorial level -> SkipTutorial slides -70 -> 10 over 0.8s).
+    let pop_done = app.board_pop_elapsed.unwrap().2;
+    step(&mut app, pop_done - 1.0 + 0.05);
+    assert!(app.hud_anim.skip_visible);
+    assert!(app.hud_anim.skip_tutorial_y() < 10.0);
+    assert!(app.hud_anim.skip_clickable());
+    step(&mut app, 0.85);
+    assert!((app.hud_anim.skip_tutorial_y() - 10.0).abs() < 0.1);
+    app.trigger_action(UiAction::SkipTutorials);
+    assert!(!app.hud_tutorial_active);
+    step(&mut app, 0.4);
+    assert!(
+        app.hud_anim.skip_visible
+            && app.hud_anim.skip_alpha > 0.01
+            && app.hud_anim.skip_alpha < 0.99
+    );
+    step(&mut app, 0.45);
+    assert!(!app.hud_anim.skip_visible);
+
+    // Re-check action button fade & click-gating on a non-tutorial level from Title.
+    app.return_to_main_menu();
+    let no_tut_idx = app
+        .assets
+        .campaign_levels
+        .iter()
+        .position(|l| l.tutorials.is_empty())
+        .expect("campaign should include non-tutorial levels");
+    app.start_campaign_level(no_tut_idx, false);
+    let rem_pop = app.board_pop_elapsed.map(|p| p.2 - p.0).unwrap_or(0.0);
+    step(&mut app, rem_pop + 0.1);
+    assert!(app.hud_anim.action_visible);
+    assert!(
+        !app.hud_anim.actions_clickable(),
+        "Pause/FastForward must gate clicks immediately at SHOW_COMPLETE while fading in"
+    );
+    assert!(
+        !app.current_buttons()
+            .into_iter()
+            .find(|b| b.id == "btn_pause")
+            .unwrap()
+            .enabled
+    );
+    step(&mut app, 0.35);
+    assert!(app.hud_anim.action_alpha > 0.5 && app.hud_anim.action_alpha < 0.999);
+    step(&mut app, 0.45);
+    assert!(app.hud_anim.actions_clickable());
+
+    // 2. Moves and time roll back to 0 over 1.0s on level restart, while in-level changes snap immediately.
+    if let Some(sim) = app.campaign_sim.as_mut() {
+        sim.is_paused = true;
+        sim.moves = 7;
+        sim.elapsed_ms = 9000.0;
+    }
+    step(&mut app, 0.05);
+    assert_eq!(app.hud_moves_roller.value(), 7);
+    assert_eq!(app.hud_time_roller.value(), 9000);
+    app.launch_level_def(app.assets.campaign_levels[5].clone());
+    assert_eq!(app.hud_moves_roller.value(), 7);
+    assert_eq!(app.hud_time_roller.value(), 9000);
+    step(&mut app, 0.75);
+    assert!(
+        app.hud_moves_roller.value() > 0 && app.hud_moves_roller.value() < 7,
+        "Moves counter should roll back smoothly over 1.0s"
+    );
+    assert!(
+        app.hud_time_roller.value() > 0 && app.hud_time_roller.value() < 9000,
+        "Time counter should roll back smoothly over 1.0s"
+    );
+    step(&mut app, 0.30);
+    assert_eq!(app.hud_moves_roller.value(), 0);
+    assert_eq!(app.hud_time_roller.value(), 0);
+
+    // 3. Same-background music restarts from 0 instead of early-returning.
+    let before_plays = app.audio.music_play_count();
+    app.audio.play_music("GlideMusic", true);
+    app.audio.play_music("GlideMusic", true);
+    assert_eq!(app.audio.music_play_count(), before_plays + 2);
+
+    // 4. Summary hide does not play SwapTwoSound, and Match transition preserves delayed SwapTwoSound.
+    let win_res = calculate_score(4, 5, 6000, 4, 5, 8000, false);
+    app.on_campaign_win(win_res);
+    assert!(app.hud_anim.overlay_alpha > 0.9);
+    step(&mut app, 0.5);
+    assert!(app.hud_anim.overlay_alpha > 0.05 && app.hud_anim.overlay_alpha < 0.9);
+    let _ = app.audio.take_sfx_log();
+    app.start_summary_hide(crate::ui::summary::SummaryHideAction::NextLevel);
+    assert!(
+        !app.audio.take_sfx_log().iter().any(|s| s == "SwapTwoSound"),
+        "Summary hide must not play SwapTwoSound"
+    );
+
+    app.start_match_level(0, false, true);
+    app.audio.clear_delayed();
+    app.on_match_win();
+    app.advance_after_match();
+    assert!(
+        app.audio
+            .delayed_sfx()
+            .iter()
+            .any(|(n, _)| *n == "SwapTwoSound"),
+        "Match level advance must preserve NICE JOB delayed SwapTwoSound"
+    );
+
+    // 5. Extraneous ClickOneSound sites are silent, while valid EnterName SubmitName & OptionsDone play ClickOneSound.
+    app.modals.clear();
+    let _ = app.audio.take_sfx_log();
+    app.trigger_action(UiAction::PauseGame);
+    app.trigger_action(UiAction::FastForward);
+    app.trigger_action(UiAction::SkipTutorials);
+    app.trigger_action(UiAction::OpenMmgNotice);
+    app.modals.clear();
+    app.trigger_action(UiAction::TrophyPickLevel(0));
+    app.modals.clear();
+    app.modals.push(ModalState::Profile {
+        items: vec!["Tester".into()],
+        added: vec![],
+        selected: 0,
+        hover_slot: None,
+    });
+    app.trigger_action(UiAction::ProfileNew); // pushes EnterName
+    app.trigger_action(UiAction::ProfileDelete);
+    app.trigger_action(UiAction::SubmitName); // empty -> fills "Player 1" silently
+    app.trigger_action(UiAction::CloseTopModal); // EnterName Cancel -> silent
+    assert!(
+        !app.audio
+            .take_sfx_log()
+            .iter()
+            .any(|s| s == "ClickOneSound"),
+        "Non-AS3 button actions must not play ClickOneSound"
+    );
+    app.modals.clear();
+    app.modals.push(ModalState::EnterName {
+        prompt: "Enter your name:".into(),
+        input: "Sam".into(),
+        allow_cancel: true,
+        creating_for_profile_list: false,
+        pending_launch_after: false,
+    });
+    app.trigger_action(UiAction::SubmitName);
+    assert_eq!(app.audio.take_sfx_log(), vec!["ClickOneSound"]);
+
+    // 6. Window unfocus mutes music and SFX volumes, and focus regain restores them.
+    app.audio.music_volume = 0.6;
+    app.audio.sfx_volume = 0.75;
+    app.set_window_focused(false);
+    assert_eq!(app.audio.effective_music_volume(), 0.0);
+    assert_eq!(app.audio.effective_sfx_volume(), 0.0);
+    let _ = app.audio.take_sfx_log();
+    app.audio.play_sfx("ClickOneSound");
+    assert!(app.audio.take_sfx_log().is_empty());
+    app.set_window_focused(true);
+    assert!((app.audio.effective_music_volume() - 0.6).abs() < 1e-4);
+    assert!((app.audio.effective_sfx_volume() - 0.75).abs() < 1e-4);
 }

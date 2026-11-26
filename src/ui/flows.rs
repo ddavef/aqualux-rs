@@ -142,7 +142,7 @@ impl GameApp {
             prof.match_level_index = 0;
             self.save.save();
             self.audio.play_sfx("BonusTwoSound");
-            self.modals.push(ModalState::Award {
+            self.push_modal(ModalState::Award {
                 kind: AwardKind::LightWater,
                 then_champion: false,
                 then_ultralux: false,
@@ -154,6 +154,7 @@ impl GameApp {
     }
 
     pub fn launch_level_def(&mut self, def: LevelDef) {
+        let was_in_level = self.campaign_sim.is_some() || self.match_sim.is_some();
         let diff = match &self.play_mode {
             PlayMode::Lotd => Difficulty::Medium,
             PlayMode::CustomPack { difficulty, .. }
@@ -184,6 +185,8 @@ impl GameApp {
         self.tut_age = 0.0;
         self.last_tut_idx = 0;
         self.ff_hint_age = None;
+        self.hud_anim.show_overlay();
+        self.hud_tutorial_active = false;
 
         self.info_banner = Some(InfoBanner {
             title: def.title.clone(),
@@ -201,14 +204,26 @@ impl GameApp {
         self.blurbs.clear();
         self.leaks.clear();
         self.fireworks.clear();
-        self.hud_score_roller = ScoreRoller::new(self.display_base_score());
+        let base_score = self.display_base_score();
+        if was_in_level {
+            self.hud_score_roller.roll_to(base_score, 1.0, 0.0);
+            self.hud_moves_roller.roll_to(0, 1.0, 0.0);
+            self.hud_time_roller.roll_to(0, 1.0, 0.0);
+        } else {
+            self.hud_score_roller = ScoreRoller::new(base_score);
+            self.hud_moves_roller = ScoreRoller::new(0);
+            self.hud_time_roller = ScoreRoller::new(0);
+        }
         self.screen = Screen::Playing;
     }
 
     pub fn start_match_level(&mut self, idx: usize, mirror: bool, first_entry: bool) {
+        let was_in_level = self.campaign_sim.is_some() || self.match_sim.is_some();
         let sim = MatchSim::new(idx, mirror, &mut self.rng);
         self.bg_anim.load(&sim.level.background_id);
-        self.audio.clear_delayed();
+        if first_entry {
+            self.audio.clear_delayed();
+        }
         self.audio
             .play_music(music_for_background(&sim.level.background_id), true);
 
@@ -219,6 +234,8 @@ impl GameApp {
         self.board_age = 0.0;
         self.pause_elapsed = 0.0;
         self.pause_fade = 1.0;
+        self.hud_anim.show_overlay();
+        self.hud_tutorial_active = false;
 
         if idx == 0 && first_entry {
             self.info_banner = Some(InfoBanner {
@@ -246,7 +263,14 @@ impl GameApp {
         self.champion_state = None;
         self.leaks.clear();
         self.fireworks.clear();
-        self.hud_score_roller = ScoreRoller::new(self.display_base_score());
+        let base_score = self.display_base_score();
+        if was_in_level {
+            self.hud_score_roller.roll_to(base_score, 1.0, 0.0);
+        } else {
+            self.hud_score_roller = ScoreRoller::new(base_score);
+        }
+        self.hud_moves_roller = ScoreRoller::new(0);
+        self.hud_time_roller = ScoreRoller::new(0);
         self.screen = Screen::MatchPlaying;
     }
 
@@ -308,6 +332,10 @@ impl GameApp {
         self.tut_age = 0.0;
         self.last_tut_idx = 0;
         self.ff_hint_age = None;
+        self.hud_anim = crate::ui::hud::HudAnimState::default();
+        self.hud_tutorial_active = false;
+        self.hud_moves_roller = ScoreRoller::new(0);
+        self.hud_time_roller = ScoreRoller::new(0);
         self.info_banner = None;
         self.leaks.clear();
         self.fireworks.clear();

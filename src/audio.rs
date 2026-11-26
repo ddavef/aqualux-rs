@@ -31,6 +31,11 @@ pub struct AudioEngine {
     delayed: Vec<DelayedAudio>,
     pub music_volume: f32,
     pub sfx_volume: f32,
+    window_focused: bool,
+    #[cfg(test)]
+    music_play_count: u32,
+    #[cfg(test)]
+    sfx_log: std::cell::RefCell<Vec<String>>,
 }
 
 impl AudioEngine {
@@ -47,12 +52,38 @@ impl AudioEngine {
             delayed: Vec::new(),
             music_volume: music_vol.clamp(0.0, 1.0),
             sfx_volume: sfx_vol.clamp(0.0, 1.0),
+            window_focused: true,
+            #[cfg(test)]
+            music_play_count: 0,
+            #[cfg(test)]
+            sfx_log: std::cell::RefCell::new(Vec::new()),
         }
+    }
+
+    pub fn effective_music_volume(&self) -> f32 {
+        if self.window_focused {
+            self.music_volume
+        } else {
+            0.0
+        }
+    }
+
+    pub fn effective_sfx_volume(&self) -> f32 {
+        if self.window_focused {
+            self.sfx_volume
+        } else {
+            0.0
+        }
+    }
+
+    pub fn set_window_focused(&mut self, focused: bool) {
+        self.window_focused = focused;
+        self.apply_volumes();
     }
 
     pub fn apply_volumes(&self) {
         if let Some(player) = &self.music_player {
-            player.set_volume(self.music_volume);
+            player.set_volume(self.effective_music_volume());
         }
     }
 
@@ -92,14 +123,23 @@ impl AudioEngine {
             .collect()
     }
 
+    #[cfg(test)]
+    pub fn music_play_count(&self) -> u32 {
+        self.music_play_count
+    }
+
+    #[cfg(test)]
+    pub fn take_sfx_log(&self) -> Vec<String> {
+        std::mem::take(&mut *self.sfx_log.borrow_mut())
+    }
+
     pub fn play_music(&mut self, name: &str, loop_forever: bool) {
-        if self.current_music.as_deref() == Some(name)
-            && self.music_player.as_ref().is_none_or(|p| !p.empty())
-        {
-            return;
-        }
         self.stop_music();
         self.current_music = Some(name.to_string());
+        #[cfg(test)]
+        {
+            self.music_play_count += 1;
+        }
         let Some(sink) = &self.device_sink else {
             return;
         };
@@ -110,7 +150,7 @@ impl AudioEngine {
             return;
         };
         let player = Player::connect_new(sink.mixer());
-        player.set_volume(self.music_volume);
+        player.set_volume(self.effective_music_volume());
         if loop_forever {
             player.append(decoder.repeat_infinite());
         } else {
@@ -145,9 +185,13 @@ impl AudioEngine {
     }
 
     pub fn play_sfx_vol(&self, name: &str, vol_scale: f32) {
-        let vol = (self.sfx_volume * vol_scale).clamp(0.0, 1.0);
+        let vol = (self.effective_sfx_volume() * vol_scale).clamp(0.0, 1.0);
         if vol <= 0.001 {
             return;
+        }
+        #[cfg(test)]
+        {
+            self.sfx_log.borrow_mut().push(name.to_string());
         }
         let Some(sink) = &self.device_sink else {
             return;

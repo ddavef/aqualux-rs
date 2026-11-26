@@ -177,7 +177,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             rgb = mix(rgb, vec3<f32>(0.188235, 0.188235, 0.286275), clamp(-diff * 0.5, 0.0, 1.0));
         }
         let body = vec4<f32>(rgb * in.fill.a, in.fill.a) * f_cov;
-        let s_cov = clamp(0.5 - (abs(d) - 2.0) / aa, 0.0, 1.0);
+        let s_cov = clamp(0.5 - (abs(d) - stroke_w * 0.5) / aa, 0.0, 1.0);
         return over_pm(premul(in.stroke) * s_cov, body);
     }
     if kind == 3u {

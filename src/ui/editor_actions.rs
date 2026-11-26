@@ -182,7 +182,7 @@ impl GameApp {
                 }
             }
             UiAction::EditorClearBoard => {
-                self.modals.push(ModalState::Question {
+                self.push_modal(ModalState::Question {
                     id: QuestionId::ConfirmClearEditorBoard,
                     message: "Reset the grid to a blank starter layout?".to_string(),
                     yes_label: "yes",
@@ -199,19 +199,19 @@ impl GameApp {
                 }
             }
             UiAction::EditorOpenProps => {
-                if let Some(ed) = &self.editor {
-                    self.modals
-                        .push(ModalState::LevelProps(LevelPropsDraft::from_level(
-                            &ed.draft,
-                            ed.test_difficulty,
-                        )));
+                if let Some(props) = self
+                    .editor
+                    .as_ref()
+                    .map(|ed| LevelPropsDraft::from_level(&ed.draft, ed.test_difficulty))
+                {
+                    self.push_modal(ModalState::LevelProps(props));
                 }
             }
             UiAction::EditorTest => self.launch_editor_playtest(),
             UiAction::EditorSave => self.save_editor_level(),
             UiAction::EditorBack => {
                 if self.editor.as_ref().is_some_and(|e| e.dirty) {
-                    self.modals.push(ModalState::Question {
+                    self.push_modal(ModalState::Question {
                         id: QuestionId::ConfirmDiscardEditor,
                         message: "Discard unsaved changes to this level?".to_string(),
                         yes_label: "yes",
@@ -411,7 +411,7 @@ impl GameApp {
             UiAction::PropsEditTitle => {
                 if let Some(ModalState::LevelProps(props)) = self.modals.last() {
                     let cur = props.title.clone();
-                    self.modals.push(ModalState::TextPrompt {
+                    self.push_modal(ModalState::TextPrompt {
                         purpose: TextPromptPurpose::EditLevelTitle,
                         prompt: "Enter level title:".to_string(),
                         input: cur,
@@ -422,7 +422,7 @@ impl GameApp {
             UiAction::PropsEditDesc => {
                 if let Some(ModalState::LevelProps(props)) = self.modals.last() {
                     let cur = props.description.clone();
-                    self.modals.push(ModalState::TextPrompt {
+                    self.push_modal(ModalState::TextPrompt {
                         purpose: TextPromptPurpose::EditLevelDescription,
                         prompt: "Enter level description:".to_string(),
                         input: cur,
@@ -544,7 +544,7 @@ impl GameApp {
                 }
             }
             UiAction::PropsApply => {
-                let Some(ModalState::LevelProps(props)) = self.modals.pop() else {
+                let Some(ModalState::LevelProps(props)) = self.pop_modal() else {
                     return;
                 };
                 let mut bg_changed = None;
