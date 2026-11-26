@@ -461,3 +461,278 @@ fn firework_effect_matches_original_spec() {
         "fireworks ({first_fw}) must render behind Summary rainbow ({rainbow_pos})"
     );
 }
+
+#[test]
+fn mirror_match_orientation_sign_and_preview_parity() {
+    use crate::render::BoardLayout;
+    use crate::render::board::{BoardAnim, BoardRenderer};
+    use crate::render::board_underlay::{draw_attachment_underlay, tile_xform};
+
+    let gpu = test_gpu();
+    let mut b = empty_bundle();
+
+    // 4x4 asymmetric tile: UP-center is red, RIGHT-center is green.
+    let mut pipe_px = vec![0u8; 4 * 4 * 4];
+    for x in 1..=2 {
+        let i = x * 4;
+        pipe_px[i..i + 4].copy_from_slice(&[255, 0, 0, 255]);
+    }
+    for y in 1..=2 {
+        let i = (y * 4 + 3) * 4;
+        pipe_px[i..i + 4].copy_from_slice(&[0, 255, 0, 255]);
+    }
+    b.images.insert(
+        "asym_pipe".into(),
+        RgbaImage {
+            width: 4,
+            height: 4,
+            data: pipe_px,
+        },
+    );
+
+    // 32x16 asymmetric StartSignBitmap: left half blue, right half yellow.
+    let mut sign_px = vec![0u8; 32 * 16 * 4];
+    for y in 0..16 {
+        for x in 0..32 {
+            let i = (y * 32 + x) * 4;
+            let rgba = if x < 16 {
+                [0, 0, 255, 255]
+            } else {
+                [255, 255, 0, 255]
+            };
+            sign_px[i..i + 4].copy_from_slice(&rgba);
+        }
+    }
+    b.images.insert(
+        "StartSignBitmap".into(),
+        RgbaImage {
+            width: 32,
+            height: 16,
+            data: sign_px,
+        },
+    );
+
+    let bank = TexBank::new(gpu.clone(), &b);
+    let mut c = Canvas::new();
+    c.clear((0, 0, 0));
+
+    let tid = bank.named("asym_pipe").unwrap().0;
+    let uv = [0.0, 0.0, 1.0, 1.0];
+    // 90 deg CW then horizontal mirror: UP -> RIGHT -> LEFT; RIGHT -> DOWN -> DOWN.
+    c.draw_tex_uv_rotated_blur(
+        tid,
+        uv,
+        100.0,
+        100.0,
+        80.0,
+        80.0,
+        90.0,
+        None,
+        1.0,
+        1.0,
+        true,
+        (0.0, 0.0),
+    );
+    // 270 deg CW then horizontal mirror: UP -> LEFT -> RIGHT; RIGHT -> UP -> UP.
+    c.draw_tex_uv_rotated_blur(
+        tid,
+        uv,
+        300.0,
+        100.0,
+        80.0,
+        80.0,
+        270.0,
+        None,
+        1.0,
+        1.0,
+        true,
+        (0.0, 0.0),
+    );
+
+    let source_tile = Tile::from_def(
+        &TileDef {
+            x: 0,
+            y: 0,
+            shape: PieceShape::Spigot,
+            piece_type: PieceType::Source,
+            direction: 0,
+            is_moveable: false,
+            can_rotate: false,
+            is_gate: false,
+            is_freeze: false,
+            is_magic: false,
+            secondary_color: None,
+        },
+        &minimal_test_level(),
+    );
+    draw_attachment_underlay(
+        &mut c,
+        &bank,
+        &source_tile,
+        500.0,
+        300.0,
+        128.0,
+        1.0,
+        true,
+        (0.0, 0.0),
+    );
+
+    let out = gpu.render_to_rgba(&c, &bank, 800, 600);
+    let px = |x: usize, y: usize| -> [u8; 4] {
+        let i = (y * 800 + x) * 4;
+        [out[i], out[i + 1], out[i + 2], out[i + 3]]
+    };
+
+    assert!(
+        px(65, 100)[0] > 200 && px(65, 100)[1] < 20,
+        "90deg mirrored LEFT {:?}",
+        px(65, 100)
+    );
+    assert!(
+        px(100, 135)[1] > 200 && px(100, 135)[0] < 20,
+        "90deg mirrored DOWN {:?}",
+        px(100, 135)
+    );
+    assert_eq!(px(135, 100), [0, 0, 0, 255]);
+    assert_eq!(px(100, 65), [0, 0, 0, 255]);
+
+    assert!(
+        px(335, 100)[0] > 200 && px(335, 100)[1] < 20,
+        "270deg mirrored RIGHT {:?}",
+        px(335, 100)
+    );
+    assert!(
+        px(300, 65)[1] > 200 && px(300, 65)[0] < 20,
+        "270deg mirrored UP {:?}",
+        px(300, 65)
+    );
+    assert_eq!(px(265, 100), [0, 0, 0, 255]);
+    assert_eq!(px(300, 135), [0, 0, 0, 255]);
+
+    // Mirrored StartSignBitmap flips around tile center x=500 -> quad covers 473..505, y=217..233.
+    let sign_l = px(478, 225);
+    let sign_r = px(500, 225);
+    assert!(
+        sign_l[0] > 200 && sign_l[1] > 200 && sign_l[2] < 20,
+        "mirrored sign left should be yellow: {:?}",
+        sign_l
+    );
+    assert!(
+        sign_r[2] > 200 && sign_r[0] < 20 && sign_r[1] < 20,
+        "mirrored sign right should be blue: {:?}",
+        sign_r
+    );
+    assert_eq!(
+        px(520, 225),
+        [0, 0, 0, 255],
+        "unmirrored side must be empty"
+    );
+
+    // BoardAnim::Preview has zero blur and omits PipeDropShadow.
+    let layout = BoardLayout::compute(1, 1, Rect::new(336.0, 236.0, 128.0, 128.0));
+    let (_, _, _, prev_a, prev_blur) = tile_xform(
+        &source_tile,
+        0,
+        1,
+        0.0,
+        layout,
+        false,
+        BoardAnim::Preview { alpha: 0.5 },
+    );
+    let (_, _, _, obsc_a, obsc_blur) = tile_xform(
+        &source_tile,
+        0,
+        1,
+        0.0,
+        layout,
+        false,
+        BoardAnim::Obscured { alpha: 0.5 },
+    );
+    assert!((prev_a - 0.5).abs() < 1e-5 && prev_blur == 0.0);
+    assert!((obsc_a - 0.5).abs() < 1e-5 && (obsc_blur - 16.0).abs() < 1e-4);
+
+    if let Some(path) = asset_file_if_present() {
+        let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+        let renderer = Renderer::new(gpu.clone(), &bundle).expect("renderer");
+        let elbow = Tile::from_def(
+            &TileDef {
+                x: 0,
+                y: 0,
+                shape: PieceShape::Elbow,
+                piece_type: PieceType::Pipe,
+                direction: 0,
+                is_moveable: true,
+                can_rotate: false,
+                is_gate: false,
+                is_freeze: false,
+                is_magic: false,
+                secondary_color: None,
+            },
+            &minimal_test_level(),
+        );
+        let tiles = vec![vec![elbow]];
+        let mut board_r = BoardRenderer::new();
+
+        let mut c_act = Canvas::new();
+        c_act.clear((255, 255, 255));
+        board_r.draw_board(
+            &mut c_act,
+            &renderer.bank,
+            &renderer.fonts,
+            &tiles,
+            layout,
+            None,
+            &[],
+            None,
+            &[],
+            &[],
+            false,
+            false,
+            BoardAnim::Active,
+            0.0,
+        );
+        let px_act = gpu.render_to_rgba(&c_act, &renderer.bank, 800, 600);
+
+        let mut c_prv = Canvas::new();
+        c_prv.clear((255, 255, 255));
+        board_r.draw_board(
+            &mut c_prv,
+            &renderer.bank,
+            &renderer.fonts,
+            &tiles,
+            layout,
+            None,
+            &[],
+            None,
+            &[],
+            &[],
+            false,
+            false,
+            BoardAnim::Preview { alpha: 1.0 },
+            0.0,
+        );
+        let px_prv = gpu.render_to_rgba(&c_prv, &renderer.bank, 800, 600);
+
+        let mut act_shadow = false;
+        let mut prv_ring_dirty = false;
+        for y in 224usize..376 {
+            for x in 324usize..476 {
+                if (336..464).contains(&x) && (236..364).contains(&y) {
+                    continue;
+                }
+                let i = (y * 800 + x) * 4;
+                if px_act[i] < 245 {
+                    act_shadow = true;
+                }
+                if px_prv[i] < 255 || px_prv[i + 1] < 255 || px_prv[i + 2] < 255 {
+                    prv_ring_dirty = true;
+                }
+            }
+        }
+        assert!(
+            act_shadow,
+            "Active board should render PipeDropShadow in exterior ring"
+        );
+        assert!(!prv_ring_dirty, "Preview board must omit PipeDropShadow");
+    }
+}

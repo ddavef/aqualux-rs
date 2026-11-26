@@ -18,6 +18,7 @@ pub enum BoardAnim {
     PopIn { elapsed: f32, start_delay: f32 },
     Active,
     Obscured { alpha: f32 },
+    Preview { alpha: f32 },
     HideDrop { elapsed: f32, delay: f32 },
 }
 
@@ -52,6 +53,7 @@ impl BoardRenderer {
         let rows = tiles.len();
         let cols = tiles.first().map(|r| r.len()).unwrap_or(0);
         let max_filled_delay = (0.15 * (rows * cols) as f32).min(0.15 * 12.0);
+        let draw_drop_shadow = !matches!(anim, BoardAnim::Preview { .. });
         let mut deferred_leakers = Vec::new();
         let mut hide_seq = 0usize;
 
@@ -95,6 +97,7 @@ impl BoardRenderer {
                     &[],
                     color_blind,
                     mirror_x,
+                    draw_drop_shadow,
                     time,
                 );
             }
@@ -131,6 +134,7 @@ impl BoardRenderer {
                 leaks,
                 color_blind,
                 mirror_x,
+                draw_drop_shadow,
                 time,
             );
         }
@@ -176,6 +180,7 @@ impl BoardRenderer {
         leaks: &[LeakEmitter],
         color_blind: bool,
         mirror_x: bool,
+        draw_drop_shadow: bool,
         time: f32,
     ) {
         let uv_full = [0.0, 0.0, 1.0, 1.0];
@@ -191,6 +196,7 @@ impl BoardRenderer {
             blur,
             tile.visual_rot_deg,
             mirror_x,
+            draw_drop_shadow,
             is_sel,
             is_tut,
             is_hov && (tile.is_moveable || tile.can_rotate),
@@ -217,7 +223,7 @@ impl BoardRenderer {
             return;
         }
 
-        draw_attachment_underlay(canvas, bank, tile, cx, cy, tile_px, alpha, blur);
+        draw_attachment_underlay(canvas, bank, tile, cx, cy, tile_px, alpha, mirror_x, blur);
         if tile.piece_type == PieceType::Drain {
             draw_drain_underlay(canvas, bank, tile, cx, cy, tile_px, alpha, mirror_x, blur);
         } else if tile.piece_type == PieceType::Portal {
@@ -388,6 +394,7 @@ fn draw_tile_filter_halo(
     blur: (f32, f32),
     rot_deg: f32,
     mirror_x: bool,
+    draw_drop_shadow: bool,
     is_sel: bool,
     is_tut: bool,
     is_hov_active: bool,
@@ -400,7 +407,9 @@ fn draw_tile_filter_halo(
         rot_deg
     };
     let scale = tile_px / 128.0;
-    if let Some((sh, sw, sh_h, _)) = bank.glow_named(clear_key, GlowPreset::PipeDropShadow) {
+    if draw_drop_shadow
+        && let Some((sh, sw, sh_h, _)) = bank.glow_named(clear_key, GlowPreset::PipeDropShadow)
+    {
         canvas.draw_tex_uv_rotated_blur(
             sh,
             uv_full,

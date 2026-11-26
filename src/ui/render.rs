@@ -267,8 +267,19 @@ impl GameApp {
         }
     }
 
+    pub(crate) fn match_preview_alpha(&self) -> f32 {
+        if let Some((elapsed, _, _, _)) = self.board_hide {
+            1.0 - crate::render::easing::quad_out((elapsed / 1.0).clamp(0.0, 1.0))
+        } else if let Some((elapsed, _, _, _)) = self.board_pop_elapsed {
+            crate::render::easing::quad_out(((elapsed - 1.0) / 1.0).clamp(0.0, 1.0))
+        } else {
+            1.0
+        }
+    }
+
     fn render_match(&mut self, canvas: &mut Canvas, paused: bool) {
         let board_anim = self.current_board_anim();
+        let preview_alpha = self.match_preview_alpha();
         let Some(sim) = self.match_sim.as_ref() else {
             return;
         };
@@ -299,14 +310,7 @@ impl GameApp {
             self.time,
         );
 
-        if !paused && self.board_hide.is_none() {
-            let preview_alpha = if let Some((elapsed, _, _, _)) = self.board_pop_elapsed {
-                BoardAnim::Obscured {
-                    alpha: ((elapsed - 1.0) / 1.0).clamp(0.0, 1.0),
-                }
-            } else {
-                BoardAnim::Active
-            };
+        if !paused && preview_alpha > 0.004 {
             let goal_layout =
                 BoardLayout::compute(sim.level.cols, sim.level.rows, hud::match_preview_area());
             self.renderer.draw_board(
@@ -320,7 +324,9 @@ impl GameApp {
                 &[],
                 self.save.config.color_blind,
                 sim.mirror_mode,
-                preview_alpha,
+                BoardAnim::Preview {
+                    alpha: preview_alpha,
+                },
                 self.time,
             );
         }
@@ -333,6 +339,7 @@ impl GameApp {
                 self.hud_score_roller.value(),
                 self.mouse_pos,
                 self.is_board_busy(),
+                preview_alpha,
             );
         }
     }

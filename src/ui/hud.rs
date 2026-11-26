@@ -160,6 +160,7 @@ pub fn render_campaign_hud(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_match_hud(
     canvas: &mut Canvas,
     bank: &TexBank,
@@ -168,6 +169,7 @@ pub fn render_match_hud(
     total_score: u32,
     mouse_pos: (f32, f32),
     hiding_board: bool,
+    preview_alpha: f32,
 ) {
     if !hiding_board && sim.is_started && !sim.finished {
         draw_icon(
@@ -183,17 +185,22 @@ pub fn render_match_hud(
     } else {
         "MATCH THIS:"
     };
-    fonts.draw_stroked(
-        canvas,
-        FontFamily::Neuropol,
-        39.0,
-        57.0,
-        24.0,
-        (0xEA, 0xEA, 0xEA),
-        (5, 13, 43),
-        TextAlign::Left,
-        header,
-    );
+    if preview_alpha > 0.004 {
+        fonts.draw_styled_alpha(
+            canvas,
+            FontFamily::Neuropol,
+            39.0,
+            57.0,
+            24.0,
+            1.0,
+            1.0,
+            (0xEA, 0xEA, 0xEA),
+            Some((0, 0, 64)),
+            TextAlign::Left,
+            header,
+            preview_alpha,
+        );
+    }
 
     draw_bottom_counters(
         canvas,

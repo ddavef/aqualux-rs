@@ -757,3 +757,109 @@ fn unlock_chains_retries_modal_deferral_and_escape_guards() {
     app.update(0.05);
     assert_eq!(app.board_pop_elapsed, pop_before);
 }
+
+#[test]
+fn match_mode_rotatable_scramble_and_preview_fade_parity() {
+    use crate::game::MatchSim;
+
+    let mut rot_dir_changed = 0usize;
+    for seed in 0u64..20 {
+        let mut rng = StdRng::seed_from_u64(seed);
+        let sim = MatchSim::new(10, true, &mut rng);
+        assert!(!sim.is_solved(), "seed {seed} should not start solved");
+        for y in 0..sim.level.rows {
+            for x in 0..sim.level.cols {
+                let play_t = &sim.play_tiles[y][x];
+                let goal_t = &sim.goal_tiles[y][x];
+                if play_t.can_rotate
+                    || matches!(play_t.piece_type, PieceType::Source | PieceType::Drain)
+                {
+                    assert_eq!(goal_t.piece_type, play_t.piece_type);
+                    assert_eq!(goal_t.can_rotate, play_t.can_rotate);
+                    assert_eq!(goal_t.shape, play_t.shape);
+                }
+                if play_t.can_rotate
+                    && play_t.shape != PieceShape::Cross
+                    && goal_t.direction != play_t.direction
+                {
+                    rot_dir_changed += 1;
+                }
+            }
+        }
+    }
+    assert!(
+        rot_dir_changed > 0,
+        "Match scrambling must rotate can_rotate tiles"
+    );
+
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let gpu = test_gpu();
+    let mut app = GameApp::new(bundle, Some(120), gpu.clone()).expect("GameApp init");
+    app.start_match_level(10, true, false);
+
+    // Pop-in delay=1s, duration=1s with quad_out easing.
+    app.board_pop_elapsed = Some((0.5, 1.5, 4.0, 0));
+    assert!((app.match_preview_alpha() - 0.0).abs() < 1e-4);
+    app.board_pop_elapsed = Some((1.5, 1.5, 4.0, 0));
+    assert!((app.match_preview_alpha() - 0.75).abs() < 1e-4);
+    app.board_pop_elapsed = None;
+    assert!((app.match_preview_alpha() - 1.0).abs() < 1e-4);
+
+    // Win hide fades out over 1.0s with 1.0 - quad_out(t).
+    app.on_match_win();
+    assert!((app.match_preview_alpha() - 1.0).abs() < 1e-4);
+    if let Some((elapsed, _, _, _)) = app.board_hide.as_mut() {
+        *elapsed = 0.5;
+    }
+    assert!((app.match_preview_alpha() - 0.25).abs() < 1e-4);
+    if let Some((elapsed, _, _, _)) = app.board_hide.as_mut() {
+        *elapsed = 1.0;
+    }
+    assert!((app.match_preview_alpha() - 0.0).abs() < 1e-4);
+
+    let sim = app.match_sim.as_ref().unwrap();
+    let header_stats = |alpha: f32| -> (u8, bool) {
+        let mut c = Canvas::new();
+        c.clear((0, 0, 0));
+        hud::render_match_hud(
+            &mut c,
+            &app.renderer.bank,
+            &app.renderer.fonts,
+            sim,
+            0,
+            (0.0, 0.0),
+            false,
+            alpha,
+        );
+        let px = gpu.render_to_rgba(&c, &app.renderer.bank, 800, 600);
+        let mut max_c = 0u8;
+        let mut has_dark_blue_stroke = false;
+        for y in 40usize..95 {
+            for x in 30usize..260 {
+                let i = (y * 800 + x) * 4;
+                let (r, g, b) = (px[i], px[i + 1], px[i + 2]);
+                max_c = max_c.max(r).max(g).max(b);
+                if r == 0 && g == 0 && b >= 40 {
+                    has_dark_blue_stroke = true;
+                }
+            }
+        }
+        (max_c, has_dark_blue_stroke)
+    };
+
+    let (max_zero, _) = header_stats(0.0);
+    let (max_half, _) = header_stats(0.5);
+    let (max_full, has_stroke) = header_stats(1.0);
+    assert_eq!(max_zero, 0, "hidden preview must not draw header");
+    assert!(
+        max_half > 20 && max_half < max_full,
+        "half-alpha header ({max_half}) must fade smoothly toward full ({max_full})"
+    );
+    assert!(
+        has_stroke,
+        "MIRROR THIS header must use dark blue (0, 0, 64) stroke"
+    );
+}

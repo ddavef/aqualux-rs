@@ -32,6 +32,7 @@ impl MatchSim {
         let play_tiles = build_tile_grid(&level);
         let mut goal_tiles = build_tile_grid(&level);
         Self::scramble_grid(&mut goal_tiles, level.rows, level.cols, rng);
+        Self::scramble_grid(&mut goal_tiles, level.rows, level.cols, rng);
         if Self::grids_equal(&play_tiles, &goal_tiles, level.rows, level.cols) {
             Self::scramble_grid(&mut goal_tiles, level.rows, level.cols, rng);
         }
@@ -64,7 +65,17 @@ impl MatchSim {
     fn scramble_grid(grid: &mut [Vec<Tile>], rows: usize, cols: usize, rng: &mut impl RngExt) {
         for y in 0..rows {
             for x in 0..cols {
-                let elig = collect_swap_eligible(grid, cols, rows, (x, y), false);
+                let mut elig = Vec::with_capacity(4);
+                for (dx, dy) in [(0i32, -1i32), (0, 1), (-1, 0), (1, 0)] {
+                    let nx = x as i32 + dx;
+                    let ny = y as i32 + dy;
+                    if nx >= 0 && ny >= 0 && nx < cols as i32 && ny < rows as i32 {
+                        let (ux, uy) = (nx as usize, ny as usize);
+                        if grid[uy][ux].is_moveable {
+                            elig.push((ux, uy));
+                        }
+                    }
+                }
                 if elig.is_empty() {
                     continue;
                 }
@@ -75,7 +86,7 @@ impl MatchSim {
                 } else if grid[partner.1][partner.0].can_rotate {
                     let turns = rng.random_range(1..=2) as u8;
                     grid[partner.1][partner.0].rotate_cw_instant(turns);
-                } else {
+                } else if grid[y][x].is_moveable {
                     let a_t = grid[y][x].piece_type;
                     let b_t = grid[partner.1][partner.0].piece_type;
                     if a_t != PieceType::Source

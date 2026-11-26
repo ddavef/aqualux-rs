@@ -429,8 +429,8 @@ fn rotated_rows(
 ) -> ([f32; 4], [f32; 4]) {
     let sx = if mirror_x { -1.0 } else { 1.0 };
     let (si, co) = rot_deg_cw.to_radians().sin_cos();
-    let (a, c) = (co * sx, -si);
-    let (b, d) = (si * sx, co);
+    let (a, c) = (co * sx, -si * sx);
+    let (b, d) = (si, co);
     let tx = cx - a * (dw * 0.5) - c * (dh * 0.5);
     let ty = cy - b * (dw * 0.5) - d * (dh * 0.5);
     ([a, c, tx, dw], [b, d, ty, dh])

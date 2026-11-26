@@ -3,7 +3,7 @@
 
 use crate::game::{GameColor, PieceShape, PieceType, Tile};
 use crate::render::board::BoardAnim;
-use crate::render::canvas::{BoardLayout, Canvas, Rect};
+use crate::render::canvas::{BoardLayout, Canvas};
 use crate::render::easing::{bounce_out, strong_in};
 use crate::render::pipe_mask::draw_flow_timer;
 use crate::render::tex_bank::TexBank;
@@ -56,6 +56,7 @@ pub(crate) fn draw_attachment_underlay(
     cy: f32,
     tpx: f32,
     alpha: f32,
+    mirror_x: bool,
     blur: (f32, f32),
 ) {
     let scale = tpx / 128.0;
@@ -65,13 +66,26 @@ pub(crate) fn draw_attachment_underlay(
         _ => return,
     };
     if let Some((tid, sw, sh)) = bank.named(key) {
-        let rect = Rect::new(
-            cx - tpx * 0.5 + ox * scale,
-            cy - tpx * 0.5 + oy * scale,
-            sw as f32 * scale,
-            sh as f32 * scale,
+        let w = sw as f32 * scale;
+        let h = sh as f32 * scale;
+        let rel_cx = (ox + sw as f32 * 0.5 - 64.0) * scale;
+        let rel_cy = (oy + sh as f32 * 0.5 - 64.0) * scale;
+        let sx = if mirror_x { cx - rel_cx } else { cx + rel_cx };
+        let sy = cy + rel_cy;
+        canvas.draw_tex_uv_rotated_blur(
+            tid,
+            [0.0, 0.0, 1.0, 1.0],
+            sx,
+            sy,
+            w,
+            h,
+            0.0,
+            None,
+            1.0,
+            alpha,
+            mirror_x,
+            blur,
         );
-        canvas.draw_tex_rect_blur(tid, rect, None, 1.0, alpha, blur);
     }
 }
 
@@ -268,6 +282,7 @@ pub(crate) fn tile_xform(
             )
         }
         BoardAnim::Obscured { alpha } => (cx, cy, layout.tile_px, alpha, (1.0 - alpha) * 32.0),
+        BoardAnim::Preview { alpha } => (cx, cy, layout.tile_px, alpha, 0.0),
         BoardAnim::HideDrop { elapsed, delay } => {
             let tdelay = if tile.has_filled {
                 max_filled_delay
