@@ -1,6 +1,6 @@
 # aqualux-rs
 
-A cross-platform Rust reimplementation of Aqualux, a pipe-puzzle game from ~2010.
+A cross-platform Rust remaster of Aqualux, a pipe-puzzle game from ~2010.
 
 This repository contains zero copyrighted assets. You must supply your own *Aqualux Deluxe* `resource.n` or `aqualux.swf` (or an extracted asset directory) to load all sprites, layered scene backgrounds, embedded SWF vector fonts (`NEUROPOL`, `Pricedown`, `Helvetica`), sound effects, music, and all 100 campaign levels.
 

@@ -179,7 +179,7 @@ impl GameApp {
             | UiAction::PropsApply => self.handle_editor_action(action),
             UiAction::OpenMmgNotice => {
                 self.push_notice(
-                    "Aqualux Deluxe\nCopyright (C) 2010 Milkman Games, LLC.\nAll Rights Reserved.\naqualux-rs reimplementation by ddavef",
+                    "Aqualux Deluxe\nCopyright (C) 2010 Milkman Games, LLC.\nAll Rights Reserved.\naqualux-rs remaster by ddavef",
                 );
             }
             UiAction::OpenTrophyRoom => {
