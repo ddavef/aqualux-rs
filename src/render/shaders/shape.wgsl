@@ -129,7 +129,7 @@ fn eval_rainbow(p: vec2<f32>, t_end: f32, alpha: f32, aa: f32) -> vec4<f32> {
         prev = cur;
     }
     var acc = vec4<f32>(0.0);
-    let band_a = alpha * (205.0 / 255.0);
+    let band_a = alpha;
     for (var i = 0u; i < 6u; i = i + 1u) {
         let cov = clamp(0.5 - min_ds[i] / aa, 0.0, 1.0);
         let a = cov * band_a;

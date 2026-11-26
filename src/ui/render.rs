@@ -92,6 +92,15 @@ impl GameApp {
                 !self.modals.is_empty(),
                 self.mouse_pos,
             );
+            if let Some(ch) = &self.champion_state {
+                render_champion_screen(
+                    canvas,
+                    &self.renderer.bank,
+                    &self.renderer.fonts,
+                    ch,
+                    self.mouse_pos,
+                );
+            }
         } else if self.screen == Screen::CustomHub {
             self.renderer
                 .draw_background(canvas, &self.assets, &self.bg_anim);
@@ -152,7 +161,7 @@ impl GameApp {
             {
                 let fw_alpha = sum
                     .hiding
-                    .map(|(h, _)| (1.0 - h).clamp(0.0, 1.0))
+                    .map(|(h, _)| 1.0 - crate::render::easing::quad_out(h.clamp(0.0, 1.0)))
                     .unwrap_or(1.0);
                 draw_fireworks(canvas, &self.renderer.bank, &self.fireworks, fw_alpha);
                 render_summary_screen(

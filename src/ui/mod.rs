@@ -414,6 +414,12 @@ impl GameApp {
                 self.splash_overlay_age = None;
             }
         }
+        if self.screen != Screen::Champion
+            && let Some(ch) = &mut self.champion_state
+            && ch.update(dt).is_some()
+        {
+            self.champion_state = None;
+        }
 
         if let Some((text, mut age)) = self.status_toast.take() {
             age += dt;

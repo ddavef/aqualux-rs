@@ -6,7 +6,7 @@ use crate::game::Side;
 use crate::render::cursor::CursorKind;
 use crate::render::gpu_bake::{
     GpuTexture, bake_blur_texture, bake_cursor_texture, bake_fire_star_texture,
-    bake_path_highlight_texture, bake_rainbow_texture, upload_premul_texture,
+    bake_path_highlight_texture, bake_rainbow_textures, upload_premul_texture,
 };
 use crate::render::gpu_core::GpuCore;
 use crate::render::gpu_types::TexId;
@@ -52,7 +52,7 @@ pub struct TexBank {
     cid_shadows: RefCell<FxHashMap<u16, (TexId, u32, u32, u32)>>,
     glows: GlowCache,
     path_hl: PathHlCache,
-    rainbow: RefCell<Option<TexId>>,
+    rainbow: RefCell<Option<(TexId, TexId)>>,
     fire_stars: FireStarCache,
     cursors: FxHashMap<CursorKind, (TexId, u32, u32, u32)>,
 }
@@ -233,14 +233,24 @@ impl TexBank {
         Some(entry_val)
     }
 
-    pub fn rainbow_tex(&self) -> TexId {
-        if let Some(tid) = *self.rainbow.borrow() {
-            return tid;
+    fn ensure_rainbow(&self) -> (TexId, TexId) {
+        if let Some(pair) = *self.rainbow.borrow() {
+            return pair;
         }
-        let tex = bake_rainbow_texture(&self.gpu);
-        let (tid, _, _) = self.alloc_tex(tex);
-        *self.rainbow.borrow_mut() = Some(tid);
-        tid
+        let (core, glow) = bake_rainbow_textures(&self.gpu);
+        let (core_id, _, _) = self.alloc_tex(core);
+        let (glow_id, _, _) = self.alloc_tex(glow);
+        let pair = (core_id, glow_id);
+        *self.rainbow.borrow_mut() = Some(pair);
+        pair
+    }
+
+    pub fn rainbow_tex(&self) -> TexId {
+        self.ensure_rainbow().0
+    }
+
+    pub fn rainbow_glow_tex(&self) -> TexId {
+        self.ensure_rainbow().1
     }
 
     pub fn fire_star(&self, rgb: (u8, u8, u8)) -> (TexId, f32) {

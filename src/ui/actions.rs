@@ -296,14 +296,17 @@ impl GameApp {
                 });
             }
             UiAction::DirectMainMenu => {
-                if let Some(ch) = &mut self.champion_state {
+                if let Some(mut ch) = self.champion_state.take() {
                     ch.start_hide(false);
+                    self.return_to_main_menu();
+                    self.champion_state = Some(ch);
                 } else {
                     self.return_to_main_menu();
                 }
             }
             UiAction::DirectQuit => {
                 if let Some(ch) = &mut self.champion_state {
+                    self.audio.stop_music();
                     ch.start_hide(true);
                 } else {
                     self.should_quit = true;

@@ -449,15 +449,18 @@ fn match_rotator_mirror_banner_and_end_screen_hide_parity() {
     app.champion_state.as_mut().unwrap().age = 9.0;
     assert!(!build_champion_buttons(app.champion_state.as_ref().unwrap()).is_empty());
     app.trigger_action(UiAction::DirectMainMenu);
-    assert!(build_champion_buttons(app.champion_state.as_ref().unwrap()).is_empty());
+    assert_eq!(app.screen, Screen::Title);
+    assert!(app.champion_state.is_some());
+    assert!(app.current_buttons().is_empty());
     for _ in 0..10 {
         app.update(0.05);
     }
-    assert_eq!(app.screen, Screen::Champion);
+    assert!(app.champion_state.is_some());
     for _ in 0..15 {
         app.update(0.05);
     }
     assert_eq!(app.screen, Screen::Title);
+    assert!(app.champion_state.is_none());
 }
 
 #[test]
@@ -1831,4 +1834,99 @@ fn splash_overlay_first_run_enter_name_welcome_stagger_and_title_button_gating_p
         app.title_profile_anim,
         Some(TitleProfileAnim::immediate(true))
     );
+}
+
+#[test]
+fn summary_unlock_hitbox_and_champion_crossfade_parity() {
+    use crate::game::Trophy;
+    use crate::render::Canvas;
+
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let gpu = test_gpu();
+    let mut app = GameApp::new(bundle, Some(60), gpu).expect("GameApp init");
+
+    // 1. SummaryScreen buttons stay locked before 3.7s and NoTrophy uses 180x180 hitbox.
+    let mut sum = SummaryState::new(calculate_score(4, 5, 6000, 4, 5, 8000, false), 0, 100);
+    sum.result.trophy = Trophy::None;
+    sum.age = 3.5;
+    assert!(build_summary_buttons(&sum).is_empty());
+    sum.age = 3.65;
+    assert!(build_summary_buttons(&sum).is_empty());
+    sum.age = 3.7;
+    let sum_btns = build_summary_buttons(&sum);
+    let trophy_btn = sum_btns
+        .iter()
+        .find(|b| b.id == "sum_trophy")
+        .expect("NoTrophy must expose retry hitbox at 3.7s");
+    assert!(trophy_btn.rect.contains(570.0, 290.0));
+    assert!(trophy_btn.rect.contains(730.0, 450.0));
+
+    // 2. Champion -> DirectMainMenu immediately shows Title (with 2.9s lighten & NightHills crossfade) under 1.0s Champion fadeout.
+    app.start_campaign_level(99, false);
+    assert_eq!(app.bg_anim.bg_id, "OuterSpace");
+    app.enter_champion_screen(50_000, true);
+    app.champion_state.as_mut().unwrap().age = 9.0;
+    app.trigger_action(UiAction::DirectMainMenu);
+    assert_eq!(app.screen, Screen::Title);
+    assert_eq!(app.bg_anim.bg_id, "NightHills");
+    assert_eq!(
+        app.bg_anim
+            .outgoing
+            .as_ref()
+            .map(|o| o.state.bg_id.as_str()),
+        Some("OuterSpace")
+    );
+    assert_eq!(app.bg_anim.darken, 0.0);
+    assert_eq!(
+        app.champion_state.as_ref().unwrap().hiding,
+        Some((0.0, false))
+    );
+
+    for _ in 0..10 {
+        app.update(0.05);
+    }
+    let ch_mid = app
+        .champion_state
+        .as_ref()
+        .expect("Champion overlay active at 0.5s");
+    assert!((ch_mid.hiding.unwrap().0 - 0.5).abs() < 1e-3);
+    let mut c = Canvas::new();
+    c.begin_frame(1.0);
+    app.render(&mut c);
+    let star_alpha = c
+        .cmds
+        .iter()
+        .find_map(|cmd| match cmd {
+            crate::render::canvas::DrawCmd::Shape(s)
+                if (s.meta[0] - 3.0).abs() < 0.1 && s.meta[3] > 1.5 =>
+            {
+                Some(s.fill[3])
+            }
+            _ => None,
+        })
+        .expect("Champion StarField overlay should render on top of Title during crossfade");
+    assert!(star_alpha > 0.05 && star_alpha < 0.5);
+
+    for _ in 0..12 {
+        app.update(0.05);
+    }
+    assert!(app.champion_state.is_none());
+
+    // 3. Champion -> DirectQuit fades out on ChampionScreen over 1.0s and sets should_quit on completion.
+    app.enter_champion_screen(50_000, true);
+    app.champion_state.as_mut().unwrap().age = 9.0;
+    app.trigger_action(UiAction::DirectQuit);
+    assert_eq!(app.screen, Screen::Champion);
+    assert!(!app.should_quit);
+    for _ in 0..10 {
+        app.update(0.05);
+    }
+    assert!(!app.should_quit);
+    for _ in 0..12 {
+        app.update(0.05);
+    }
+    assert!(app.should_quit);
 }

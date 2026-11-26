@@ -462,7 +462,7 @@ pub fn bake_path_highlight_texture(gpu: &GpuCore, entry: Side, exit: Side, pad: 
     out
 }
 
-pub fn bake_rainbow_texture(gpu: &GpuCore) -> GpuTexture {
+pub fn bake_rainbow_textures(gpu: &GpuCore) -> (GpuTexture, GpuTexture) {
     let core = make_gpu_texture(
         gpu,
         1600,
@@ -514,22 +514,14 @@ pub fn bake_rainbow_texture(gpu: &GpuCore) -> GpuTexture {
         1200,
         0.0,
         0.0,
-        (255, 255, 221),
+        (255, 255, 157),
         0.9,
         16.0,
-        1.3,
+        2.0,
         0,
     );
-    let full = full_sprite(1600.0, 1200.0, 0.0, 0.0);
-    let out = composite_two_sprites(
-        gpu,
-        &mut enc,
-        (1600, 1200),
-        (&glow.bind_group, full),
-        (&core.bind_group, full),
-    );
     gpu.queue.submit(Some(enc.finish()));
-    out
+    (core, glow)
 }
 
 /// Bakes a 4x supersampled `FireStar` (`3x3` white square + Flash `GlowFilter(rgb)` blur 6, strength 2).

@@ -236,7 +236,7 @@ impl Canvas {
         }));
     }
 
-    pub fn draw_rainbow_tex(&mut self, tid: TexId, t_end: f32, alpha: f32) {
+    pub fn draw_rainbow_tex(&mut self, tid: TexId, t_end: f32, alpha: f32, blur: (f32, f32)) {
         let a = alpha.clamp(0.0, 1.0);
         if a <= 0.01 || t_end <= 0.005 {
             return;
@@ -249,8 +249,8 @@ impl Canvas {
                 row0: [1.0, 0.0, 0.0, w],
                 row1: [0.0, 1.0, 120.0, 480.0],
                 uv_rect: [0.0, 0.2, u_end, 0.8],
-                params: [0.0, 1.0, a, 0.0],
-                tint: [1.0, 1.0, 1.0, 0.0],
+                params: [0.0, 1.0, a, blur.0],
+                tint: [1.0, 1.0, 1.0, blur.1],
             },
         ));
     }

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 ddavef aqualux-rs
 
 use crate::game::{MetricResult, Trophy};
-use crate::render::easing::{back_in, back_out, bounce_out, strong_in, strong_out};
+use crate::render::easing::{back_in, back_out, bounce_out, quad_out, strong_in, strong_out};
 use crate::render::{
     Canvas, FontFamily, FontSet, GlowPreset, Rect, TexBank, TextAlign, TextOutline, draw_rainbow,
 };
@@ -84,7 +84,7 @@ impl SummaryState {
 }
 
 pub fn build_summary_buttons(summary: &SummaryState) -> Vec<UiButton> {
-    if summary.hiding.is_some() || summary.age < 3.5 {
+    if summary.hiding.is_some() || summary.age < 3.7 {
         return Vec::new();
     }
     let mut out = vec![
@@ -113,7 +113,7 @@ pub fn build_summary_buttons(summary: &SummaryState) -> Vec<UiButton> {
     if summary.result.trophy == Trophy::None {
         out.push(UiButton {
             id: "sum_trophy",
-            rect: Rect::new(600.0, 320.0, 100.0, 100.0),
+            rect: Rect::new(560.0, 280.0, 180.0, 180.0),
             action: UiAction::RetryLevel,
             enabled: true,
             hover_sfx: None,
@@ -131,17 +131,17 @@ pub fn render_summary_screen(
 ) {
     let hide_t = summary.hiding.map(|(h, _)| h);
     let fade_late = hide_t
-        .map(|h| (1.0 - (h - 0.5).max(0.0) / 1.5).clamp(0.0, 1.0))
+        .map(|h| 1.0 - quad_out(((h - 0.5) / 1.5).clamp(0.0, 1.0)))
         .unwrap_or(1.0);
-    let rainbow_p = (summary.age / 0.9).clamp(0.0, 1.0);
-    draw_rainbow(canvas, bank, rainbow_p, fade_late);
+    draw_rainbow(canvas, bank, summary.age, fade_late);
 
     if summary.age >= 0.8 {
         let u = ((summary.age - 0.8) / 0.9).clamp(0.0, 1.0);
         let b = back_out(u);
         let sc = (0.1 + 0.9 * b).max(0.01);
         let rot = -500.0 * (1.0 - b);
-        let wb = (1.0 - u) * 8.0;
+        let wa = b.clamp(0.0, 1.0) * fade_late;
+        let wb = (8.0 * (1.0 - b)).max(0.0);
         let col = (0x40, 0xD1, 0xEF);
         let st = Some(TextOutline::stroke((0x00, 0x00, 0x40)));
         fonts.draw_rotated_fx(
@@ -156,7 +156,7 @@ pub fn render_summary_screen(
             sc,
             rot,
             -1.0,
-            0.75 * u * fade_late,
+            0.8 * wa,
             [1.0, 1.0, 176.0 / 255.0],
             (22.0 + wb, 22.0 + wb),
         );
@@ -172,7 +172,7 @@ pub fn render_summary_screen(
             sc,
             rot,
             1.0,
-            u * fade_late,
+            wa,
             [1.0; 3],
             (wb, wb),
         );
@@ -203,7 +203,7 @@ pub fn render_summary_screen(
             let lblur = if hide_t.is_some() {
                 0.0
             } else {
-                (1.0 - u) * 16.0
+                (16.0 * (1.0 - back_out(u))).max(0.0)
             };
             if lx - lw <= 815.0 {
                 fonts.draw_fx(
@@ -229,9 +229,11 @@ pub fn render_summary_screen(
 
             let nu = ((summary.age - (delay + 0.2)) / 0.8).clamp(0.0, 1.0);
             if nu > 0.0 {
-                let nx = 800.0 + (LABEL_RIGHT + 14.0 - 800.0) * strong_out(nu);
+                let e_nu = strong_out(nu);
+                let hi_w = fonts.measure_width(FontFamily::Neuropol, "hi there", val_sz);
+                let nx = 800.0 + (LABEL_RIGHT - 800.0) * e_nu + hi_w;
                 let na = hide_t
-                    .map(|h| (1.0 - (h - (0.5 + 0.1 * idx as f32)).max(0.0)).clamp(0.0, 1.0))
+                    .map(|h| 1.0 - quad_out(((h - (0.5 + 0.1 * idx as f32)) / 1.0).clamp(0.0, 1.0)))
                     .unwrap_or(1.0);
                 fonts.draw_digits_fx(
                     canvas,
@@ -244,10 +246,10 @@ pub fn render_summary_screen(
                     1.0,
                     (0xEA, 0xEA, 0xEA),
                     Some(TextOutline::shadowed((0x00, 0x00, 0x40))),
-                    TextAlign::Left,
+                    TextAlign::Right,
                     &val.to_string(),
                     na,
-                    ((1.0 - nu) * 16.0, 0.0),
+                    ((1.0 - e_nu) * 16.0, 0.0),
                 );
             }
         }
@@ -255,9 +257,11 @@ pub fn render_summary_screen(
 
     if summary.age >= 2.3 {
         let tu = ((summary.age - 2.3) / 0.85).clamp(0.0, 1.0);
-        let ta = tu * fade_late;
-        let t_blur = ((1.0 - tu) * 8.0, (1.0 - tu) * 8.0);
-        let sc = 0.1 + 1.7 * bounce_out(tu);
+        let tb = bounce_out(tu);
+        let ta = tb.clamp(0.0, 1.0) * fade_late;
+        let t_blur_v = (1.0 - tb).clamp(0.0, 1.0) * 8.0;
+        let t_blur = (t_blur_v, t_blur_v);
+        let sc = 0.1 + 1.7 * tb;
         let sz = 100.0 * sc;
         let rect = Rect::new(650.0 - sz * 0.5, 370.0 - sz * 0.5, sz, sz);
         let key = summary.result.trophy.bitmap_name();
@@ -287,7 +291,9 @@ pub fn render_summary_screen(
         }
         if summary.age >= 3.3 {
             let lu = ((summary.age - 3.3) / 1.2).clamp(0.0, 1.0);
-            let la = back_out(lu).clamp(0.0, 1.0) * fade_late;
+            let lb = back_out(lu);
+            let la = lb.clamp(0.0, 1.0) * fade_late;
+            let lbl_blur = (8.0 * (1.0 - lb)).max(0.0);
             fonts.draw_fx(
                 canvas,
                 FontFamily::Pricedown,
@@ -305,7 +311,7 @@ pub fn render_summary_screen(
                 1.0,
                 la,
                 [1.0; 3],
-                ((1.0 - lu) * 8.0, 0.0),
+                (lbl_blur, 0.0),
             );
         }
     }
@@ -313,8 +319,8 @@ pub fn render_summary_screen(
     if summary.age >= 2.9 {
         let ba = strong_in(((summary.age - 2.9) / 0.8).clamp(0.0, 1.0)) * fade_late;
         let r_cont = Rect::new(255.0, 494.0, 320.0, 38.0);
-        let pulse = 0.5 + 0.5 * (summary.age * std::f32::consts::PI / 0.9).sin();
-        let glow_blur = 4.0 + 12.0 * pulse;
+        let glow_u = quad_out((summary.age / 0.9).clamp(0.0, 1.0));
+        let glow_blur = 4.0 + 12.0 * glow_u;
         fonts.draw_glow_alpha(
             canvas,
             FontFamily::Neuropol,
@@ -328,7 +334,7 @@ pub fn render_summary_screen(
             Some(TextOutline::shadowed((0x05, 0x0D, 0x2B))),
             (255, 255, 255),
             glow_blur,
-            0.85 * ba,
+            ba,
         );
         let allow_hov = summary.hiding.is_none();
         draw_text_button(

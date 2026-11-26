@@ -140,7 +140,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let nb = dot(m.r2.xyz, rgb) + m.off.z * tex.a;
         rgb = clamp(vec3<f32>(nr, ng, nb), vec3<f32>(0.0), vec3<f32>(tex.a));
     }
-    rgb = clamp(rgb * in.tint.rgb * in.params.y, vec3<f32>(0.0), vec3<f32>(tex.a));
+    if in.params.y > 1.0 {
+        let add = ((in.params.y - 1.0) * 100.0 / 255.0) * tex.a;
+        rgb = clamp(rgb * in.tint.rgb + vec3<f32>(add), vec3<f32>(0.0), vec3<f32>(tex.a));
+    } else {
+        rgb = clamp(rgb * in.tint.rgb * in.params.y, vec3<f32>(0.0), vec3<f32>(tex.a));
+    }
     let a = in.params.z;
     return vec4<f32>(rgb * a, tex.a * a);
 }

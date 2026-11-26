@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 ddavef aqualux-rs
 
-use crate::render::easing::back_out;
+use crate::render::easing::{back_out, quad_out};
 use crate::render::{
     Canvas, FontFamily, FontSet, Rect, StarField, TexBank, TextAlign, TextOutline,
 };
@@ -61,7 +61,7 @@ pub fn build_champion_buttons(champ: &ChampionState) -> Vec<UiButton> {
             rect: Rect::new(220.0, 526.0, 230.0, 40.0),
             action: UiAction::DirectMainMenu,
             enabled: true,
-            hover_sfx: Some("PopTwoSound"),
+            hover_sfx: (champ.age >= 10.0).then_some("PopTwoSound"),
         });
     }
     if champ.age >= 8.3 {
@@ -70,7 +70,7 @@ pub fn build_champion_buttons(champ: &ChampionState) -> Vec<UiButton> {
             rect: Rect::new(470.0, 526.0, 120.0, 40.0),
             action: UiAction::DirectQuit,
             enabled: true,
-            hover_sfx: Some("PopTwoSound"),
+            hover_sfx: (champ.age >= 10.3).then_some("PopTwoSound"),
         });
     }
     out
@@ -85,14 +85,14 @@ pub fn render_champion_screen(
 ) {
     let hide_a = champ
         .hiding
-        .map(|(h, _)| (1.0 - h).clamp(0.0, 1.0))
+        .map(|(h, _)| 1.0 - quad_out(h.clamp(0.0, 1.0)))
         .unwrap_or(1.0);
-    let sf_alpha = champ.age.clamp(0.0, 1.0) * hide_a;
+    let sf_alpha = quad_out(champ.age.clamp(0.0, 1.0)) * hide_a;
     champ.star_field.draw(canvas, bank, mouse_pos, sf_alpha);
 
     let px = ((mouse_pos.0 - 400.0) / 400.0 * -20.0).round();
     let py = ((mouse_pos.1 - 300.0) / 300.0 * -20.0).round();
-    let glow_p = 0.5 - 0.5 * (champ.age * std::f32::consts::PI / 0.8).cos();
+    let glow_p = quad_out((champ.age / 0.8).clamp(0.0, 1.0));
     let c_glow_blur = 32.0 * glow_p;
     let bright = 1.0 + 0.8 * glow_p;
 
@@ -100,9 +100,10 @@ pub fn render_champion_screen(
         let u = ((champ.age - 3.0) / 0.55).clamp(0.0, 1.0);
         let b = back_out(u);
         let sc = (0.1 + 0.9 * b).max(0.01);
+        let a = b.clamp(0.0, 1.0);
         let cy = 250.0 - 100.0 * b + py;
         let rot = 35.0 * (1.0 - b);
-        let bl = (1.0 - u) * 64.0;
+        let bl = (64.0 * (1.0 - b)).max(0.0);
         if let Some((tid, lw, lh)) = bank.named("GreenTitleBitmap") {
             let w = lw as f32 * sc;
             let h = lh as f32 * sc;
@@ -117,7 +118,7 @@ pub fn render_champion_screen(
                     rot,
                     None,
                     -1.0,
-                    glow_p * u * hide_a,
+                    glow_p * a * hide_a,
                     false,
                     (bl + c_glow_blur, bl + c_glow_blur),
                 );
@@ -132,7 +133,7 @@ pub fn render_champion_screen(
                 rot,
                 None,
                 1.0,
-                u * hide_a,
+                a * hide_a,
                 false,
                 (bl, bl),
             );
@@ -145,7 +146,8 @@ pub fn render_champion_screen(
             let u = ((champ.age - start) / 0.55).clamp(0.0, 1.0);
             let b = back_out(u);
             let sc = (0.1 + 0.9 * b.max(0.0)).max(0.05);
-            let bl = (1.0 - u) * 64.0;
+            let a = b.clamp(0.0, 1.0);
+            let bl = (64.0 * (1.0 - b)).max(0.0);
             let w = fonts.measure_width(FontFamily::Neuropol, label, 46.0);
             let sx = 400.0 + (target_sx - 400.0) * b + px;
             let sy = 300.0 - 50.0 * b + py;
@@ -165,7 +167,7 @@ pub fn render_champion_screen(
                     title_outline,
                     (255, 255, 255),
                     bl + c_glow_blur,
-                    glow_p * u * hide_a,
+                    glow_p * a * hide_a,
                 );
             }
             fonts.draw_fx(
@@ -183,7 +185,7 @@ pub fn render_champion_screen(
                 TextAlign::Left,
                 label,
                 bright,
-                u * hide_a,
+                a * hide_a,
                 [1.0; 3],
                 (bl, bl),
             );
@@ -191,7 +193,7 @@ pub fn render_champion_screen(
     }
 
     if champ.age >= 5.2 {
-        let lu = ((champ.age - 5.2) / 0.7).clamp(0.0, 1.0);
+        let lu = quad_out(((champ.age - 5.2) / 0.7).clamp(0.0, 1.0));
         let lbl = (1.0 - lu) * 64.0;
         if glow_p > 0.01 {
             fonts.draw_fx(
@@ -235,7 +237,7 @@ pub fn render_champion_screen(
         );
     }
     if champ.age >= 5.6 {
-        let su = ((champ.age - 5.6) / 0.7).clamp(0.0, 1.0);
+        let su = quad_out(((champ.age - 5.6) / 0.7).clamp(0.0, 1.0));
         let sbl = (1.0 - su) * 64.0;
         let txt = champ.score_roller.value().to_string();
         if glow_p > 0.01 {
@@ -276,7 +278,7 @@ pub fn render_champion_screen(
     }
 
     if champ.age >= 7.0 && champ.show_trophy_tip {
-        let tu = (champ.age - 7.0).clamp(0.0, 1.0) * hide_a;
+        let tu = quad_out((champ.age - 7.0).clamp(0.0, 1.0)) * hide_a;
         fonts.draw_styled_alpha(
             canvas,
             FontFamily::Neuropol,
@@ -295,7 +297,7 @@ pub fn render_champion_screen(
 
     let allow_hov = champ.hiding.is_none();
     if champ.age >= 8.0 {
-        let ma = ((champ.age - 8.0) / 2.0).clamp(0.0, 1.0) * hide_a;
+        let ma = quad_out(((champ.age - 8.0) / 2.0).clamp(0.0, 1.0)) * hide_a;
         draw_text_button(
             canvas,
             fonts,
@@ -310,7 +312,7 @@ pub fn render_champion_screen(
         );
     }
     if champ.age >= 8.3 {
-        let qa = ((champ.age - 8.3) / 2.0).clamp(0.0, 1.0) * hide_a;
+        let qa = quad_out(((champ.age - 8.3) / 2.0).clamp(0.0, 1.0)) * hide_a;
         draw_text_button(
             canvas,
             fonts,

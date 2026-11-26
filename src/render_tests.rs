@@ -1943,3 +1943,219 @@ fn splash_crossfade_scissor_clip_and_text_ticker_parity() {
         p1
     );
 }
+
+#[test]
+fn rainbow_opacity_glow_pop_summary_layout_and_champion_brightness_parity() {
+    use crate::render::canvas::DrawCmd;
+    use crate::render::{LOGICAL_H, LOGICAL_W, draw_rainbow};
+    use crate::ui::champion::{ChampionState, render_champion_screen};
+    use crate::ui::summary::{SummaryState, render_summary_screen};
+
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let gpu = test_gpu();
+    let renderer = Renderer::new(gpu.clone(), &bundle).expect("renderer");
+
+    let px_at = |buf: &[u8], x: usize, y: usize| -> [u8; 4] {
+        let i = (y * LOGICAL_W + x) * 4;
+        [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]
+    };
+
+    // 1. Rainbow: 100% stripe opacity with zero glow during draw (0..0.9s), then #FFFF9D glow pop after 0.9s.
+    let rb_core = renderer.bank.rainbow_tex();
+    let rb_glow = renderer.bank.rainbow_glow_tex();
+
+    let mut c_rb_mid = Canvas::new();
+    c_rb_mid.clear((0, 0, 0));
+    draw_rainbow(&mut c_rb_mid, &renderer.bank, 0.8, 1.0);
+    assert!(
+        c_rb_mid
+            .cmds
+            .iter()
+            .any(|c| matches!(c, DrawCmd::SpriteTex(t, _) if *t == rb_core))
+    );
+    assert!(
+        !c_rb_mid
+            .cmds
+            .iter()
+            .any(|c| matches!(c, DrawCmd::SpriteTex(t, _) if *t == rb_glow))
+    );
+    let px_rb_mid = gpu.render_to_rgba(
+        &c_rb_mid,
+        &renderer.bank,
+        LOGICAL_W as u32,
+        LOGICAL_H as u32,
+    );
+    let stripe0 = px_at(&px_rb_mid, 50, 352);
+    assert!(
+        stripe0[0] >= 245 && stripe0[1] <= 10 && stripe0[2] <= 10,
+        "Rainbow red stripe must render at ~100% opacity, got {:?}",
+        stripe0
+    );
+
+    let mut c_rb_done = Canvas::new();
+    c_rb_done.clear((0, 0, 0));
+    draw_rainbow(&mut c_rb_done, &renderer.bank, 1.2, 1.0);
+    let glow_idx = c_rb_done
+        .cmds
+        .iter()
+        .position(|c| matches!(c, DrawCmd::SpriteTex(t, _) if *t == rb_glow))
+        .expect("Rainbow glow must render after 0.9s");
+    let core_idx = c_rb_done
+        .cmds
+        .iter()
+        .position(|c| matches!(c, DrawCmd::SpriteTex(t, _) if *t == rb_core))
+        .expect("Rainbow core must render");
+    assert!(glow_idx < core_idx);
+    let px_rb_done = gpu.render_to_rgba(
+        &c_rb_done,
+        &renderer.bank,
+        LOGICAL_W as u32,
+        LOGICAL_H as u32,
+    );
+    let halo = px_at(&px_rb_done, 50, 340);
+    assert!(
+        halo[0] > 80 && halo[1] > 80 && halo[2] + 20 < halo[0],
+        "Rainbow halo must be warm #FFFF9D glow, got {:?}",
+        halo
+    );
+
+    // 2. SummaryScreen: right-aligned ScoreCounters + static btnContinue glow after 0.9s.
+    let mut sum10 = SummaryState::new(calculate_score(4, 5, 6000, 4, 5, 8000, true), 0, 10);
+    sum10.result.pipe_bonus = 10;
+    sum10.fill_roller.roll_to(10, 0.0, 0.0);
+    sum10.fill_roller.update(0.01);
+    sum10.age = 4.0;
+    let mut c_s10 = Canvas::new();
+    render_summary_screen(
+        &mut c_s10,
+        &renderer.bank,
+        &renderer.fonts,
+        &sum10,
+        (0.0, 0.0),
+    );
+
+    let mut sum12340 = SummaryState::new(calculate_score(4, 5, 6000, 4, 5, 8000, true), 0, 12340);
+    sum12340.result.pipe_bonus = 12340;
+    sum12340.fill_roller.roll_to(12340, 0.0, 0.0);
+    sum12340.fill_roller.update(0.01);
+    sum12340.age = 4.0;
+    let mut c_s12340 = Canvas::new();
+    render_summary_screen(
+        &mut c_s12340,
+        &renderer.bank,
+        &renderer.fonts,
+        &sum12340,
+        (0.0, 0.0),
+    );
+
+    let fill_digits = |c: &Canvas| -> Vec<(f32, f32)> {
+        c.cmds
+            .iter()
+            .filter_map(|cmd| match cmd {
+                DrawCmd::SpriteDirect(_, inst)
+                    if inst.row1[2] > 240.0
+                        && inst.row1[2] < 285.0
+                        && inst.row0[2] > 350.0
+                        && inst.params[1] > 0.0 =>
+                {
+                    Some((inst.row0[2], inst.row0[2] + inst.row0[3]))
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let d10 = fill_digits(&c_s10);
+    let d12340 = fill_digits(&c_s12340);
+    assert_eq!(d10.len(), 2);
+    assert_eq!(d12340.len(), 5);
+    assert!(
+        (d10.last().unwrap().1 - d12340.last().unwrap().1).abs() < 0.05,
+        "Right-aligned ScoreCounter rightmost glyph must align: {:?} vs {:?}",
+        d10,
+        d12340
+    );
+    assert!(d12340[0].0 < d10[0].0 - 20.0);
+
+    let cont_glow = |age: f32| -> f32 {
+        let mut s = SummaryState::new(calculate_score(4, 5, 6000, 4, 5, 8000, true), 0, 100);
+        s.age = age;
+        let mut c = Canvas::new();
+        render_summary_screen(&mut c, &renderer.bank, &renderer.fonts, &s, (0.0, 0.0));
+        c.cmds
+            .iter()
+            .find_map(|cmd| match cmd {
+                DrawCmd::SpriteDirect(_, inst)
+                    if inst.params[1] < -0.5 && inst.row1[2] >= 440.0 && inst.row1[2] <= 515.0 =>
+                {
+                    Some(inst.params[3])
+                }
+                _ => None,
+            })
+            .expect("Summary btnContinue glow should render")
+    };
+    assert!((cont_glow(4.0) - 16.0).abs() < 1e-4);
+    assert!((cont_glow(4.45) - 16.0).abs() < 1e-4);
+
+    // 3. sprite.wgsl additive brightness (> 1.0) & static ChampionScreen glow/brightness after 0.8s.
+    let mut b_blk = empty_bundle();
+    let mut black_px = Vec::with_capacity(32 * 32 * 4);
+    for _ in 0..(32 * 32) {
+        black_px.extend_from_slice(&[0, 0, 0, 255]);
+    }
+    b_blk.images.insert(
+        "black_sq".into(),
+        RgbaImage {
+            width: 32,
+            height: 32,
+            data: black_px,
+        },
+    );
+    let bank_blk = TexBank::new(gpu.clone(), &b_blk);
+    let blk_tid = bank_blk.named("black_sq").unwrap().0;
+    let mut c_bright = Canvas::new();
+    c_bright.clear((0, 0, 0));
+    c_bright.draw_tex_rect_blur(
+        blk_tid,
+        Rect::new(100.0, 100.0, 32.0, 32.0),
+        None,
+        1.8,
+        1.0,
+        (0.0, 0.0),
+    );
+    let px_bright = gpu.render_to_rgba(&c_bright, &bank_blk, LOGICAL_W as u32, LOGICAL_H as u32);
+    let center = px_at(&px_bright, 116, 116);
+    assert!(
+        center[0].abs_diff(80) <= 2 && center[1].abs_diff(80) <= 2 && center[2].abs_diff(80) <= 2,
+        "Flash ColorMatrixFilter setBrightness(1.8) must add +80 to opaque black, got {:?}",
+        center
+    );
+
+    let mut rng = StdRng::seed_from_u64(5);
+    let mut champ = ChampionState::new(100_000, false, &mut rng);
+    let green_tid = renderer.bank.named("GreenTitleBitmap").unwrap().0;
+    let mut champ_glow_at = |age: f32| -> f32 {
+        champ.age = age;
+        let mut c = Canvas::new();
+        render_champion_screen(
+            &mut c,
+            &renderer.bank,
+            &renderer.fonts,
+            &champ,
+            (400.0, 300.0),
+        );
+        c.cmds
+            .iter()
+            .find_map(|cmd| match cmd {
+                DrawCmd::SpriteTex(tid, inst) if *tid == green_tid && inst.params[1] < -0.5 => {
+                    Some(inst.params[3])
+                }
+                _ => None,
+            })
+            .expect("GreenTitleBitmap glow should render")
+    };
+    assert!((champ_glow_at(5.5) - 32.0).abs() < 1e-4);
+    assert!((champ_glow_at(5.9) - 32.0).abs() < 1e-4);
+}
