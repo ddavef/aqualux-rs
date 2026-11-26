@@ -121,6 +121,7 @@ pub fn render_title_screen(
     }
 
     backgrounds.draw_night_hills_front(canvas, assets, bank, bg_anim);
+    backgrounds.draw_outgoing_overlay(canvas, assets, bank, bg_anim);
 
     let title_x = if let Some(h) = hiding_age {
         let u = (h / 1.5).clamp(0.0, 1.0);

@@ -28,39 +28,62 @@ fn layer_colorize_delay(layer: Option<&str>, snowy: bool) -> f32 {
     }
 }
 
+/// Formats an SWF twip-quantized coordinate using AS3's default `String(Number)` formatting
+/// so `Array.sortOn("x")` matches Flash's default lexicographic string order.
+pub(crate) fn as3_number_string(v: f32) -> String {
+    let clean = (v * 20.0).round() / 20.0;
+    let norm = if clean == 0.0 { 0.0 } else { clean };
+    format!("{norm}")
+}
+
 pub(crate) fn draw_popup_sprite<F>(
     canvas: &mut Canvas,
     bank: &TexBank,
     items: &[SpriteItem],
     anim: &BgAnimState,
     snowy: bool,
+    layer_alpha: f32,
     mut pred: F,
 ) where
     F: FnMut(Option<&str>) -> bool,
 {
-    let selected: Vec<&SpriteItem> = items
+    let alpha = layer_alpha.clamp(0.0, 1.0);
+    if alpha <= 0.004 {
+        return;
+    }
+    let selected: Vec<(usize, &SpriteItem)> = items
         .iter()
-        .filter(|it| pred(it.layer_name.as_deref()))
+        .enumerate()
+        .filter(|(_, it)| pred(it.layer_name.as_deref()))
         .collect();
-    let mut layer_xs: FxHashMap<&str, Vec<f32>> = FxHashMap::default();
-    for item in &selected {
+    // Deduplicate direct children per layer by `(child_idx, child_x)` before AS3 lexicographic `sortOn("x")`.
+    let mut layer_children: FxHashMap<&str, Vec<(u32, f32)>> = FxHashMap::default();
+    for (enum_idx, item) in &selected {
         let lname = item.layer_name.as_deref().unwrap_or("");
-        layer_xs.entry(lname).or_default().push(item.matrix.tx);
+        let key = item
+            .popup
+            .map(|p| (p.child_idx, p.child_x))
+            .unwrap_or((*enum_idx as u32, item.matrix.tx));
+        let vec = layer_children.entry(lname).or_default();
+        if !vec.iter().any(|&(idx, _)| idx == key.0) {
+            vec.push(key);
+        }
     }
-    for xs in layer_xs.values_mut() {
-        xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mut layer_ranks: FxHashMap<(&str, u32), usize> = FxHashMap::default();
+    for (lname, mut children) in layer_children {
+        children.sort_by_key(|&(idx, _)| idx);
+        children.sort_by_key(|a| as3_number_string(a.1));
+        for (rank, (child_idx, _)) in children.into_iter().enumerate() {
+            layer_ranks.insert((lname, child_idx), rank);
+        }
     }
-    let mut seen_rank: FxHashMap<&str, usize> = FxHashMap::default();
-    for item in selected {
+    for (enum_idx, item) in selected {
         let lname = item.layer_name.as_deref().unwrap_or("");
-        let rank = layer_xs
-            .get(lname)
-            .and_then(|xs| xs.iter().position(|x| (*x - item.matrix.tx).abs() < 0.01))
-            .unwrap_or_else(|| {
-                let r = *seen_rank.get(lname).unwrap_or(&0);
-                seen_rank.insert(lname, r + 1);
-                r
-            });
+        let (child_idx, child_y, layer_c, layer_d) = item
+            .popup
+            .map(|p| (p.child_idx, p.child_y, p.layer_c, p.layer_d))
+            .unwrap_or((enum_idx as u32, item.matrix.ty, 0.0, 1.0));
+        let rank = *layer_ranks.get(&(lname, child_idx)).unwrap_or(&0);
 
         let base_delay = if snowy && lname == "frontSnowHillsLayer" {
             0.0
@@ -75,7 +98,7 @@ pub(crate) fn draw_popup_sprite<F>(
             1.5
         };
         let y_t = ((anim.age - (base_delay + rank as f32 * 0.15)) / dur).clamp(0.0, 1.0);
-        let y_off = (1.0 - bounce_out(y_t)) * (800.0 - item.matrix.ty);
+        let dy_local = (1.0 - bounce_out(y_t)) * (800.0 - child_y);
 
         let col_delay = layer_colorize_delay(item.layer_name.as_deref(), snowy);
         let intro_shade = quad_out(((anim.age - col_delay) / 2.0).clamp(0.0, 1.0));
@@ -85,8 +108,9 @@ pub(crate) fn draw_popup_sprite<F>(
             continue;
         };
         let mut m = item.matrix;
-        m.ty += y_off;
-        canvas.draw_tex_matrix(tid, m, w as f32, h as f32, None, shade, 1.0);
+        m.tx += layer_c * dy_local;
+        m.ty += layer_d * dy_local;
+        canvas.draw_tex_matrix(tid, m, w as f32, h as f32, None, shade, alpha);
     }
 }
 

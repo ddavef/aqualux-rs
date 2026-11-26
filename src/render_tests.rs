@@ -1639,3 +1639,231 @@ fn board_effects_blurs_shadow_and_piece_parity() {
     );
     let _ = FontFamily::Neuropol;
 }
+
+#[test]
+fn background_popup_lexicographic_order_heights_darken_and_crossfade_parity() {
+    use crate::assets::swf_sprite::PopupMeta;
+    use crate::assets::{Matrix2D, SpriteItem};
+    use crate::render::backgrounds::{BackgroundRenderer, BgAnimState};
+    use crate::render::bg_sprites::{as3_number_string, draw_popup_sprite};
+    use crate::render::canvas::DrawCmd;
+    use std::collections::HashMap;
+
+    // 1. AS3 sortOn("x") lexicographic ordering + layer-local y=800 offset propagation.
+    assert_eq!(as3_number_string(-10.5), "-10.5");
+    assert_eq!(as3_number_string(100.0), "100");
+    assert_eq!(as3_number_string(20.0), "20");
+    assert_eq!(as3_number_string(5.0), "5");
+
+    let gpu = test_gpu();
+    let solid = |rgba: [u8; 4]| RgbaImage {
+        width: 8,
+        height: 8,
+        data: rgba.repeat(64),
+    };
+    let mut b = empty_bundle();
+    b.images
+        .insert("DaySkyBitmap".into(), solid([0, 255, 0, 255]));
+    b.images
+        .insert("CombinedBgBitmap".into(), solid([0, 0, 255, 255]));
+    let mut cids = HashMap::new();
+    for cid in 1..=4u16 {
+        cids.insert(cid, solid([255, 255, 255, 255]));
+    }
+    b.cid_images = cids;
+    let bank = TexBank::new(gpu.clone(), &b);
+
+    let items = vec![
+        SpriteItem {
+            bitmap_cid: 1,
+            layer_name: Some("backHillsLayer".into()),
+            depth: 1,
+            matrix: Matrix2D {
+                a: 1.0,
+                b: 0.0,
+                c: 0.0,
+                d: 1.0,
+                tx: 5.0,
+                ty: 170.0,
+            },
+            popup: Some(PopupMeta {
+                child_idx: 0,
+                child_x: 5.0,
+                child_y: 50.0,
+                layer_c: 0.0,
+                layer_d: 1.0,
+            }),
+        },
+        SpriteItem {
+            bitmap_cid: 2,
+            layer_name: Some("backHillsLayer".into()),
+            depth: 2,
+            matrix: Matrix2D {
+                a: 1.0,
+                b: 0.0,
+                c: 0.0,
+                d: 1.0,
+                tx: 20.0,
+                ty: 170.0,
+            },
+            popup: Some(PopupMeta {
+                child_idx: 1,
+                child_x: 20.0,
+                child_y: 50.0,
+                layer_c: 0.0,
+                layer_d: 1.0,
+            }),
+        },
+        SpriteItem {
+            bitmap_cid: 3,
+            layer_name: Some("backHillsLayer".into()),
+            depth: 3,
+            matrix: Matrix2D {
+                a: 1.0,
+                b: 0.0,
+                c: 0.0,
+                d: 1.0,
+                tx: 100.0,
+                ty: 170.0,
+            },
+            popup: Some(PopupMeta {
+                child_idx: 2,
+                child_x: 100.0,
+                child_y: 50.0,
+                layer_c: 0.0,
+                layer_d: 1.0,
+            }),
+        },
+        SpriteItem {
+            bitmap_cid: 4,
+            layer_name: Some("backHillsLayer".into()),
+            depth: 4,
+            matrix: Matrix2D {
+                a: 1.0,
+                b: 0.0,
+                c: 0.0,
+                d: 1.0,
+                tx: -10.5,
+                ty: 170.0,
+            },
+            popup: Some(PopupMeta {
+                child_idx: 3,
+                child_x: -10.5,
+                child_y: 50.0,
+                layer_c: 0.0,
+                layer_d: 1.0,
+            }),
+        },
+    ];
+    let anim0 = BgAnimState::new("NightHills");
+    let mut c_pop0 = Canvas::new();
+    draw_popup_sprite(&mut c_pop0, &bank, &items, &anim0, false, 1.0, |_| true);
+    let tys0: Vec<f32> = c_pop0
+        .cmds
+        .iter()
+        .filter_map(|cmd| match cmd {
+            DrawCmd::SpriteTex(_, s) => Some(s.row1[2]),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tys0, vec![920.0, 920.0, 920.0, 920.0]);
+
+    // Lexicographic sort order: "-10.5" (rank 0, cid 4), "100" (rank 1, cid 3), "20" (rank 2, cid 2), "5" (rank 3, cid 1).
+    let mut anim_mid = BgAnimState::new("NightHills");
+    anim_mid.age = 1.20;
+    let mut c_pop_mid = Canvas::new();
+    draw_popup_sprite(&mut c_pop_mid, &bank, &items, &anim_mid, false, 1.0, |_| {
+        true
+    });
+    let tys_mid: Vec<f32> = c_pop_mid
+        .cmds
+        .iter()
+        .filter_map(|cmd| match cmd {
+            DrawCmd::SpriteTex(_, s) => Some(s.row1[2]),
+            _ => None,
+        })
+        .collect();
+    assert!(tys_mid[0] == 920.0, "x=5 (rank 3) must wait: {:?}", tys_mid);
+    assert!(
+        tys_mid[1] == 920.0,
+        "x=20 (rank 2) must wait: {:?}",
+        tys_mid
+    );
+    assert!(
+        tys_mid[2] < 920.0,
+        "x=100 (rank 1) must rise before x=20: {:?}",
+        tys_mid
+    );
+    assert!(
+        tys_mid[3] < tys_mid[2],
+        "x=-10.5 (rank 0) leads: {:?}",
+        tys_mid
+    );
+
+    // 2. Quad.easeOut darken/lighten with 1.0s delay + load() preservation on same id.
+    let mut bg = BgAnimState::new("NightHills");
+    bg.age = 5.0;
+    bg.darken(0.0);
+    assert_eq!(bg.darken_delay, 1.0);
+    bg.update(1.0);
+    assert!((bg.darken - 0.0).abs() < 1e-5);
+    bg.update(0.8);
+    assert!(
+        (bg.darken - 0.75).abs() < 1e-4,
+        "expected Quad.easeOut 0.75, got {}",
+        bg.darken
+    );
+    bg.update(0.8);
+    assert!((bg.darken - 1.0).abs() < 1e-5);
+
+    bg.lighten(0.0);
+    bg.update(1.0);
+    assert!((bg.darken - 1.0).abs() < 1e-5);
+    bg.update(0.8);
+    assert!(
+        (bg.darken - 0.25).abs() < 1e-4,
+        "expected Quad.easeOut 0.25, got {}",
+        bg.darken
+    );
+    bg.update(0.8);
+    assert!((bg.darken - 0.0).abs() < 1e-5);
+
+    bg.lighten(2.9);
+    bg.load("NightHills");
+    assert!((bg.age - 10.2).abs() < 1e-4);
+    assert_eq!(bg.darken, 1.0);
+    assert!((bg.darken_delay - 3.9).abs() < 1e-5);
+
+    // 3. 1.0s Quad.easeOut crossfade renders outgoing background ON TOP of incoming without clearing incoming.
+    bg.age = 5.0;
+    bg.darken = 0.0;
+    bg.load("DaySky");
+    assert_eq!(bg.bg_id, "DaySky");
+    assert!(bg.outgoing.is_some());
+    bg.update(0.5);
+    let mut c_cf = Canvas::new();
+    c_cf.clear((0, 0, 0));
+    BackgroundRenderer::new().draw_background(&mut c_cf, &b, &bank, &bg);
+    let px_cf = gpu.render_to_rgba(&c_cf, &bank, 800, 600);
+    let center = &px_cf[(300 * 800 + 400) * 4..(300 * 800 + 400) * 4 + 4];
+    assert!(
+        center[1].abs_diff(191) <= 4 && center[2].abs_diff(64) <= 4,
+        "expected 0.25 NightHills over DaySky green at crossfade midpoint, got {:?}",
+        center
+    );
+    bg.update(0.5);
+    assert!(bg.outgoing.is_none());
+
+    // 4. Real SWF background sprites populate PopupMeta on every layer child.
+    if let Some(path) = asset_file_if_present() {
+        let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+        for key in ["TitleBgAssetsSprite", "SnowHillsBgAssetsSprite"] {
+            let items = bundle.sprites.get(key).expect("background sprite missing");
+            assert!(!items.is_empty());
+            assert!(
+                items.iter().all(|it| it.popup.is_some()),
+                "{key} items must carry PopupMeta"
+            );
+        }
+    }
+}

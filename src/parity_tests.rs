@@ -1611,3 +1611,88 @@ fn cursor_wait_scope_hover_gating_and_flow_timer_beeps_parity() {
         app.pause_fade
     );
 }
+
+#[test]
+fn return_to_title_background_lighten_delay_and_summary_single_lighten_parity() {
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+    let gpu = test_gpu();
+    let mut app = GameApp::new(bundle, Some(60), gpu).expect("GameApp init");
+
+    // 1. Returning to Title from NightHills level preserves NightHills with 2.9s lighten delay (total 3.9s).
+    let lvl0 = app.assets.campaign_levels[0].clone();
+    assert_eq!(lvl0.background_id, "NightHills");
+    app.launch_level_def(lvl0);
+    app.bg_anim.age = 4.0;
+    app.bg_anim.darken(0.0);
+    for _ in 0..40 {
+        app.bg_anim.update(0.05);
+    }
+    assert!(app.bg_anim.darken > 0.5);
+
+    app.return_to_main_menu();
+    assert_eq!(app.screen, Screen::Title);
+    assert_eq!(app.bg_anim.bg_id, "NightHills");
+    assert_eq!(app.bg_anim.darken, 1.0);
+    assert!((app.bg_anim.darken_delay - 3.9).abs() < 1e-4);
+    assert!(app.bg_anim.outgoing.is_none());
+
+    // 2. Returning to Title from another background (DaySky) starts 1.0s crossfade into fresh NightHills.
+    let day_lvl = app
+        .assets
+        .campaign_levels
+        .iter()
+        .find(|l| l.background_id == "DaySky")
+        .expect("campaign should include DaySky level")
+        .clone();
+    app.launch_level_def(day_lvl);
+    app.bg_anim.outgoing = None;
+    app.bg_anim.update(2.0);
+    app.return_to_main_menu();
+    assert_eq!(app.bg_anim.bg_id, "NightHills");
+    assert_eq!(app.bg_anim.age, 0.0);
+    assert_eq!(app.bg_anim.darken, 0.0);
+    assert_eq!(
+        app.bg_anim
+            .outgoing
+            .as_ref()
+            .map(|o| o.state.bg_id.as_str()),
+        Some("DaySky")
+    );
+
+    // 3. Consecutive NightHills levels: Summary Confirm calls lighten(0.0) once and next-level load preserves it.
+    app.bg_anim.outgoing = None;
+    app.play_mode = PlayMode::Campaign;
+    app.start_campaign_level(0, false);
+    if let Some(s) = app.campaign_sim.as_mut() {
+        s.is_ready = true;
+        s.is_started = true;
+    }
+    let res = calculate_score(4, 10, 5000, 4, 10, 10000, false);
+    app.on_campaign_win(res);
+    for _ in 0..80 {
+        app.update(0.05);
+    }
+    assert!(app.bg_anim.darken > 0.9);
+    if let Some(sum) = app.summary_state.as_mut() {
+        sum.age = 4.0;
+    }
+    app.trigger_action(UiAction::NextLevel);
+    assert!((app.bg_anim.darken_delay - 1.0).abs() < 1e-4);
+    assert_eq!(app.bg_anim.target_darken, 0.0);
+
+    for _ in 0..41 {
+        app.update(0.05);
+    }
+    assert_eq!(app.current_level_idx, 1);
+    assert_eq!(app.assets.campaign_levels[1].background_id, "NightHills");
+    assert_eq!(app.bg_anim.bg_id, "NightHills");
+    assert!(
+        app.bg_anim.darken > 0.05 && app.bg_anim.darken < 0.7,
+        "continuous lighten must not snap to 0 or reset delay, got darken={}",
+        app.bg_anim.darken
+    );
+    assert_eq!(app.bg_anim.darken_delay, 0.0);
+}

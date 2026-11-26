@@ -205,7 +205,6 @@ impl GameApp {
                     .map(|p| (p.pack.meta.name.clone(), p.pack.levels.len()));
                 if let Some((pack_name, len)) = pack_info {
                     if next < len {
-                        self.bg_anim.lighten(0.0);
                         self.launch_custom_pack_level(&pack_id, next, difficulty, session_score);
                     } else {
                         self.show_status_toast(&format!("Completed pack '{}'!", pack_name));
@@ -227,7 +226,6 @@ impl GameApp {
                 session_score,
                 ..
             } => {
-                self.bg_anim.lighten(0.0);
                 self.launch_endless_level(config, level_num + 1, session_score);
                 return;
             }
@@ -244,7 +242,6 @@ impl GameApp {
                 }
             }
             self.save.save();
-            self.bg_anim.lighten(0.0);
             self.start_campaign_level(next_idx, true);
             return;
         }
@@ -461,7 +458,6 @@ impl GameApp {
                 {
                     *session_score = *pre_level_score;
                 }
-                self.bg_anim.lighten(0.0);
                 self.repeat_current_level();
             }
             SummaryHideAction::MainMenu => self.return_to_main_menu(),

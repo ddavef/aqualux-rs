@@ -298,6 +298,7 @@ fn title_logo_rises_black_and_fades_from_black() {
                 layer_name: Some("trueTitle".to_string()),
                 depth: 1,
                 matrix: Matrix2D::identity(),
+                popup: None,
             },
             SpriteItem {
                 bitmap_cid: 2,
@@ -311,6 +312,7 @@ fn title_logo_rises_black_and_fades_from_black() {
                     tx: -60.0,
                     ty: 0.0,
                 },
+                popup: None,
             },
         ],
     );

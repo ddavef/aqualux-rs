@@ -4,6 +4,16 @@
 use crate::assets::swf_geom::{BitReader, Matrix2D};
 use std::collections::HashMap;
 
+/// Layer-local metadata of the direct child inside a named layer sprite for `popupLayer`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PopupMeta {
+    pub child_idx: u32,
+    pub child_x: f32,
+    pub child_y: f32,
+    pub layer_c: f32,
+    pub layer_d: f32,
+}
+
 /// Flattened leaf bitmap draw instruction extracted from an SWF `DefineSprite`.
 #[derive(Debug, Clone)]
 pub struct SpriteItem {
@@ -11,6 +21,7 @@ pub struct SpriteItem {
     pub layer_name: Option<String>,
     pub depth: u32,
     pub matrix: Matrix2D,
+    pub popup: Option<PopupMeta>,
 }
 
 pub fn parse_shape_bitmap_fills(td: &[u8]) -> Vec<(u16, Matrix2D)> {
@@ -77,6 +88,8 @@ pub fn flatten_sprite(
         Matrix2D::identity(),
         None,
         0,
+        0,
+        None,
         sprites,
         shape_fills,
         &mut out,
@@ -85,11 +98,14 @@ pub fn flatten_sprite(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn walk_sprite(
     sprite_cid: u16,
     parent_mat: Matrix2D,
     top_layer: Option<&str>,
+    depth_level: u8,
     depth_prefix: u32,
+    popup_meta: Option<PopupMeta>,
     sprites: &HashMap<u16, Vec<u8>>,
     shape_fills: &HashMap<u16, Vec<(u16, Matrix2D)>>,
     out: &mut Vec<SpriteItem>,
@@ -144,13 +160,26 @@ fn walk_sprite(
         } else {
             depth_prefix | ((idx as u32 + 1) & 0xFFFF)
         };
+        let child_popup = if depth_level == 1 && top_layer.is_some() {
+            Some(PopupMeta {
+                child_idx: idx as u32,
+                child_x: local_mat.tx,
+                child_y: local_mat.ty,
+                layer_c: parent_mat.c,
+                layer_d: parent_mat.d,
+            })
+        } else {
+            popup_meta
+        };
 
         if sprites.contains_key(&cid) {
             walk_sprite(
                 cid,
                 combined,
                 effective_layer.as_deref(),
+                depth_level.saturating_add(1),
                 order_key,
+                child_popup,
                 sprites,
                 shape_fills,
                 out,
@@ -162,6 +191,7 @@ fn walk_sprite(
                     layer_name: effective_layer.clone(),
                     depth: order_key,
                     matrix: combined.mul(fill_mat),
+                    popup: child_popup,
                 });
             }
         }

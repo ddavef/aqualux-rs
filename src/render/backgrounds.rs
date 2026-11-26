@@ -4,6 +4,7 @@
 use crate::assets::AssetBundle;
 use crate::render::bg_sprites::draw_popup_sprite;
 use crate::render::canvas::{Canvas, LOGICAL_H, LOGICAL_W, Rect};
+use crate::render::easing::quad_out;
 use crate::render::tex_bank::TexBank;
 use rand::RngExt;
 use rand::rngs::StdRng;
@@ -90,67 +91,135 @@ impl NightStar {
     }
 }
 
+const CROSSFADE_SECS: f32 = 1.0;
+
+#[derive(Clone)]
+pub(crate) struct OutgoingBg {
+    pub state: BgAnimState,
+    pub fade_elapsed: f32,
+}
+
+#[derive(Clone)]
 pub struct BgAnimState {
     pub bg_id: String,
     pub age: f32,
     pub darken: f32,
     pub target_darken: f32,
     pub darken_delay: f32,
+    darken_from: f32,
+    darken_elapsed: f32,
+    darken_active: bool,
     pub(crate) stars: Vec<NightStar>,
+    pub(crate) outgoing: Option<Box<OutgoingBg>>,
+}
+
+fn normalize_bg_id(bg_id: &str) -> &str {
+    match bg_id.trim().to_ascii_lowercase().as_str() {
+        "nighthills" => "NightHills",
+        "daysky" | "bluesky" => "DaySky",
+        "snowyhills" | "snowhills" => "SnowyHills",
+        "outerspace" | "spacesky" => "OuterSpace",
+        _ => bg_id,
+    }
 }
 
 impl BgAnimState {
     pub fn new(bg_id: &str) -> Self {
         let mut rng: StdRng = rand::make_rng();
+        let norm = normalize_bg_id(bg_id);
         Self {
-            bg_id: bg_id.to_string(),
+            bg_id: norm.to_string(),
             age: 0.0,
             darken: 0.0,
             target_darken: 0.0,
             darken_delay: 0.0,
+            darken_from: 0.0,
+            darken_elapsed: 0.0,
+            darken_active: false,
             stars: NightStar::generate_layer(&mut rng),
+            outgoing: None,
         }
     }
 
     pub fn load(&mut self, bg_id: &str) {
-        let norm = if bg_id.eq_ignore_ascii_case("bluesky") {
-            "DaySky"
-        } else {
-            bg_id
-        };
-        if self.bg_id != norm {
-            self.bg_id = norm.to_string();
-            self.age = 0.0;
-            if !matches!(norm, "DaySky" | "OuterSpace" | "SnowyHills") {
-                let mut rng: StdRng = rand::make_rng();
-                self.stars = NightStar::generate_layer(&mut rng);
-            }
+        let norm = normalize_bg_id(bg_id);
+        if self.bg_id == norm {
+            return;
         }
+        let mut prev = self.clone();
+        prev.outgoing = None;
+        self.outgoing = Some(Box::new(OutgoingBg {
+            state: prev,
+            fade_elapsed: 0.0,
+        }));
+        self.bg_id = norm.to_string();
+        self.age = 0.0;
         self.darken = 0.0;
         self.target_darken = 0.0;
         self.darken_delay = 0.0;
+        self.darken_from = 0.0;
+        self.darken_elapsed = 0.0;
+        self.darken_active = false;
+        if norm == "NightHills" {
+            let mut rng: StdRng = rand::make_rng();
+            self.stars = NightStar::generate_layer(&mut rng);
+        }
     }
 
     pub fn darken(&mut self, delay: f32) {
+        self.darken_from = self.darken;
         self.target_darken = 1.0;
         self.darken_delay = 1.0 + delay;
+        self.darken_elapsed = 0.0;
+        self.darken_active = true;
     }
 
     pub fn lighten(&mut self, delay: f32) {
-        self.target_darken = 0.0;
-        self.darken_delay = 1.0 + delay;
+        if delay > 0.0 {
+            self.darken = 1.0;
+        }
+        if self.darken > 0.001 || (self.darken_active && self.target_darken > 0.5) {
+            self.darken_from = self.darken;
+            self.target_darken = 0.0;
+            self.darken_delay = 1.0 + delay;
+            self.darken_elapsed = 0.0;
+            self.darken_active = true;
+        } else {
+            self.target_darken = 0.0;
+            self.darken_delay = 0.0;
+            self.darken_elapsed = 0.0;
+            self.darken_active = false;
+        }
     }
 
     pub fn update(&mut self, dt: f32) {
         self.age += dt;
-        if self.darken_delay > 0.0 {
-            self.darken_delay = (self.darken_delay - dt).max(0.0);
-        } else if (self.darken - self.target_darken).abs() > 0.001 {
-            let step = dt / 1.6;
-            if self.target_darken > self.darken {
-                self.darken = (self.darken + step).min(1.0);
-            } else {
-                self.darken = (self.darken - step).max(0.0);
+        if self.darken_active {
+            let mut step = dt;
+            if self.darken_delay > 0.0 {
+                if step <= self.darken_delay {
+                    self.darken_delay -= step;
+                    step = 0.0;
+                } else {
+                    step -= self.darken_delay;
+                    self.darken_delay = 0.0;
+                }
+            }
+            if step > 0.0 {
+                self.darken_elapsed = (self.darken_elapsed + step).min(1.6);
+                let e = quad_out((self.darken_elapsed / 1.6).clamp(0.0, 1.0));
+                self.darken = self.darken_from + (self.target_darken - self.darken_from) * e;
+                if self.darken_elapsed >= 1.6 {
+                    self.darken = self.target_darken;
+                    self.darken_active = false;
+                }
+            }
+        }
+        if let Some(out) = &mut self.outgoing {
+            out.state.update(dt);
+            out.fade_elapsed += dt;
+            if out.fade_elapsed >= CROSSFADE_SECS {
+                self.outgoing = None;
             }
         }
     }
@@ -170,24 +239,56 @@ impl BackgroundRenderer {
         bank: &TexBank,
         anim: &BgAnimState,
     ) {
+        self.draw_single_background(canvas, assets, bank, anim, 1.0, false);
+        self.draw_outgoing_overlay(canvas, assets, bank, anim);
+    }
+
+    pub fn draw_outgoing_overlay(
+        &self,
+        canvas: &mut Canvas,
+        assets: &AssetBundle,
+        bank: &TexBank,
+        anim: &BgAnimState,
+    ) {
+        if let Some(out) = &anim.outgoing {
+            let out_alpha = 1.0 - quad_out((out.fade_elapsed / CROSSFADE_SECS).clamp(0.0, 1.0));
+            if out_alpha > 0.004 {
+                self.draw_single_background(canvas, assets, bank, &out.state, out_alpha, true);
+            }
+        }
+    }
+
+    fn draw_single_background(
+        &self,
+        canvas: &mut Canvas,
+        assets: &AssetBundle,
+        bank: &TexBank,
+        anim: &BgAnimState,
+        layer_alpha: f32,
+        is_overlay: bool,
+    ) {
+        let a = layer_alpha.clamp(0.0, 1.0);
+        if a <= 0.004 {
+            return;
+        }
         let full = Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32);
         match anim.bg_id.as_str() {
             "DaySky" | "bluesky" => {
-                self.draw_full_bitmap(canvas, bank, "DaySkyBitmap", 1.0);
+                self.draw_full_bitmap(canvas, bank, "DaySkyBitmap", a);
                 if anim.darken > 0.01 {
-                    canvas.fill_rect_alpha(full, 0, 0, 0, (anim.darken * 0.3 * 255.0) as u8);
+                    canvas.fill_rect_alpha(full, 0, 0, 0, (anim.darken * 0.3 * a * 255.0) as u8);
                 }
             }
             "OuterSpace" => {
-                self.draw_full_bitmap(canvas, bank, "SpaceSkyBitmap", 1.0);
+                self.draw_full_bitmap(canvas, bank, "SpaceSkyBitmap", a);
                 if anim.darken > 0.01 {
-                    canvas.fill_rect_alpha(full, 0, 0, 0, (anim.darken * 0.3 * 255.0) as u8);
+                    canvas.fill_rect_alpha(full, 0, 0, 0, (anim.darken * 0.3 * a * 255.0) as u8);
                 }
             }
-            "SnowyHills" => self.draw_snowy_hills(canvas, assets, bank, anim),
+            "SnowyHills" => self.draw_snowy_hills(canvas, assets, bank, anim, a, is_overlay),
             _ => {
-                self.draw_night_hills_rear(canvas, assets, bank, anim);
-                self.draw_night_hills_front(canvas, assets, bank, anim);
+                self.draw_night_hills_rear_alpha(canvas, assets, bank, anim, a, is_overlay);
+                self.draw_night_hills_front_alpha(canvas, assets, bank, anim, a);
             }
         }
     }
@@ -199,16 +300,39 @@ impl BackgroundRenderer {
         bank: &TexBank,
         anim: &BgAnimState,
     ) {
-        let wash_alpha = ((anim.age - 0.7) / 1.5).clamp(0.0, 1.0);
+        self.draw_night_hills_rear_alpha(canvas, assets, bank, anim, 1.0, false);
+    }
+
+    fn draw_night_hills_rear_alpha(
+        &self,
+        canvas: &mut Canvas,
+        assets: &AssetBundle,
+        bank: &TexBank,
+        anim: &BgAnimState,
+        layer_alpha: f32,
+        is_overlay: bool,
+    ) {
+        let wash_alpha = quad_out(((anim.age - 0.7) / 1.5).clamp(0.0, 1.0));
         if wash_alpha < 0.999 {
-            canvas.clear((0, 0, 0));
+            if !is_overlay && layer_alpha >= 0.999 {
+                canvas.clear((0, 0, 0));
+            } else {
+                let full = Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32);
+                canvas.fill_rect_alpha(
+                    full,
+                    0,
+                    0,
+                    0,
+                    ((1.0 - wash_alpha) * layer_alpha * 255.0).round() as u8,
+                );
+            }
         }
-        if wash_alpha > 0.004 {
-            self.draw_full_bitmap(canvas, bank, "CombinedBgBitmap", wash_alpha);
+        if wash_alpha * layer_alpha > 0.004 {
+            self.draw_full_bitmap(canvas, bank, "CombinedBgBitmap", wash_alpha * layer_alpha);
         }
-        self.draw_stars(canvas, anim);
+        self.draw_stars(canvas, anim, layer_alpha);
         if let Some(items) = assets.sprites.get("TitleBgAssetsSprite") {
-            draw_popup_sprite(canvas, bank, items, anim, false, |layer| {
+            draw_popup_sprite(canvas, bank, items, anim, false, layer_alpha, |layer| {
                 !matches!(layer, Some("frontHillsLayer") | Some("frontCloudsLayer"))
             });
         }
@@ -221,8 +345,19 @@ impl BackgroundRenderer {
         bank: &TexBank,
         anim: &BgAnimState,
     ) {
+        self.draw_night_hills_front_alpha(canvas, assets, bank, anim, 1.0);
+    }
+
+    fn draw_night_hills_front_alpha(
+        &self,
+        canvas: &mut Canvas,
+        assets: &AssetBundle,
+        bank: &TexBank,
+        anim: &BgAnimState,
+        layer_alpha: f32,
+    ) {
         if let Some(items) = assets.sprites.get("TitleBgAssetsSprite") {
-            draw_popup_sprite(canvas, bank, items, anim, false, |layer| {
+            draw_popup_sprite(canvas, bank, items, anim, false, layer_alpha, |layer| {
                 matches!(layer, Some("frontHillsLayer") | Some("frontCloudsLayer"))
             });
         }
@@ -234,16 +369,29 @@ impl BackgroundRenderer {
         assets: &AssetBundle,
         bank: &TexBank,
         anim: &BgAnimState,
+        layer_alpha: f32,
+        is_overlay: bool,
     ) {
-        let sky_alpha = (anim.age / 1.3).clamp(0.0, 1.0);
+        let sky_alpha = quad_out((anim.age / 1.3).clamp(0.0, 1.0));
         if sky_alpha < 0.999 {
-            canvas.clear((0, 0, 0));
+            if !is_overlay && layer_alpha >= 0.999 {
+                canvas.clear((0, 0, 0));
+            } else {
+                let full = Rect::new(0.0, 0.0, LOGICAL_W as f32, LOGICAL_H as f32);
+                canvas.fill_rect_alpha(
+                    full,
+                    0,
+                    0,
+                    0,
+                    ((1.0 - sky_alpha) * layer_alpha * 255.0).round() as u8,
+                );
+            }
         }
-        if sky_alpha > 0.004 {
-            self.draw_full_bitmap(canvas, bank, "SnowySkyBitmap", sky_alpha);
+        if sky_alpha * layer_alpha > 0.004 {
+            self.draw_full_bitmap(canvas, bank, "SnowySkyBitmap", sky_alpha * layer_alpha);
         }
         if let Some(items) = assets.sprites.get("SnowHillsBgAssetsSprite") {
-            draw_popup_sprite(canvas, bank, items, anim, true, |_| true);
+            draw_popup_sprite(canvas, bank, items, anim, true, layer_alpha, |_| true);
         }
     }
 
@@ -259,11 +407,11 @@ impl BackgroundRenderer {
         }
     }
 
-    fn draw_stars(&self, canvas: &mut Canvas, anim: &BgAnimState) {
+    fn draw_stars(&self, canvas: &mut Canvas, anim: &BgAnimState, layer_alpha: f32) {
         for s in &anim.stars {
             let rad = s.radius * s.scale_at_age(anim.age);
             if rad > 0.0 {
-                canvas.draw_star_glow(s.x, s.y, rad, s.alpha);
+                canvas.draw_star_glow(s.x, s.y, rad, s.alpha * layer_alpha);
             }
         }
     }

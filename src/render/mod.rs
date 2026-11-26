@@ -2,7 +2,7 @@
 // Copyright (C) 2026 ddavef aqualux-rs
 
 pub mod backgrounds;
-mod bg_sprites;
+pub(crate) mod bg_sprites;
 pub mod board;
 pub(crate) mod board_underlay;
 pub mod canvas;

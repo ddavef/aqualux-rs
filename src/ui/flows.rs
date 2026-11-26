@@ -313,15 +313,17 @@ impl GameApp {
         self.leaks.clear();
         self.fireworks.clear();
         self.blurbs.clear();
-        self.bg_anim.load("NightHills");
-        self.bg_anim.lighten(1.9);
         self.audio.clear_delayed();
         self.audio.stop_music();
         self.audio.play_music("LittleRayMusic", true);
         if was_custom {
+            self.bg_anim.lighten(0.0);
+            self.bg_anim.load("NightHills");
             self.custom_hub.clamp_selection(&self.custom_packs);
             self.screen = Screen::CustomHub;
         } else {
+            self.bg_anim.lighten(2.9);
+            self.bg_anim.load("NightHills");
             self.title_submenu = TitleSubmenu::Main;
             self.title_age = 0.0;
             self.title_submenu_age = 0.0;
