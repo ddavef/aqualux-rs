@@ -311,7 +311,7 @@ impl BoardRenderer {
             }
         }
 
-        if tile.is_freeze
+        if tile.is_frozen()
             && let Some(frost_key) = frost_bitmap_key(tile.shape)
             && let Some((tid, _, _)) = bank.named(frost_key)
         {

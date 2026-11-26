@@ -391,26 +391,18 @@ impl XmlLevel {
         let tiles = lvl
             .tiles
             .iter()
-            .map(|t| {
-                let is_frozen = t.piece_type == PieceType::FrozenPipe || t.is_freeze;
-                let xml_type = if is_frozen {
-                    PieceType::FrozenPipe
-                } else {
-                    t.piece_type
-                };
-                XmlTile {
-                    x: Some(t.x.to_string()),
-                    y: Some(t.y.to_string()),
-                    shape: Some(XmlShape(Some(t.shape))),
-                    piece_type: Some(XmlPieceType(Some(xml_type))),
-                    direction: Some((t.direction % 4).to_string()),
-                    is_moveable: t.is_moveable.then_some(XmlFlag),
-                    can_rotate: t.can_rotate.then_some(XmlFlag),
-                    is_gate: t.is_gate.then_some(XmlFlag),
-                    is_freeze: is_frozen.then_some(XmlFlag),
-                    is_magic: t.is_magic.then_some(XmlFlag),
-                    secondary_color: t.secondary_color.map(|c| XmlColor(Some(c))),
-                }
+            .map(|t| XmlTile {
+                x: Some(t.x.to_string()),
+                y: Some(t.y.to_string()),
+                shape: Some(XmlShape(Some(t.shape))),
+                piece_type: Some(XmlPieceType(Some(t.piece_type))),
+                direction: Some((t.direction % 4).to_string()),
+                is_moveable: t.is_moveable.then_some(XmlFlag),
+                can_rotate: t.can_rotate.then_some(XmlFlag),
+                is_gate: t.is_gate.then_some(XmlFlag),
+                is_freeze: t.is_freeze.then_some(XmlFlag),
+                is_magic: t.is_magic.then_some(XmlFlag),
+                secondary_color: t.secondary_color.map(|c| XmlColor(Some(c))),
             })
             .collect();
 
@@ -574,7 +566,7 @@ impl XmlLevel {
                     is_moveable: t.is_moveable.is_some(),
                     can_rotate: t.can_rotate.is_some(),
                     is_gate: t.is_gate.is_some(),
-                    is_freeze: piece_type == PieceType::FrozenPipe || t.is_freeze.is_some(),
+                    is_freeze: t.is_freeze.is_some(),
                     is_magic: t.is_magic.is_some(),
                     secondary_color: t.secondary_color.and_then(|c| c.0),
                 }

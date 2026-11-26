@@ -863,3 +863,396 @@ fn match_mode_rotatable_scramble_and_preview_fade_parity() {
         "MIRROR THIS header must use dark blue (0, 0, 64) stroke"
     );
 }
+
+#[test]
+fn hud_score_single_count_magic_moves_and_stationary_frozen_pipe_parity() {
+    use crate::game::SimEvent;
+    use crate::render::board::{BoardAnim, BoardRenderer};
+    use crate::save::LevelRecord;
+    use crate::ui::HideAfterBoard;
+
+    // 1. Gate with 0 Magic tiles still emits TwistPieceSound and keeps moves == 0.
+    let gate_no_magic_def = LevelDef {
+        index: 0,
+        title: "GateTest".into(),
+        description: String::new(),
+        background_id: "NightHills".into(),
+        liquid_color: GameColor::Blue,
+        start_delay: 0.0,
+        liquid_speed: 30.0,
+        rotater_color: GameColor::White,
+        mover_color: GameColor::Yellow,
+        stationary_color: GameColor::Orange,
+        gate_color: GameColor::Violet,
+        freeze_color: GameColor::Yellow,
+        magic_color: GameColor::Green,
+        par_moves: 1,
+        par_pipes: 3,
+        par_time_ms: 5000,
+        cols: 3,
+        rows: 1,
+        tiles: vec![
+            TileDef {
+                x: 0,
+                y: 0,
+                shape: PieceShape::Spigot,
+                piece_type: PieceType::Source,
+                direction: 3,
+                is_moveable: false,
+                can_rotate: false,
+                is_gate: false,
+                is_freeze: false,
+                is_magic: false,
+                secondary_color: None,
+            },
+            TileDef {
+                x: 1,
+                y: 0,
+                shape: PieceShape::Straight,
+                piece_type: PieceType::Pipe,
+                direction: 1,
+                is_moveable: false,
+                can_rotate: false,
+                is_gate: true,
+                is_freeze: false,
+                is_magic: false,
+                secondary_color: None,
+            },
+            TileDef {
+                x: 2,
+                y: 0,
+                shape: PieceShape::Drain,
+                piece_type: PieceType::Drain,
+                direction: 1,
+                is_moveable: false,
+                can_rotate: false,
+                is_gate: false,
+                is_freeze: false,
+                is_magic: false,
+                secondary_color: None,
+            },
+        ],
+        tutorials: Vec::new(),
+    };
+    let mut gate_sim = LevelSim::new(gate_no_magic_def, Difficulty::Medium);
+    let _ = gate_sim.start_level();
+    let mut saw_twist = false;
+    for _ in 0..300 {
+        for ev in gate_sim.update(1.0 / 60.0) {
+            if matches!(ev, SimEvent::PlaySfx("TwistPieceSound")) {
+                saw_twist = true;
+            }
+        }
+        if gate_sim.finished {
+            break;
+        }
+    }
+    assert!(
+        saw_twist,
+        "Gate entry must emit TwistPieceSound even with 0 Magic tiles"
+    );
+    assert_eq!(gate_sim.moves, 0);
+
+    // 2. Synthetic FrozenPipe with is_freeze=false still slows normal flow 8x.
+    let make_frozen_type_def = |ptype: PieceType| LevelDef {
+        index: 0,
+        title: "FrozenTest".into(),
+        description: String::new(),
+        background_id: "NightHills".into(),
+        liquid_color: GameColor::Blue,
+        start_delay: 0.0,
+        liquid_speed: 24.0,
+        rotater_color: GameColor::White,
+        mover_color: GameColor::Yellow,
+        stationary_color: GameColor::Orange,
+        gate_color: GameColor::Violet,
+        freeze_color: GameColor::Yellow,
+        magic_color: GameColor::Green,
+        par_moves: 1,
+        par_pipes: 3,
+        par_time_ms: 5000,
+        cols: 3,
+        rows: 1,
+        tiles: vec![
+            TileDef {
+                x: 0,
+                y: 0,
+                shape: PieceShape::Spigot,
+                piece_type: PieceType::Source,
+                direction: 3,
+                is_moveable: false,
+                can_rotate: false,
+                is_gate: false,
+                is_freeze: false,
+                is_magic: false,
+                secondary_color: None,
+            },
+            TileDef {
+                x: 1,
+                y: 0,
+                shape: PieceShape::Straight,
+                piece_type: ptype,
+                direction: 1,
+                is_moveable: false,
+                can_rotate: false,
+                is_gate: false,
+                is_freeze: false,
+                is_magic: false,
+                secondary_color: None,
+            },
+            TileDef {
+                x: 2,
+                y: 0,
+                shape: PieceShape::Drain,
+                piece_type: PieceType::Drain,
+                direction: 1,
+                is_moveable: false,
+                can_rotate: false,
+                is_gate: false,
+                is_freeze: false,
+                is_magic: false,
+                secondary_color: None,
+            },
+        ],
+        tutorials: Vec::new(),
+    };
+    let mut norm = LevelSim::new(make_frozen_type_def(PieceType::Pipe), Difficulty::Medium);
+    let mut froz = LevelSim::new(
+        make_frozen_type_def(PieceType::FrozenPipe),
+        Difficulty::Medium,
+    );
+    assert_eq!(froz.tiles[0][1].pipe_color, GameColor::Orange);
+    assert!(froz.tiles[0][1].is_frozen());
+    let _ = norm.start_level();
+    let _ = froz.start_level();
+    for _ in 0..300 {
+        norm.update(1.0 / 60.0);
+        froz.update(1.0 / 60.0);
+        if !norm.tiles[0][1].fills.is_empty() && !froz.tiles[0][1].fills.is_empty() {
+            break;
+        }
+    }
+    let p0_n = norm.tiles[0][1].fills[0].progress;
+    let p0_f = froz.tiles[0][1].fills[0].progress;
+    for _ in 0..30 {
+        norm.update(1.0 / 60.0);
+        froz.update(1.0 / 60.0);
+    }
+    let dn = norm.tiles[0][1].fills[0].progress - p0_n;
+    let df = froz.tiles[0][1].fills[0].progress - p0_f;
+    assert!(
+        (dn / df - 8.0).abs() < 0.05,
+        "expected 8x slowdown on stationary FrozenPipe, got {}",
+        dn / df
+    );
+
+    let Some(path) = asset_file_if_present() else {
+        return;
+    };
+    let bundle = AssetBundle::load_from_path(path).expect("real assets should load");
+
+    // 3. Campaign Level 36: 0 player moves + 2 gate-triggered Magic rotations == 2 moves.
+    let mut l36 = LevelSim::new(bundle.campaign_levels[35].clone(), Difficulty::Hard);
+    let _ = l36.start_level();
+    let _ = l36.skip_tutorials();
+    let _ = l36.fast_forward();
+    for _ in 0..1200 {
+        l36.update(1.0 / 60.0);
+        if l36.finished {
+            break;
+        }
+    }
+    assert_eq!(l36.won, Some(true));
+    assert_eq!(
+        l36.moves, 2,
+        "Level 36 should count 2 magic rotations toward moves"
+    );
+
+    // 4. Campaign Level 26 stationary FrozenPipes are Orange (while moveable ones are Yellow).
+    let l26 = LevelSim::new(bundle.campaign_levels[25].clone(), Difficulty::Medium);
+    let mut stationary_frozen = 0usize;
+    for t in l26.tiles.iter().flatten() {
+        if t.piece_type == PieceType::FrozenPipe {
+            assert!(t.is_frozen());
+            if !t.is_moveable && !t.can_rotate {
+                stationary_frozen += 1;
+                assert!(!t.is_freeze);
+                assert_eq!(t.pipe_color, GameColor::Orange);
+            } else if t.is_moveable {
+                assert_eq!(t.pipe_color, GameColor::Yellow);
+            }
+        }
+    }
+    assert!(
+        stationary_frozen > 0,
+        "Level 26 should contain stationary FrozenPipe tiles"
+    );
+
+    // 5. HUD Score single-count during play, fail rollback, win cap, and Summary HUD hiding.
+    let gpu = test_gpu();
+    let mut app = GameApp::new(bundle, Some(120), gpu.clone()).expect("GameApp init");
+    app.save.current_profile = Some("Tester".into());
+    app.save.profiles = vec![ProfileData {
+        name: "Tester".into(),
+        level_index: 1,
+        savable_level_index: 1,
+        records: [(
+            0,
+            LevelRecord {
+                best_trophy: Trophy::Gold,
+                best_score: 1000,
+                best_moves: Some(4),
+                best_time_ms: Some(5000),
+            },
+        )]
+        .into_iter()
+        .collect(),
+        ..Default::default()
+    }];
+    app.start_campaign_level(1, false);
+    app.board_pop_elapsed = None;
+    app.info_banner = None;
+    if let Some(sim) = app.campaign_sim.as_mut() {
+        sim.is_paused = true;
+        sim.score = 300;
+    }
+    for _ in 0..30 {
+        app.update(0.05);
+    }
+    assert_eq!(app.hud_score_roller.value(), 1300);
+
+    // Check rendered HUD counters do not add sim.score a second time.
+    let mut c_hud_a = Canvas::new();
+    c_hud_a.clear((0, 0, 0));
+    let mut sim_clone = app.campaign_sim.as_ref().unwrap().clone();
+    let layout = BoardLayout::compute(
+        sim_clone.level.cols,
+        sim_clone.level.rows,
+        hud::campaign_board_area(),
+    );
+    hud::render_campaign_hud(
+        &mut c_hud_a,
+        &app.renderer.bank,
+        &app.renderer.fonts,
+        &sim_clone,
+        layout,
+        1300,
+        0.0,
+        (0.0, 0.0),
+        false,
+        false,
+    );
+    let px_a = gpu.render_to_rgba(&c_hud_a, &app.renderer.bank, 800, 600);
+
+    let mut c_hud_b = Canvas::new();
+    c_hud_b.clear((0, 0, 0));
+    sim_clone.score = 0;
+    hud::render_campaign_hud(
+        &mut c_hud_b,
+        &app.renderer.bank,
+        &app.renderer.fonts,
+        &sim_clone,
+        layout,
+        1300,
+        0.0,
+        (0.0, 0.0),
+        false,
+        false,
+    );
+    let px_b = gpu.render_to_rgba(&c_hud_b, &app.renderer.bank, 800, 600);
+    for y in 560usize..598 {
+        for x in 690usize..795 {
+            let i = (y * 800 + x) * 4;
+            assert_eq!(
+                &px_a[i..i + 4],
+                &px_b[i..i + 4],
+                "HUD must display total_score once without re-adding sim.score at ({x},{y})"
+            );
+        }
+    }
+
+    // Fail rolls hud_score_roller back to base score.
+    if let Some(sim) = app.campaign_sim.as_mut() {
+        sim.finished = true;
+        sim.won = Some(false);
+    }
+    for _ in 0..30 {
+        app.update(0.05);
+    }
+    assert_eq!(app.hud_score_roller.value(), 1000);
+
+    // Win rolls hud_score_roller to 1000 + total_score (not 1000 + 2 * total_score).
+    let win_res = calculate_score(4, 10, 5000, 4, 10, 10000, false);
+    if let Some(sim) = app.campaign_sim.as_mut() {
+        sim.finished = true;
+        sim.won = Some(true);
+        sim.score = win_res.total_score;
+    }
+    app.on_campaign_win(win_res);
+    app.summary_state = None;
+    for _ in 0..30 {
+        app.update(0.05);
+    }
+    assert_eq!(app.hud_score_roller.value(), 1000 + win_res.total_score);
+
+    // Campaign HUD is suppressed on Screen::Summary even while board_hide drops tiles.
+    app.cursor_in_window = false;
+    app.modals.clear();
+    app.blurbs.clear();
+    app.leaks.clear();
+    app.fireworks.clear();
+    app.board_hide = Some((0.0, 0.0, 2.5, HideAfterBoard::None));
+    app.screen = Screen::Summary;
+
+    let mut c_bg = Canvas::new();
+    app.renderer
+        .draw_background(&mut c_bg, &app.assets, &app.bg_anim);
+    BoardRenderer::new().draw_board(
+        &mut c_bg,
+        &app.renderer.bank,
+        &app.renderer.fonts,
+        &app.campaign_sim.as_ref().unwrap().tiles,
+        layout,
+        None,
+        &[],
+        None,
+        &[],
+        &[],
+        false,
+        false,
+        BoardAnim::HideDrop {
+            elapsed: 0.0,
+            delay: 0.0,
+        },
+        app.time,
+    );
+    let px_bg = gpu.render_to_rgba(&c_bg, &app.renderer.bank, 800, 600);
+
+    let mut c_sum = Canvas::new();
+    app.render(&mut c_sum);
+    let px_sum = gpu.render_to_rgba(&c_sum, &app.renderer.bank, 800, 600);
+
+    app.screen = Screen::Playing;
+    let mut c_play = Canvas::new();
+    app.render(&mut c_play);
+    let px_play = gpu.render_to_rgba(&c_play, &app.renderer.bank, 800, 600);
+
+    let mut play_diff = false;
+    for y in 576usize..596 {
+        for x in 640usize..790 {
+            let i = (y * 800 + x) * 4;
+            assert_eq!(
+                &px_sum[i..i + 4],
+                &px_bg[i..i + 4],
+                "Campaign HUD must stay hidden on Screen::Summary at ({x},{y})"
+            );
+            if px_play[i..i + 4] != px_bg[i..i + 4] {
+                play_diff = true;
+            }
+        }
+    }
+    assert!(
+        play_diff,
+        "Screen::Playing should draw campaign HUD counters"
+    );
+}

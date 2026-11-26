@@ -4,7 +4,7 @@
 use crate::game::awards::Difficulty;
 use crate::game::scoring::MetricResult;
 use crate::game::tile::{
-    Tile, animate_grid_tiles, build_tile_grid, is_adjacent, swap_grid_tiles_timed,
+    Tile, animate_grid_tiles_with_rotations, build_tile_grid, is_adjacent, swap_grid_tiles_timed,
 };
 use crate::game::types::{FlowTimerState, GameColor, LevelDef, PieceType, Side, TutorialMsg};
 
@@ -304,8 +304,13 @@ impl LevelSim {
                 }
             }
         }
-        if animate_grid_tiles(&mut self.tiles, dt, &self.swapping_tiles) {
+        let (swap_done, magic_rotations_done) =
+            animate_grid_tiles_with_rotations(&mut self.tiles, dt, &self.swapping_tiles);
+        if swap_done {
             self.on_swap_complete(&mut events);
+        }
+        if magic_rotations_done > 0 {
+            self.on_magic_rotations_complete(magic_rotations_done as u32, &mut events);
         }
         self.advance_slimes(dt);
 

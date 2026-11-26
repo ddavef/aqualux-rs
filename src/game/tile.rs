@@ -49,7 +49,7 @@ impl Tile {
             level.mover_color
         } else if def.is_gate {
             level.gate_color
-        } else if def.is_freeze || def.piece_type == PieceType::FrozenPipe {
+        } else if def.is_freeze {
             level.freeze_color
         } else if def.is_magic {
             level.magic_color
@@ -67,7 +67,7 @@ impl Tile {
             is_moveable: def.is_moveable,
             can_rotate: def.can_rotate,
             is_gate: def.is_gate,
-            is_freeze: def.is_freeze || def.piece_type == PieceType::FrozenPipe,
+            is_freeze: def.is_freeze,
             is_magic: def.is_magic,
             pipe_color,
             liquid_color: level.liquid_color,
@@ -218,6 +218,10 @@ impl Tile {
     pub fn is_locked_or_active(&self) -> bool {
         self.has_filled || !self.fills.is_empty() || self.timer.is_some()
     }
+
+    pub fn is_frozen(&self) -> bool {
+        self.piece_type == PieceType::FrozenPipe || self.is_freeze
+    }
 }
 
 pub fn build_tile_grid(level: &LevelDef) -> Vec<Vec<Tile>> {
@@ -283,9 +287,15 @@ pub fn swap_grid_tiles_timed(
     grid[b.1][b.0].is_swapping = true;
 }
 
-/// Advances timed swap and rotation tweens; returns `true` when player action completes.
-pub fn animate_grid_tiles(grid: &mut [Vec<Tile>], dt: f32, tracked: &[(usize, usize)]) -> bool {
+/// Advances timed swap and rotation tweens.
+/// Returns `(completed_tracked, completed_untracked_rotations)`.
+pub fn animate_grid_tiles_with_rotations(
+    grid: &mut [Vec<Tile>],
+    dt: f32,
+    tracked: &[(usize, usize)],
+) -> (bool, usize) {
     let mut completed_tracked = false;
+    let mut completed_untracked_rotations = 0usize;
     for row in grid {
         for tile in row {
             let was_tracked = tracked.contains(&(tile.x, tile.y));
@@ -301,6 +311,8 @@ pub fn animate_grid_tiles(grid: &mut [Vec<Tile>], dt: f32, tracked: &[(usize, us
                     tile.is_rotating = false;
                     if was_tracked {
                         completed_tracked = true;
+                    } else {
+                        completed_untracked_rotations += 1;
                     }
                 }
             }
@@ -320,7 +332,12 @@ pub fn animate_grid_tiles(grid: &mut [Vec<Tile>], dt: f32, tracked: &[(usize, us
             }
         }
     }
-    completed_tracked
+    (completed_tracked, completed_untracked_rotations)
+}
+
+/// Advances timed swap and rotation tweens; returns `true` when player action completes.
+pub fn animate_grid_tiles(grid: &mut [Vec<Tile>], dt: f32, tracked: &[(usize, usize)]) -> bool {
+    animate_grid_tiles_with_rotations(grid, dt, tracked).0
 }
 
 pub fn collect_swap_eligible(

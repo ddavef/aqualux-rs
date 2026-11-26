@@ -110,6 +110,14 @@ impl LevelSim {
         }
     }
 
+    pub(crate) fn on_magic_rotations_complete(&mut self, count: u32, events: &mut Vec<SimEvent>) {
+        if self.finished {
+            return;
+        }
+        self.moves += count;
+        self.recompute_path(true, events);
+    }
+
     pub(crate) fn advance_slimes(&mut self, dt: f32) {
         for row in &mut self.tiles {
             for tile in row {
@@ -185,7 +193,7 @@ impl LevelSim {
         for y in 0..self.level.rows {
             for x in 0..self.level.cols {
                 let tile = &mut self.tiles[y][x];
-                let divisor = if tile.is_freeze && self.current_speed < 120.0 {
+                let divisor = if tile.is_frozen() && self.current_speed < 120.0 {
                     8000.0
                 } else {
                     1000.0
@@ -332,17 +340,13 @@ impl LevelSim {
     }
 
     fn trigger_magic_tiles(&mut self, events: &mut Vec<SimEvent>) {
-        let mut rotated_any = false;
+        events.push(SimEvent::PlaySfx("TwistPieceSound"));
         for row in &mut self.tiles {
             for mt in row {
                 if mt.piece_type == PieceType::Pipe && mt.is_magic && !mt.has_filled {
                     mt.rotate_cw_timed(1, 0.4);
-                    rotated_any = true;
                 }
             }
-        }
-        if rotated_any {
-            events.push(SimEvent::PlaySfx("TwistPieceSound"));
         }
     }
 

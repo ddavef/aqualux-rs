@@ -223,7 +223,7 @@ impl GameApp {
         };
         let layout =
             BoardLayout::compute(sim.level.cols, sim.level.rows, hud::campaign_board_area());
-        let hover = if self.modals.is_empty() && !paused {
+        let hover = if self.modals.is_empty() && !paused && self.screen != Screen::Summary {
             layout.hit_test(self.mouse_pos.0, self.mouse_pos.1)
         } else {
             None
@@ -251,7 +251,7 @@ impl GameApp {
             board_anim,
             self.time,
         );
-        if !paused {
+        if !paused && self.screen != Screen::Summary {
             hud::render_campaign_hud(
                 canvas,
                 &self.renderer.bank,

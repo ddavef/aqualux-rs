@@ -404,8 +404,13 @@ impl GameApp {
         }
         self.fireworks.retain(|f| f.is_alive());
 
-        let target_hud =
-            self.display_base_score() + self.campaign_sim.as_ref().map(|s| s.score).unwrap_or(0);
+        let sim_live_score = self
+            .campaign_sim
+            .as_ref()
+            .filter(|s| !s.finished)
+            .map(|s| s.score)
+            .unwrap_or(0);
+        let target_hud = self.display_base_score() + sim_live_score;
         self.hud_score_roller.roll_to(target_hud, 1.0, 0.0);
         self.hud_score_roller.update(dt);
 

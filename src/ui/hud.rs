@@ -124,7 +124,7 @@ pub fn render_campaign_hud(
         canvas,
         fonts,
         true,
-        total_score + sim.score,
+        total_score,
         sim.moves,
         sim.elapsed_ms as u32,
         sim.level.par_moves,
