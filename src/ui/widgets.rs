@@ -205,6 +205,7 @@ pub enum UiAction {
     SetSfxVol(f32),
     ToggleColorBlind,
     ToggleWindowed,
+    ToggleHdr,
     CycleFps,
     OpenOptionsDifficulty,
     OptionsDone,
@@ -279,6 +280,7 @@ pub fn draw_modal_button(
                 1.0,
                 1.0,
             );
+            canvas.boost_last_sprite(1.25);
         }
         canvas.draw_tex_rect(tid, rect, None, 1.0, alpha);
     }
@@ -389,7 +391,7 @@ pub fn draw_text_button(
     );
 }
 
-/// Renders sharp 15x15 dark checkbox, 2px white stroke, X mark when checked, `NEUROPOL` 17px white label.
+/// Renders sharp 15x15 dark checkbox, 2px stroke, X mark when checked, `NEUROPOL` 17px label.
 pub fn draw_checkbox(
     canvas: &mut Canvas,
     fonts: &FontSet,
@@ -397,15 +399,39 @@ pub fn draw_checkbox(
     y: f32,
     label: &str,
     checked: bool,
-    _hovered: bool,
+    hovered: bool,
 ) {
+    draw_checkbox_enabled(canvas, fonts, x, y, label, checked, hovered, true);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn draw_checkbox_enabled(
+    canvas: &mut Canvas,
+    fonts: &FontSet,
+    x: f32,
+    y: f32,
+    label: &str,
+    checked: bool,
+    _hovered: bool,
+    enabled: bool,
+) {
+    let border = if enabled {
+        (255, 255, 255, 255, 2.0)
+    } else {
+        (145, 155, 170, 200, 2.0)
+    };
+    let text_col = if enabled {
+        (255, 255, 255)
+    } else {
+        (155, 165, 180)
+    };
     canvas.draw_rounded_rect(
         Rect::new(x, y, 15.0, 15.0),
         0.0,
         (0, 0, 0, 102),
-        Some((255, 255, 255, 255, 2.0)),
+        Some(border),
     );
-    if checked {
+    if enabled && checked {
         canvas.draw_line(
             x + 1.0,
             y + 1.0,
@@ -429,7 +455,7 @@ pub fn draw_checkbox(
         x + 30.0,
         y - 3.0,
         17.0,
-        (255, 255, 255),
+        text_col,
         TextAlign::Left,
         label,
     );

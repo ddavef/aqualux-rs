@@ -440,6 +440,9 @@ fn draw_trophy_slot(canvas: &mut Canvas, bank: &TexBank, rect: Rect, bmp_key: &s
             1.0,
             1.0,
         );
+        if preset == GlowPreset::TrophyYellow {
+            canvas.boost_last_sprite(1.38);
+        }
     }
     canvas.draw_tex_rect(tid, rect, None, 1.0, 1.0);
 }

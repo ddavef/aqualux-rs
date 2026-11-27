@@ -2241,3 +2241,233 @@ fn hud_fades_click_gating_rollback_counters_and_audio_parity() {
     assert!((app.audio.effective_music_volume() - 0.6).abs() < 1e-4);
     assert!((app.audio.effective_sfx_volume() - 0.75).abs() < 1e-4);
 }
+
+#[test]
+fn hdr_detection_platforms_and_options_toggle_gating() {
+    use crate::render::HdrOutputMode;
+    use crate::render::hdr::evaluate_hdr_caps;
+    use crate::ui::modals::{build_modal_buttons, options_layout, render_modal_stack};
+    use wgpu::{
+        DisplayCoarseRange, DisplayHeadroom, DisplayHdrInfo, DisplayLuminance,
+    };
+
+    // 1. Cross-platform HDR monitor evaluation rules.
+    // Windows HDR active (DXGI + DISPLAYCONFIG_SDR_WHITE_LEVEL = 240 nits, peak = 960 nits)
+    let win_hdr = evaluate_hdr_caps(
+        Some(HdrOutputMode::ScRgb),
+        DisplayHdrInfo {
+            luminance: Some(DisplayLuminance {
+                max_nits: Some(960.0),
+                sdr_white_nits: Some(240.0),
+                ..Default::default()
+            }),
+            coarse: Some(DisplayCoarseRange {
+                high_dynamic_range: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    );
+    assert!(win_hdr.available);
+    assert!((win_hdr.scrgb_white_scale - 3.0).abs() < 1e-4);
+    assert!((win_hdr.peak_headroom - 4.0).abs() < 1e-4);
+
+    // Windows SDR monitor / HDR toggled off (DXGI always reports high_dynamic_range = Some(false))
+    let win_sdr = evaluate_hdr_caps(
+        Some(HdrOutputMode::ScRgb),
+        DisplayHdrInfo {
+            luminance: Some(DisplayLuminance {
+                max_nits: Some(300.0),
+                sdr_white_nits: Some(80.0),
+                ..Default::default()
+            }),
+            coarse: Some(DisplayCoarseRange {
+                high_dynamic_range: Some(false),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    );
+    assert!(!win_sdr.available);
+    assert!(win_sdr.present_params().is_none());
+
+    // macOS Metal XDR active
+    let mac_hdr = evaluate_hdr_caps(
+        Some(HdrOutputMode::ScRgb),
+        DisplayHdrInfo {
+            headroom: Some(DisplayHeadroom {
+                current: Some(3.5),
+                potential: Some(8.0),
+                reference: None,
+            }),
+            coarse: Some(DisplayCoarseRange {
+                high_dynamic_range: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    );
+    assert!(mac_hdr.available);
+    assert!((mac_hdr.scrgb_white_scale - 1.0).abs() < 1e-4);
+    assert!((mac_hdr.peak_headroom - 3.5).abs() < 1e-4);
+
+    // macOS XDR capable panel temporarily at full SDR brightness (potential > 1.0, current = 1.0)
+    let mac_xdr_max_bright = evaluate_hdr_caps(
+        Some(HdrOutputMode::ScRgb),
+        DisplayHdrInfo {
+            headroom: Some(DisplayHeadroom {
+                current: Some(1.0),
+                potential: Some(16.0),
+                reference: None,
+            }),
+            coarse: Some(DisplayCoarseRange {
+                high_dynamic_range: Some(false),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    );
+    assert!(mac_xdr_max_bright.available);
+
+    // macOS SDR monitor (potential <= 1.0)
+    let mac_sdr = evaluate_hdr_caps(
+        Some(HdrOutputMode::ScRgb),
+        DisplayHdrInfo {
+            headroom: Some(DisplayHeadroom {
+                current: Some(1.0),
+                potential: Some(1.0),
+                reference: None,
+            }),
+            coarse: Some(DisplayCoarseRange {
+                high_dynamic_range: Some(false),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    );
+    assert!(!mac_sdr.available);
+
+    // Linux Wayland / Gamescope HDR (no DisplayHdrInfo fields, but surface advertised BT2100_PQ / scRGB)
+    let wayland_pq = evaluate_hdr_caps(Some(HdrOutputMode::Hdr10Pq), DisplayHdrInfo::default());
+    assert!(wayland_pq.available);
+    assert_eq!(wayland_pq.surface_mode, Some(HdrOutputMode::Hdr10Pq));
+
+    let wayland_scrgb = evaluate_hdr_caps(Some(HdrOutputMode::ScRgb), DisplayHdrInfo::default());
+    assert!(wayland_scrgb.available);
+
+    // Linux X11 / SDR surface (no HDR color spaces advertised)
+    let x11_sdr = evaluate_hdr_caps(None, DisplayHdrInfo::default());
+    assert!(!x11_sdr.available);
+    assert!(x11_sdr.present_params().is_none());
+
+    // 2. Options UI disables HDR toggle when unsupported and preserves config; allows deferred toggle when supported.
+    let mut cfg: crate::save::AppConfig =
+        serde_json::from_str(r#"{"fullscreen":true}"#).expect("legacy AppConfig without hdr must parse");
+    assert!(!cfg.hdr);
+    cfg.hdr = true;
+    let json = serde_json::to_string(&cfg).expect("serialize AppConfig");
+    let cfg_rt: crate::save::AppConfig = serde_json::from_str(&json).expect("round-trip AppConfig");
+    assert!(cfg_rt.hdr);
+
+    let bundle = match asset_file_if_present() {
+        Some(p) => AssetBundle::load_from_path(p).expect("assets"),
+        None => crate::tests::empty_bundle(),
+    };
+    let gpu = test_gpu();
+    let mut app = GameApp::new(bundle, Some(120), gpu).expect("GameApp init");
+    app.screen = Screen::Title;
+
+    // Headless GPU starts with hdr_available = false.
+    assert!(!app.hdr_available);
+    app.save.config.hdr = true; // e.g. saved from previous HDR session
+    app.trigger_action(UiAction::OpenOptions);
+    let btns_disabled = build_modal_buttons(
+        app.modals.last().unwrap(),
+        &app.assets,
+        &app.renderer.bank,
+        &app.renderer.fonts,
+        &app.save,
+        app.hdr_available,
+    );
+    let hdr_btn_off = btns_disabled
+        .iter()
+        .find(|b| b.id == "opt_hdr")
+        .expect("opt_hdr button must exist");
+    assert!(!hdr_btn_off.enabled, "opt_hdr must be disabled when !hdr_available");
+    app.trigger_action(UiAction::ToggleHdr);
+    app.trigger_action(UiAction::OptionsDone);
+    assert!(
+        app.save.config.hdr,
+        "Opening Options on SDR monitor must preserve previously saved hdr preference without clobbering it"
+    );
+    assert!(!app.sync_hdr_req);
+
+    // Also test cannot enable from false when !hdr_available:
+    app.save.config.hdr = false;
+    app.trigger_action(UiAction::OpenOptions);
+    app.trigger_action(UiAction::ToggleHdr);
+    app.trigger_action(UiAction::OptionsDone);
+    assert!(!app.save.config.hdr);
+
+    // Enable HDR availability -> button enabled, toggle is silent & deferred until OptionsDone.
+    app.set_hdr_available(true);
+    let lay = options_layout(false);
+    assert!(((lay.base_y + lay.bh * 0.5) - 300.0).abs() < 0.5);
+    app.trigger_action(UiAction::OpenOptions);
+    let btns_enabled = build_modal_buttons(
+        app.modals.last().unwrap(),
+        &app.assets,
+        &app.renderer.bank,
+        &app.renderer.fonts,
+        &app.save,
+        app.hdr_available,
+    );
+    let hdr_btn_on = btns_enabled
+        .iter()
+        .find(|b| b.id == "opt_hdr")
+        .expect("opt_hdr button");
+    assert!(hdr_btn_on.enabled);
+
+    let before_saves = app.save.save_count.get();
+    let _ = app.audio.take_sfx_log();
+    app.trigger_action(UiAction::ToggleHdr);
+    assert!(
+        app.audio.take_sfx_log().is_empty(),
+        "ToggleHdr checkbox must be silent"
+    );
+    assert!(!app.save.config.hdr, "ToggleHdr must defer applying until Done");
+    assert!(!app.sync_hdr_req);
+    assert_eq!(app.save.save_count.get(), before_saves);
+
+    // Render check while HDR option is pending-checked.
+    let mut c_opt = Canvas::new();
+    render_modal_stack(
+        &mut c_opt,
+        &app.assets,
+        &app.renderer.bank,
+        &app.renderer.fonts,
+        &app.save,
+        &app.modals,
+        &app.modal_ages,
+        0.0,
+        true,
+        true,
+        true,
+        0.0,
+        (-999.0, -999.0),
+    );
+    assert!(!c_opt.cmds.is_empty());
+
+    app.trigger_action(UiAction::OptionsDone);
+    assert!(app.save.config.hdr);
+    assert!(app.sync_hdr_req);
+    assert_eq!(app.save.save_count.get(), before_saves + 1);
+
+    // Moving window from HDR monitor back to SDR clears pending HDR if Options is open.
+    app.sync_hdr_req = false;
+    app.trigger_action(UiAction::OpenOptions);
+    app.set_hdr_available(false);
+    app.trigger_action(UiAction::ToggleHdr);
+    app.trigger_action(UiAction::OptionsDone);
+    assert!(!app.sync_hdr_req);
+}

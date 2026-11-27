@@ -3,7 +3,7 @@
 
 struct StageUniform {
     inv_half: vec2<f32>,
-    _pad: vec2<f32>,
+    hdr_params: vec2<f32>,
 };
 
 struct LeakUniform {
@@ -96,6 +96,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let g_blur = clamp(0.5 - d / glow_w, 0.0, 1.0);
     let edge = clamp((1.0 - g_blur) * 0.6, 0.0, 1.0);
     rgb = mix(rgb, vec3<f32>(1.0), edge);
+    if stage.hdr_params.x > 0.5 {
+        let spec = clamp(max(diff, 0.0) * 0.5 + edge * 0.85, 0.0, 1.0);
+        rgb *= mix(1.12, 1.38, spec);
+    }
     let a = cov * leak.rgb_alpha.a / (1.0 + blur * 0.025);
     return vec4<f32>(rgb * a, a);
 }

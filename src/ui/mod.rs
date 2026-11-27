@@ -218,7 +218,9 @@ pub struct GameApp {
     pub(crate) modals: Vec<ModalState>,
     pub(crate) modal_ages: Vec<f32>,
     pub(crate) trophy_hover_age: f32,
+    pub hdr_available: bool,
     pub(crate) options_pending_fullscreen: Option<bool>,
+    pub(crate) options_pending_hdr: Option<bool>,
     pub(crate) options_board_color_blind: Option<bool>,
     pub(crate) title_submenu: TitleSubmenu,
     pub(crate) splash_age: f32,
@@ -278,6 +280,7 @@ pub struct GameApp {
     pub rng: StdRng,
     pub should_quit: bool,
     pub sync_fullscreen_req: bool,
+    pub sync_hdr_req: bool,
 }
 
 impl GameApp {
@@ -299,6 +302,7 @@ impl GameApp {
         if let Some(fps) = fps_override {
             save.config.target_fps = fps;
         }
+        let hdr_available = gpu.hdr_caps().available;
         let custom_packs = CustomPackStore::load(custom_levels_dir);
         let renderer = Renderer::new(gpu, &assets)?;
         let audio = AudioEngine::new(
@@ -317,7 +321,9 @@ impl GameApp {
             modals: Vec::new(),
             modal_ages: Vec::new(),
             trophy_hover_age: 0.0,
+            hdr_available,
             options_pending_fullscreen: None,
+            options_pending_hdr: None,
             options_board_color_blind: None,
             title_submenu: TitleSubmenu::Main,
             splash_age: 0.0,
@@ -375,7 +381,15 @@ impl GameApp {
             rng: rand::make_rng(),
             should_quit: false,
             sync_fullscreen_req: false,
+            sync_hdr_req: false,
         })
+    }
+
+    pub fn set_hdr_available(&mut self, available: bool) {
+        self.hdr_available = available;
+        if !available && let Some(pending) = &mut self.options_pending_hdr {
+            *pending = false;
+        }
     }
 
     pub fn target_fps(&self) -> u32 {
@@ -410,6 +424,13 @@ impl GameApp {
         {
             self.save.config.fullscreen = want_full;
             self.sync_fullscreen_req = true;
+        }
+        if let Some(want_hdr) = self.options_pending_hdr.take()
+            && self.hdr_available
+            && want_hdr != self.save.config.hdr
+        {
+            self.save.config.hdr = want_hdr;
+            self.sync_hdr_req = true;
         }
         self.options_board_color_blind = None;
         self.save.save();

@@ -32,6 +32,7 @@ pub fn draw_rainbow(canvas: &mut Canvas, bank: &TexBank, age: f32, alpha: f32) {
     };
     if glow_p > 0.004 {
         canvas.draw_rainbow_tex(bank.rainbow_glow_tex(), 1.0, alpha * glow_p, (0.0, 0.0));
+        canvas.boost_last_sprite(1.50);
     }
     canvas.draw_rainbow_tex(
         bank.rainbow_tex(),
@@ -39,6 +40,7 @@ pub fn draw_rainbow(canvas: &mut Canvas, bank: &TexBank, age: f32, alpha: f32) {
         alpha,
         (2.0 * glow_p, 2.0 * glow_p),
     );
+    canvas.boost_last_sprite(1.28);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

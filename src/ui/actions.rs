@@ -22,6 +22,7 @@ impl GameApp {
                 | UiAction::ToggleLevelOnlyCheckbox
                 | UiAction::ToggleColorBlind
                 | UiAction::ToggleWindowed
+                | UiAction::ToggleHdr
                 | UiAction::EndlessToggleDifficulty(_)
                 | UiAction::NextTutorial
                 | UiAction::PauseGame
@@ -214,6 +215,7 @@ impl GameApp {
                     _ => false,
                 };
                 self.options_pending_fullscreen = Some(self.save.config.fullscreen);
+                self.options_pending_hdr = Some(self.save.config.hdr && self.hdr_available);
                 self.options_board_color_blind = Some(self.save.config.color_blind);
                 self.push_modal(ModalState::Options {
                     allow_difficulty: allow_diff,
@@ -361,6 +363,16 @@ impl GameApp {
                     *f = !*f;
                 } else {
                     self.save.config.fullscreen = !self.save.config.fullscreen;
+                }
+            }
+            UiAction::ToggleHdr => {
+                if self.hdr_available {
+                    if let Some(h) = &mut self.options_pending_hdr {
+                        *h = !*h;
+                    } else {
+                        self.save.config.hdr = !self.save.config.hdr;
+                        self.sync_hdr_req = true;
+                    }
                 }
             }
             UiAction::CycleFps => {

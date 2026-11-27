@@ -2227,6 +2227,8 @@ fn modal_pop_in_pause_scrim_enter_name_clip_and_trophy_tooltip_render_parity() {
             ages,
             hover_age,
             true,
+            false,
+            false,
             0.0,
             mpos,
         );
@@ -2367,6 +2369,7 @@ fn modal_pop_in_pause_scrim_enter_name_clip_and_trophy_tooltip_render_parity() {
             &app.renderer.bank,
             &app.renderer.fonts,
             &app.save,
+            false,
         )
         .into_iter()
         .filter(|bt| (bt.rect.w - 94.0).abs() < 0.5)
@@ -2401,6 +2404,8 @@ fn modal_pop_in_pause_scrim_enter_name_clip_and_trophy_tooltip_render_parity() {
         &[1.0],
         0.0,
         true,
+        false,
+        false,
         0.0,
         (-999.0, -999.0),
     );
@@ -2457,4 +2462,259 @@ fn modal_pop_in_pause_scrim_enter_name_clip_and_trophy_tooltip_render_parity() {
     let full_tip = tooltip_shape(0.9).expect("Tooltip must reach full opacity at 0.8s+");
     assert!((full_tip.0 - 139.0).abs() < 0.1);
     assert!(full_tip.1 >= 0.79);
+}
+
+#[test]
+fn hdr_pipeline_scrgb_pq_and_emissive_headroom() {
+    use crate::render::hdr::HdrPresentParams;
+    use crate::render::{
+        FireworkBurst, FontFamily, HdrOutputMode, LOGICAL_H, LOGICAL_W, LeakEmitter, TextAlign,
+        draw_rainbow,
+    };
+    use crate::ui::champion::ChampionState;
+    use crate::ui::champion::render_champion_screen;
+
+    let gpu = test_gpu();
+    let empty = empty_bundle();
+    let bank_empty = TexBank::new(gpu.clone(), &empty);
+    let hdr_px_at = |buf: &[[f32; 4]], x: usize, y: usize| -> [f32; 4] { buf[y * LOGICAL_W + x] };
+    let max_rgb_in = |buf: &[[f32; 4]], x0: usize, y0: usize, x1: usize, y1: usize| -> f32 {
+        let mut best = 0.0f32;
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let p = hdr_px_at(buf, x, y);
+                best = best.max(p[0]).max(p[1]).max(p[2]);
+            }
+        }
+        best
+    };
+
+    // 1. ScRGB calibration, paper-white SDR preservation, modal bubble clamping, and highlight roll-off.
+    let mut c_base = Canvas::new();
+    c_base.clear((0, 0, 0));
+    c_base.fill_rect_alpha(Rect::new(50.0, 50.0, 40.0, 40.0), 255, 255, 255, 255);
+    c_base.draw_modal_bubble(Rect::new(150.0, 150.0, 120.0, 80.0));
+    c_base.draw_star_glow(400.0, 300.0, 22.0, 1.0);
+    c_base.draw_star_orb(520.0, 300.0, 22.0, 1.0);
+
+    let scrgb_4x = HdrPresentParams {
+        mode: HdrOutputMode::ScRgb,
+        scrgb_white_scale: 1.0,
+        sdr_white_nits: 203.0,
+        peak_headroom: 4.0,
+    };
+    let px_4x = gpu.render_to_hdr_f32(&c_base, &bank_empty, LOGICAL_W as u32, LOGICAL_H as u32, scrgb_4x);
+    let black = hdr_px_at(&px_4x, 10, 10);
+    assert!(
+        black[0].abs() < 1e-4 && black[1].abs() < 1e-4 && black[2].abs() < 1e-4,
+        "HDR black must remain 0.0, got {:?}",
+        black
+    );
+    let white = hdr_px_at(&px_4x, 70, 70);
+    assert!(
+        (white[0] - 1.0).abs() < 0.02
+            && (white[1] - 1.0).abs() < 0.02
+            && (white[2] - 1.0).abs() < 0.02,
+        "ScRGB SDR white with white_scale=1.0 must equal 1.0, got {:?}",
+        white
+    );
+    let modal_max = max_rgb_in(&px_4x, 160, 160, 260, 220);
+    assert!(
+        modal_max <= 1.02,
+        "Modal bubble must remain at paper white <= 1.02, got {modal_max}"
+    );
+    let glow_peak = max_rgb_in(&px_4x, 385, 285, 415, 315);
+    let orb_peak = max_rgb_in(&px_4x, 505, 285, 535, 315);
+    assert!(
+        glow_peak > 1.08 && orb_peak > 1.8,
+        "Star glow ({glow_peak}) and star orb ({orb_peak}) must exceed SDR 1.0"
+    );
+
+    // Windows 240-nit SDR white scaling (240 / 80 = 3.0x scRGB).
+    let scrgb_win = HdrPresentParams {
+        mode: HdrOutputMode::ScRgb,
+        scrgb_white_scale: 3.0,
+        sdr_white_nits: 240.0,
+        peak_headroom: 4.0,
+    };
+    let px_win =
+        gpu.render_to_hdr_f32(&c_base, &bank_empty, LOGICAL_W as u32, LOGICAL_H as u32, scrgb_win);
+    let white_win = hdr_px_at(&px_win, 70, 70);
+    assert!(
+        (white_win[0] - 3.0).abs() < 0.05 && (white_win[1] - 3.0).abs() < 0.05,
+        "ScRGB white with 3.0x scale must output ~3.0, got {:?}",
+        white_win
+    );
+
+    // Highlight shoulder roll-off caps peaks cleanly while keeping SDR untouched.
+    let px_2x = gpu.render_to_hdr_f32(
+        &c_base,
+        &bank_empty,
+        LOGICAL_W as u32,
+        LOGICAL_H as u32,
+        HdrPresentParams {
+            peak_headroom: 2.0,
+            ..scrgb_4x
+        },
+    );
+    let px_6x = gpu.render_to_hdr_f32(
+        &c_base,
+        &bank_empty,
+        LOGICAL_W as u32,
+        LOGICAL_H as u32,
+        HdrPresentParams {
+            peak_headroom: 6.0,
+            ..scrgb_4x
+        },
+    );
+    let orb_2x = max_rgb_in(&px_2x, 505, 285, 535, 315);
+    let orb_6x = max_rgb_in(&px_6x, 505, 285, 535, 315);
+    assert!(
+        orb_2x <= 2.02 && orb_6x > orb_2x + 0.3,
+        "Roll-off must cap 2.0x headroom <= 2.02 ({orb_2x}) below 6.0x ({orb_6x})"
+    );
+    assert!(
+        (hdr_px_at(&px_2x, 70, 70)[0] - hdr_px_at(&px_6x, 70, 70)[0]).abs() < 1e-3,
+        "Roll-off must not alter SDR pixels <= 1.0"
+    );
+
+    // 2. Fireworks + LeakEmitter exceed 1.0 linear in HDR.
+    let mut rng = StdRng::seed_from_u64(42);
+    let fw = FireworkBurst::new(200.0, 200.0, (255, 255, 255), 1.0, &mut rng);
+    let mut c_fx = Canvas::new();
+    c_fx.clear((0, 0, 0));
+    fw.draw(&mut c_fx, &bank_empty, 1.0);
+    let mut leak = LeakEmitter::new((0, 0), 250.0, Side::Down, GameColor::Blue);
+    for _ in 0..8 {
+        leak.update(1.0 / 30.0);
+    }
+    leak.draw_at_fx(&mut c_fx, 500.0, 250.0, 1.0, 0.0);
+    let px_fx = gpu.render_to_hdr_f32(&c_fx, &bank_empty, LOGICAL_W as u32, LOGICAL_H as u32, scrgb_4x);
+    let fw_peak = max_rgb_in(&px_fx, 150, 150, 250, 250);
+    let leak_peak = max_rgb_in(&px_fx, 450, 220, 550, 340);
+    assert!(
+        fw_peak > 1.6 && leak_peak > 1.2,
+        "Fireworks ({fw_peak}) and LeakEmitter ({leak_peak}) must reach HDR headroom"
+    );
+
+    // 3. HDR10 ST.2084 PQ encoding produces exact black, paper white (~594/1023), and HDR highlights.
+    let pq_params = HdrPresentParams {
+        mode: HdrOutputMode::Hdr10Pq,
+        scrgb_white_scale: 1.0,
+        sdr_white_nits: 203.0,
+        peak_headroom: 4.0,
+    };
+    let pq =
+        gpu.render_to_hdr10_u10(&c_base, &bank_empty, LOGICAL_W as u32, LOGICAL_H as u32, pq_params);
+    let pq_at = |x: usize, y: usize| pq[y * LOGICAL_W + x];
+    assert_eq!(pq_at(10, 10)[0], 0);
+    let pq_white = pq_at(70, 70);
+    assert!(
+        (590..=598).contains(&pq_white[0])
+            && (590..=598).contains(&pq_white[1])
+            && (590..=598).contains(&pq_white[2]),
+        "HDR10 PQ white at 203 nits should map to ~594/1023, got {:?}",
+        pq_white
+    );
+    let pq_slice = pq.as_slice();
+    let pq_orb_peak = (505..535)
+        .flat_map(|x| (285..315).map(move |y| pq_slice[y * LOGICAL_W + x][0]))
+        .max()
+        .unwrap_or(0);
+    assert!(
+        pq_orb_peak > 640 && pq_orb_peak < 1023,
+        "HDR10 PQ emissive star orb must exceed SDR 594 code, got {pq_orb_peak}"
+    );
+
+    // 4. Real-asset HDR coverage: Rainbow glow, active pipe liquid, Champion +80%, and UI text ceiling.
+    if let Some(path) = asset_file_if_present() {
+        let bundle = AssetBundle::load_from_path(path).expect("real assets load");
+        let renderer = Renderer::new(gpu.clone(), &bundle).expect("renderer");
+
+        let mut c_real = Canvas::new();
+        c_real.clear((0, 0, 0));
+        draw_rainbow(&mut c_real, &renderer.bank, 1.0, 1.0);
+        let px_rb =
+            gpu.render_to_hdr_f32(&c_real, &renderer.bank, LOGICAL_W as u32, LOGICAL_H as u32, scrgb_4x);
+        let rb_peak = max_rgb_in(&px_rb, 50, 120, 750, 560);
+        assert!(rb_peak > 1.45, "Rainbow win glow must reach HDR, got {rb_peak}");
+
+        let mut tile = Tile::from_def(
+            &TileDef {
+                x: 0,
+                y: 0,
+                shape: PieceShape::Straight,
+                piece_type: PieceType::Pipe,
+                direction: 0,
+                is_moveable: true,
+                can_rotate: true,
+                is_gate: false,
+                is_freeze: false,
+                is_magic: false,
+                secondary_color: None,
+            },
+            &minimal_test_level(),
+        );
+        tile.liquid_color = GameColor::Blue;
+        tile.fills.push(crate::game::FillPass {
+            entry: Side::Up,
+            exit: Side::Down,
+            progress: 1.0,
+            elapsed: 1.0,
+            completed: true,
+        });
+        let mut c_pipe = Canvas::new();
+        c_pipe.clear((0, 0, 0));
+        let full_tid = renderer.bank.named("StraightFullBitmap").unwrap().0;
+        let (caps, radii, count) = crate::render::pipe_mask::build_pipe_capsules(&tile.fills, tile.direction);
+        c_pipe.draw_pipe_masked(
+            full_tid,
+            400.0,
+            300.0,
+            128.0,
+            128.0,
+            tile.visual_rot_deg,
+            false,
+            caps,
+            radii,
+            count,
+            tile.liquid_color,
+            1.0,
+            (0.0, 0.0),
+        );
+        let px_pipe =
+            gpu.render_to_hdr_f32(&c_pipe, &renderer.bank, LOGICAL_W as u32, LOGICAL_H as u32, scrgb_4x);
+        let pipe_peak = max_rgb_in(&px_pipe, 340, 240, 460, 360);
+        assert!(pipe_peak > 1.15, "Pipe liquid must reach subtle HDR glow, got {pipe_peak}");
+
+        let mut c_text = Canvas::new();
+        c_text.clear((0, 0, 0));
+        renderer.fonts.draw(
+            &mut c_text,
+            FontFamily::Neuropol,
+            400.0,
+            280.0,
+            32.0,
+            (255, 255, 255),
+            TextAlign::Center,
+            "Options",
+        );
+        let px_txt =
+            gpu.render_to_hdr_f32(&c_text, &renderer.bank, LOGICAL_W as u32, LOGICAL_H as u32, scrgb_4x);
+        let txt_peak = max_rgb_in(&px_txt, 250, 260, 550, 340);
+        assert!(
+            txt_peak <= 1.02,
+            "UI text must stay strictly at paper white <= 1.02, got {txt_peak}"
+        );
+
+        let mut champ = ChampionState::new(100_000, false, &mut rng);
+        champ.age = 5.0;
+        let mut c_ch = Canvas::new();
+        c_ch.clear((0, 0, 0));
+        render_champion_screen(&mut c_ch, &renderer.bank, &renderer.fonts, &champ, (400.0, 300.0));
+        let px_ch =
+            gpu.render_to_hdr_f32(&c_ch, &renderer.bank, LOGICAL_W as u32, LOGICAL_H as u32, scrgb_4x);
+        let ch_peak = max_rgb_in(&px_ch, 100, 80, 700, 360);
+        assert!(ch_peak > 1.25, "Champion title/glow must reach HDR, got {ch_peak}");
+    }
 }

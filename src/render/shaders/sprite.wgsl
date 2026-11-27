@@ -3,7 +3,7 @@
 
 struct StageUniform {
     inv_half: vec2<f32>,
-    _pad: vec2<f32>,
+    hdr_params: vec2<f32>,
 };
 
 struct ColorMat {
@@ -126,10 +126,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if tex.a <= 0.0001 {
         discard;
     }
+    let hdr_on = stage.hdr_params.x > 0.5;
     if in.params.y < -0.5 {
         let ga = min(tex.a * 1.6, 1.0);
         let a = in.params.z;
-        return vec4<f32>(in.tint.rgb * ga * a, ga * a);
+        let glow_boost = select(1.0, 1.32, hdr_on);
+        return vec4<f32>(in.tint.rgb * glow_boost * ga * a, ga * a);
     }
     var rgb = tex.rgb;
     let midx = u32(in.params.x + 0.5);
@@ -140,11 +142,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let nb = dot(m.r2.xyz, rgb) + m.off.z * tex.a;
         rgb = clamp(vec3<f32>(nr, ng, nb), vec3<f32>(0.0), vec3<f32>(tex.a));
     }
+    let tint_rgb = select(min(in.tint.rgb, vec3<f32>(1.0)), in.tint.rgb, hdr_on);
     if in.params.y > 1.0 {
         let add = ((in.params.y - 1.0) * 100.0 / 255.0) * tex.a;
-        rgb = clamp(rgb * in.tint.rgb + vec3<f32>(add), vec3<f32>(0.0), vec3<f32>(tex.a));
+        let raw = rgb * tint_rgb + vec3<f32>(add);
+        rgb = select(clamp(raw, vec3<f32>(0.0), vec3<f32>(tex.a)), max(raw, vec3<f32>(0.0)), hdr_on);
     } else {
-        rgb = clamp(rgb * in.tint.rgb * in.params.y, vec3<f32>(0.0), vec3<f32>(tex.a));
+        let raw = rgb * tint_rgb * in.params.y;
+        rgb = select(clamp(raw, vec3<f32>(0.0), vec3<f32>(tex.a)), max(raw, vec3<f32>(0.0)), hdr_on);
     }
     let a = in.params.z;
     return vec4<f32>(rgb * a, tex.a * a);

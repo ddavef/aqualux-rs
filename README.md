@@ -10,6 +10,7 @@ This repository contains zero copyrighted assets. You must supply your own *Aqua
 - Match mode and mirror match mode are both available when unlocked (in the original mirror match mode replaces match mode).
 - Custom levels and level editor.
 - Endless game mode.
+- HDR effects.
 
 ## Building
 

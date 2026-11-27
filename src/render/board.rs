@@ -328,6 +328,7 @@ impl BoardRenderer {
                                 mirror_x,
                                 blur,
                             );
+                            canvas.boost_last_sprite(1.45);
                         }
                     }
                 }
@@ -364,6 +365,7 @@ impl BoardRenderer {
                         mirror_x,
                         blur,
                     );
+                    canvas.boost_last_sprite(1.22);
                 }
             }
 
@@ -488,5 +490,6 @@ fn draw_tile_filter_halo(
             mirror_x,
             blur,
         );
+        canvas.boost_last_sprite(1.32);
     }
 }

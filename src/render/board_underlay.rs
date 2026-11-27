@@ -136,6 +136,7 @@ pub(crate) fn draw_drain_underlay(
             mirror_x,
             blur,
         );
+        canvas.boost_last_sprite(1.28);
     }
     if let Some((tid, _, _)) = bank.named("DrainRingBitmap") {
         canvas.draw_tex_uv_rotated_blur(
@@ -186,6 +187,7 @@ pub(crate) fn draw_portal_underlay(
             mirror_x,
             blur,
         );
+        canvas.boost_last_sprite(1.28);
     }
     if let Some(anim) = tile.slime_anim
         && let Some((tid, _, _)) = bank.named("DrainingPortalSlimeSheet")
@@ -205,6 +207,7 @@ pub(crate) fn draw_portal_underlay(
             mirror_x,
             blur,
         );
+        canvas.boost_last_sprite(1.28);
     }
 }
 

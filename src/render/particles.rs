@@ -104,6 +104,7 @@ impl FireworkBurst {
                 false,
                 (0.0, 0.0),
             );
+            canvas.boost_last_sprite(1.65);
         }
     }
 }

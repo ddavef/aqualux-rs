@@ -17,8 +17,8 @@ use crate::ui::profiles::{
 };
 use crate::ui::trophy_room::{build_trophy_room_buttons, render_trophy_room};
 use crate::ui::widgets::{
-    ModalState, UiAction, UiButton, draw_checkbox, draw_modal_bubble, draw_modal_button,
-    draw_plain_text_button, draw_radio, draw_slider, draw_text_button,
+    ModalState, UiAction, UiButton, draw_checkbox, draw_checkbox_enabled, draw_modal_bubble,
+    draw_modal_button, draw_plain_text_button, draw_radio, draw_slider, draw_text_button,
 };
 
 pub const OPTIONS_SLIDER_X: f32 = 435.0;
@@ -33,6 +33,7 @@ pub struct OptionsLayout {
     pub diff_y: f32,
     pub cb_y: f32,
     pub win_y: f32,
+    pub hdr_y: f32,
     pub fps_y: f32,
     pub done_y: f32,
 }
@@ -42,7 +43,8 @@ pub fn options_layout(allow_difficulty: bool) -> OptionsLayout {
     let diff_off = 125.0;
     let cb_off = if allow_difficulty { 168.0 } else { 138.0 };
     let win_off = cb_off + 30.0;
-    let fps_off = win_off + 30.0;
+    let hdr_off = win_off + 30.0;
+    let fps_off = hdr_off + 30.0;
     let done_off = fps_off + 38.0;
     let bh = done_off + 53.0 + 18.0;
     let base_y = (LOGICAL_H as f32 - bh) * 0.5;
@@ -55,6 +57,7 @@ pub fn options_layout(allow_difficulty: bool) -> OptionsLayout {
         diff_y: base_y + diff_off,
         cb_y: base_y + cb_off,
         win_y: base_y + win_off,
+        hdr_y: base_y + hdr_off,
         fps_y: base_y + fps_off,
         done_y: base_y + done_off,
     }
@@ -146,6 +149,7 @@ pub fn build_modal_buttons(
     bank: &TexBank,
     fonts: &FontSet,
     save: &SaveData,
+    hdr_available: bool,
 ) -> Vec<UiButton> {
     match modal {
         ModalState::TrophyRoom { page, .. } => build_trophy_room_buttons(assets, bank, save, *page),
@@ -173,6 +177,13 @@ pub fn build_modal_buttons(
                 rect: Rect::new(lay.bx + 20.0, lay.win_y, 260.0, 22.0),
                 action: UiAction::ToggleWindowed,
                 enabled: true,
+                hover_sfx: None,
+            });
+            out.push(UiButton {
+                id: "opt_hdr",
+                rect: Rect::new(lay.bx + 20.0, lay.hdr_y, 330.0, 22.0),
+                action: UiAction::ToggleHdr,
+                enabled: hdr_available,
                 hover_sfx: None,
             });
             out.push(UiButton {
@@ -408,6 +419,8 @@ pub fn render_modal_stack(
     modal_ages: &[f32],
     trophy_hover_age: f32,
     options_windowed_checked: bool,
+    options_hdr_checked: bool,
+    hdr_available: bool,
     time: f32,
     mouse_pos: (f32, f32),
 ) {
@@ -446,6 +459,8 @@ pub fn render_modal_stack(
                     save,
                     *allow_difficulty,
                     options_windowed_checked,
+                    options_hdr_checked,
+                    hdr_available,
                     mpos,
                 );
             }
@@ -510,6 +525,7 @@ pub fn render_modal_stack(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_options_modal(
     canvas: &mut Canvas,
     bank: &TexBank,
@@ -517,6 +533,8 @@ fn render_options_modal(
     save: &SaveData,
     allow_difficulty: bool,
     windowed_checked: bool,
+    hdr_checked: bool,
+    hdr_available: bool,
     mouse_pos: (f32, f32),
 ) {
     let lay = options_layout(allow_difficulty);
@@ -606,6 +624,22 @@ fn render_options_modal(
         "windowed mode",
         windowed_checked,
         Rect::new(lay.bx + 20.0, lay.win_y, 260.0, 22.0).contains(mouse_pos.0, mouse_pos.1),
+    );
+    let hdr_lbl = if hdr_available {
+        "hdr mode"
+    } else {
+        "hdr mode (no hdr)"
+    };
+    draw_checkbox_enabled(
+        canvas,
+        fonts,
+        lay.bx + 20.0,
+        lay.hdr_y,
+        hdr_lbl,
+        hdr_available && hdr_checked,
+        hdr_available
+            && Rect::new(lay.bx + 20.0, lay.hdr_y, 330.0, 22.0).contains(mouse_pos.0, mouse_pos.1),
+        hdr_available,
     );
 
     fonts.draw(

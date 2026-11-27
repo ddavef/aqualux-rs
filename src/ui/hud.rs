@@ -778,6 +778,7 @@ fn draw_icon(
             1.0,
             1.0,
         );
+        canvas.boost_last_sprite(1.25);
     }
     canvas.draw_tex_rect(tid, rect, None, 1.0, 1.0);
 }

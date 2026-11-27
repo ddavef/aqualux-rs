@@ -20,16 +20,23 @@ pub struct GpuPipelines {
     pub leak_bgl: BindGroupLayout,
     pub blur_bgl: BindGroupLayout,
     pub glyph_bgl: BindGroupLayout,
+    pub present_bgl: BindGroupLayout,
     pub sprite_target: RenderPipeline,
     pub sprite_unorm: RenderPipeline,
+    pub sprite_hdr: RenderPipeline,
     pub pipe_mask: RenderPipeline,
+    pub pipe_mask_hdr: RenderPipeline,
     pub shape_target: RenderPipeline,
     pub shape_unorm: RenderPipeline,
     pub shape_msaa: RenderPipeline,
+    pub shape_hdr: RenderPipeline,
     pub leak: RenderPipeline,
+    pub leak_hdr: RenderPipeline,
     pub blur_unorm: RenderPipeline,
     pub glyph_stencil: RenderPipeline,
     pub glyph_cover: RenderPipeline,
+    pub present_scrgb: RenderPipeline,
+    pub present_pq: RenderPipeline,
 }
 
 fn uniform_entry(binding: u32, visibility: ShaderStages) -> BindGroupLayoutEntry {
@@ -226,7 +233,7 @@ impl GpuPipelines {
         let stage_cmat_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("stage_cmat_bgl"),
             entries: &[
-                uniform_entry(0, ShaderStages::VERTEX),
+                uniform_entry(0, ShaderStages::VERTEX | ShaderStages::FRAGMENT),
                 uniform_entry(1, ShaderStages::FRAGMENT),
                 BindGroupLayoutEntry {
                     binding: 2,
@@ -238,7 +245,10 @@ impl GpuPipelines {
         });
         let stage_only_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("stage_only_bgl"),
-            entries: &[uniform_entry(0, ShaderStages::VERTEX)],
+            entries: &[uniform_entry(
+                0,
+                ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+            )],
         });
         let tex_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("tex_bgl"),
@@ -265,6 +275,13 @@ impl GpuPipelines {
                 ShaderStages::VERTEX | ShaderStages::FRAGMENT,
             )],
         });
+        let present_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("present_bgl"),
+            entries: &[
+                uniform_entry(0, ShaderStages::FRAGMENT),
+                tex_entry(1, false),
+            ],
+        });
 
         let load = |label, wgsl| {
             device.create_shader_module(ShaderModuleDescriptor {
@@ -281,6 +298,7 @@ impl GpuPipelines {
         let sh_leak = load("leak.wgsl", include_str!("shaders/leak.wgsl").into());
         let sh_blur = load("blur.wgsl", include_str!("shaders/blur.wgsl").into());
         let sh_glyph = load("glyph.wgsl", include_str!("shaders/glyph.wgsl").into());
+        let sh_present = load("present.wgsl", include_str!("shaders/present.wgsl").into());
 
         let sp_buf = [Some(VertexBufferLayout {
             array_stride: size_of::<SpriteInstance>() as u64,
@@ -321,6 +339,15 @@ impl GpuPipelines {
             premul(TextureFormat::Rgba8Unorm),
             (1, None),
         );
+        let sprite_hdr = build_pipe(
+            device,
+            "sprite_hdr",
+            &[&stage_cmat_bgl, &tex_bgl],
+            &sh_sprite,
+            &sp_buf,
+            premul(TextureFormat::Rgba16Float),
+            (1, None),
+        );
         let pipe_mask = build_pipe(
             device,
             "pipe_mask",
@@ -328,6 +355,15 @@ impl GpuPipelines {
             &sh_pm,
             &pm_buf,
             premul(target_format),
+            (1, None),
+        );
+        let pipe_mask_hdr = build_pipe(
+            device,
+            "pipe_mask_hdr",
+            &[&stage_cmat_bgl, &tex_bgl],
+            &sh_pm,
+            &pm_buf,
+            premul(TextureFormat::Rgba16Float),
             (1, None),
         );
         let shape_target = build_pipe(
@@ -346,6 +382,15 @@ impl GpuPipelines {
             &sh_shape,
             &sh_buf,
             premul(TextureFormat::Rgba8Unorm),
+            (1, None),
+        );
+        let shape_hdr = build_pipe(
+            device,
+            "shape_hdr",
+            &[&stage_only_bgl],
+            &sh_shape,
+            &sh_buf,
+            premul(TextureFormat::Rgba16Float),
             (1, None),
         );
         let msaa_ds = DepthStencilState {
@@ -371,6 +416,41 @@ impl GpuPipelines {
             &sh_leak,
             &[],
             premul(target_format),
+            (1, None),
+        );
+        let leak_hdr = build_pipe(
+            device,
+            "leak_hdr",
+            &[&stage_only_bgl, &leak_bgl],
+            &sh_leak,
+            &[],
+            premul(TextureFormat::Rgba16Float),
+            (1, None),
+        );
+        let present_scrgb = build_pipe(
+            device,
+            "present_scrgb",
+            &[&present_bgl],
+            &sh_present,
+            &[],
+            ColorTargetState {
+                format: TextureFormat::Rgba16Float,
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            },
+            (1, None),
+        );
+        let present_pq = build_pipe(
+            device,
+            "present_pq",
+            &[&present_bgl],
+            &sh_present,
+            &[],
+            ColorTargetState {
+                format: TextureFormat::Rgb10a2Unorm,
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            },
             (1, None),
         );
         let blur_unorm = build_pipe(
@@ -441,16 +521,23 @@ impl GpuPipelines {
             leak_bgl,
             blur_bgl,
             glyph_bgl,
+            present_bgl,
             sprite_target,
             sprite_unorm,
+            sprite_hdr,
             pipe_mask,
+            pipe_mask_hdr,
             shape_target,
             shape_unorm,
             shape_msaa,
+            shape_hdr,
             leak,
+            leak_hdr,
             blur_unorm,
             glyph_stencil,
             glyph_cover,
+            present_scrgb,
+            present_pq,
         }
     }
 }

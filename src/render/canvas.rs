@@ -425,6 +425,17 @@ impl Canvas {
         self.cmds.push(DrawCmd::Leak(Box::new(uni)));
     }
 
+    pub fn boost_last_sprite(&mut self, boost: f32) {
+        let mult = boost.max(1.0);
+        if let Some(DrawCmd::SpriteTex(_, inst) | DrawCmd::SpriteDirect(_, inst)) =
+            self.cmds.last_mut()
+        {
+            inst.tint[0] *= mult;
+            inst.tint[1] *= mult;
+            inst.tint[2] *= mult;
+        }
+    }
+
     pub fn transform_cmds_since(
         &mut self,
         start_idx: usize,

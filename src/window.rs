@@ -2,7 +2,7 @@
 // Copyright (C) 2026 ddavef aqualux-rs
 
 use crate::assets::AssetBundle;
-use crate::render::{Canvas, GpuCore, LOGICAL_H, LOGICAL_W};
+use crate::render::{Canvas, GpuCore, HdrDisplayCaps, HdrOutputMode, LOGICAL_H, LOGICAL_W};
 use crate::save::SaveData;
 use crate::ui::GameApp;
 use std::path::PathBuf;
@@ -25,6 +25,60 @@ struct WindowState {
     config: SurfaceConfiguration,
     gpu: Arc<GpuCore>,
     configured_fps: u32,
+    hdr_caps: HdrDisplayCaps,
+    hdr_active: bool,
+    hdr_mode: Option<HdrOutputMode>,
+    last_hdr_poll: Instant,
+}
+
+fn build_surface_config(
+    gpu: &GpuCore,
+    hdr_caps: HdrDisplayCaps,
+    want_hdr: bool,
+    width: u32,
+    height: u32,
+    present_mode: PresentMode,
+) -> (SurfaceConfiguration, bool, Option<HdrOutputMode>) {
+    if want_hdr
+        && hdr_caps.available
+        && let Some(mode) = hdr_caps.surface_mode
+    {
+        return (
+            SurfaceConfiguration {
+                usage: TextureUsages::RENDER_ATTACHMENT,
+                format: mode.surface_format(),
+                color_space: mode.color_space(),
+                width: width.max(1),
+                height: height.max(1),
+                present_mode,
+                alpha_mode: gpu.alpha_mode,
+                view_formats: Vec::new(),
+                desired_maximum_frame_latency: 2,
+            },
+            true,
+            Some(mode),
+        );
+    }
+    let view_formats = if gpu.surface_format != gpu.target_format {
+        vec![gpu.target_format]
+    } else {
+        Vec::new()
+    };
+    (
+        SurfaceConfiguration {
+            usage: TextureUsages::RENDER_ATTACHMENT,
+            format: gpu.surface_format,
+            color_space: SurfaceColorSpace::Auto,
+            width: width.max(1),
+            height: height.max(1),
+            present_mode,
+            alpha_mode: gpu.alpha_mode,
+            view_formats,
+            desired_maximum_frame_latency: 2,
+        },
+        false,
+        None,
+    )
 }
 
 struct Runner {
@@ -102,6 +156,32 @@ impl Runner {
         }
     }
 
+    fn sync_hdr_surface(&mut self, force_reconfigure: bool) {
+        let (Some(ws), Some(app)) = (&mut self.win_state, &mut self.app) else {
+            return;
+        };
+        ws.hdr_caps = ws.gpu.query_surface_hdr(&ws.surface);
+        ws.last_hdr_poll = Instant::now();
+        app.set_hdr_available(ws.hdr_caps.available);
+        let want_hdr = app.save.config.hdr && ws.hdr_caps.available;
+        let mode_changed =
+            want_hdr != ws.hdr_active || (want_hdr && ws.hdr_caps.surface_mode != ws.hdr_mode);
+        if (force_reconfigure || mode_changed) && ws.config.width > 0 && ws.config.height > 0 {
+            let (cfg, hdr_active, hdr_mode) = build_surface_config(
+                &ws.gpu,
+                ws.hdr_caps,
+                want_hdr,
+                ws.config.width,
+                ws.config.height,
+                ws.config.present_mode,
+            );
+            ws.config = cfg;
+            ws.hdr_active = hdr_active;
+            ws.hdr_mode = hdr_mode;
+            ws.surface.configure(&ws.gpu.device, &ws.config);
+        }
+    }
+
     fn present_frame(&mut self) {
         let (Some(ws), Some(app)) = (&mut self.win_state, &mut self.app) else {
             return;
@@ -138,17 +218,31 @@ impl Runner {
             | CurrentSurfaceTexture::Occluded
             | CurrentSurfaceTexture::Validation => return,
         };
-        let view = frame.texture.create_view(&TextureViewDescriptor {
-            format: Some(ws.gpu.target_format),
-            ..Default::default()
-        });
-        ws.gpu.render_frame(
-            &self.canvas,
-            &app.renderer.bank,
-            &view,
-            ws.config.width,
-            ws.config.height,
-        );
+        if ws.hdr_active
+            && let Some(params) = ws.hdr_caps.present_params()
+        {
+            let view = frame.texture.create_view(&TextureViewDescriptor::default());
+            ws.gpu.render_frame_hdr(
+                &self.canvas,
+                &app.renderer.bank,
+                &view,
+                ws.config.width,
+                ws.config.height,
+                params,
+            );
+        } else {
+            let view = frame.texture.create_view(&TextureViewDescriptor {
+                format: Some(ws.gpu.target_format),
+                ..Default::default()
+            });
+            ws.gpu.render_frame(
+                &self.canvas,
+                &app.renderer.bank,
+                &view,
+                ws.config.width,
+                ws.config.height,
+            );
+        }
         ws.gpu.queue.present(frame);
     }
 }
@@ -197,22 +291,16 @@ impl ApplicationHandler for Runner {
         self.win_size = (sz.width, sz.height);
         let init_fps = app.target_fps();
         let hz = monitor_refresh_hz(&window);
-        let view_formats = if gpu.surface_format != gpu.target_format {
-            vec![gpu.target_format]
-        } else {
-            Vec::new()
-        };
-        let config = SurfaceConfiguration {
-            usage: TextureUsages::RENDER_ATTACHMENT,
-            format: gpu.surface_format,
-            color_space: SurfaceColorSpace::Auto,
-            width: sz.width.max(1),
-            height: sz.height.max(1),
-            present_mode: choose_present_mode(&gpu.present_modes, init_fps, hz),
-            alpha_mode: gpu.alpha_mode,
-            view_formats,
-            desired_maximum_frame_latency: 2,
-        };
+        let hdr_caps = gpu.hdr_caps();
+        let present_mode = choose_present_mode(&gpu.present_modes, init_fps, hz);
+        let (config, hdr_active, hdr_mode) = build_surface_config(
+            &gpu,
+            hdr_caps,
+            app.save.config.hdr,
+            sz.width,
+            sz.height,
+            present_mode,
+        );
         surface.configure(&gpu.device, &config);
 
         self.app = Some(app);
@@ -222,6 +310,10 @@ impl ApplicationHandler for Runner {
             config,
             gpu,
             configured_fps: init_fps,
+            hdr_caps,
+            hdr_active,
+            hdr_mode,
+            last_hdr_poll: Instant::now(),
         });
     }
 
@@ -241,6 +333,12 @@ impl ApplicationHandler for Runner {
             }
             WindowEvent::Focused(focused) => {
                 app.set_window_focused(focused);
+                if focused {
+                    self.sync_hdr_surface(false);
+                }
+            }
+            WindowEvent::Moved(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                self.sync_hdr_surface(false);
             }
             WindowEvent::Resized(sz) => {
                 self.win_size = (sz.width, sz.height);
@@ -248,10 +346,12 @@ impl ApplicationHandler for Runner {
                     if sz.width > 0 && sz.height > 0 {
                         ws.config.width = sz.width;
                         ws.config.height = sz.height;
-                        ws.surface.configure(&ws.gpu.device, &ws.config);
                     }
                     self.redraw_pending = true;
                     ws.window.request_redraw();
+                }
+                if sz.width > 0 && sz.height > 0 {
+                    self.sync_hdr_surface(true);
                 }
             }
             WindowEvent::ModifiersChanged(mods) => {
@@ -345,15 +445,28 @@ impl ApplicationHandler for Runner {
                 self.last_frame = now;
                 app.update(dt);
                 let sync_req = app.sync_fullscreen_req;
+                let sync_hdr = app.sync_hdr_req;
                 let want_full = app.save.config.fullscreen;
                 let quit = app.should_quit;
                 if sync_req {
                     app.sync_fullscreen_req = false;
+                }
+                if sync_hdr {
+                    app.sync_hdr_req = false;
+                }
+                if sync_req {
                     self.apply_fullscreen(want_full);
                 }
                 if quit {
                     event_loop.exit();
                     return;
+                }
+                let poll_due = self
+                    .win_state
+                    .as_ref()
+                    .is_some_and(|ws| ws.last_hdr_poll.elapsed() >= Duration::from_secs(1));
+                if sync_hdr || poll_due {
+                    self.sync_hdr_surface(false);
                 }
                 self.present_frame();
             }

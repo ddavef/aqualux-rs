@@ -29,16 +29,29 @@ pub fn color_mat_id(tint: Option<(GameColor, bool)>) -> u32 {
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct StageUniform {
     pub inv_half: [f32; 2],
-    pub _pad: [f32; 2],
+    pub hdr_params: [f32; 2],
 }
 
 impl StageUniform {
     pub fn for_size(w: f32, h: f32) -> Self {
         Self {
             inv_half: [2.0 / w.max(1.0), 2.0 / h.max(1.0)],
-            _pad: [0.0, 0.0],
+            hdr_params: [0.0, 0.0],
         }
     }
+
+    pub fn for_size_hdr(w: f32, h: f32) -> Self {
+        Self {
+            inv_half: [2.0 / w.max(1.0), 2.0 / h.max(1.0)],
+            hdr_params: [1.0, 0.0],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct PresentUniform {
+    pub params: [f32; 4],
 }
 
 #[repr(C)]

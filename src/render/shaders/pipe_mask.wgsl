@@ -3,7 +3,7 @@
 
 struct StageUniform {
     inv_half: vec2<f32>,
-    _pad: vec2<f32>,
+    hdr_params: vec2<f32>,
 };
 
 struct ColorMat {
@@ -116,6 +116,11 @@ fn eval_pipe_masked(uv: vec2<f32>, in: VsOut, aa: f32) -> vec4<f32> {
         let ng = dot(m.r1.xyz, rgb) + m.off.y * tex.a;
         let nb = dot(m.r2.xyz, rgb) + m.off.z * tex.a;
         rgb = clamp(vec3<f32>(nr, ng, nb), vec3<f32>(0.0), vec3<f32>(tex.a));
+    }
+    if stage.hdr_params.x > 0.5 && tex.a > 0.001 {
+        let straight = rgb / tex.a;
+        let lum = dot(straight, vec3<f32>(0.2126, 0.7152, 0.0722));
+        rgb *= mix(1.12, 1.32, smoothstep(0.35, 0.95, lum));
     }
     return vec4<f32>(rgb * mask, tex.a * mask);
 }

@@ -16,6 +16,7 @@ pub mod gpu_core;
 pub mod gpu_pipelines;
 pub mod gpu_text;
 pub mod gpu_types;
+pub mod hdr;
 pub mod layout;
 pub mod particles;
 pub mod pipe_mask;
@@ -32,6 +33,7 @@ pub use effects::{
 };
 pub use emitter::LeakEmitter;
 pub use gpu_core::GpuCore;
+pub use hdr::{HdrDisplayCaps, HdrOutputMode};
 pub use layout::{BoardLayout, Rect};
 pub use particles::{FireworkBurst, StarField};
 pub use tex_bank::{GlowPreset, TexBank};

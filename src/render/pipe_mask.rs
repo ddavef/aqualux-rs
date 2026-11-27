@@ -145,6 +145,7 @@ pub fn draw_flow_timer(
             eff_alpha,
             (bl, bl),
         );
+        canvas.boost_last_sprite(1.35);
     }
     if let Some((tid, tw, th)) = bank.named("FlowTimerBitmap") {
         let w = tw as f32 * sc;

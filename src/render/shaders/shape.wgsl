@@ -3,7 +3,7 @@
 
 struct StageUniform {
     inv_half: vec2<f32>,
-    _pad: vec2<f32>,
+    hdr_params: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> stage: StageUniform;
@@ -211,7 +211,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             }
             let edge = clamp(0.5 - (dist - radius) / aa, 0.0, 1.0);
             let fa = a * edge * in.fill.a;
-            return vec4<f32>(g * fa, g * fa, g * fa, fa);
+            let hdr_boost = select(1.0, select(1.98, 1.65, extra > 1.5), stage.hdr_params.x > 0.5);
+            let core_w = 1.0 - smoothstep(0.0, 0.55, t);
+            let boost = mix(1.0, hdr_boost, core_w);
+            return vec4<f32>(g * boost * fa, g * boost * fa, g * boost * fa, fa);
         }
         let d = dist - radius;
         if stroke_w > 0.0 {

@@ -38,6 +38,7 @@ pub struct AppConfig {
     pub music_volume: f32,
     pub color_blind: bool,
     pub fullscreen: bool,
+    pub hdr: bool,
     pub target_fps: u32,
 }
 
@@ -48,6 +49,7 @@ impl Default for AppConfig {
             music_volume: 0.46,
             color_blind: false,
             fullscreen: false,
+            hdr: false,
             target_fps: 120,
         }
     }

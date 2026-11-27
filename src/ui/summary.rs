@@ -286,6 +286,7 @@ pub fn render_summary_screen(
                     ta,
                     t_blur,
                 );
+                canvas.boost_last_sprite(1.38);
             }
             canvas.draw_tex_rect_blur(tid, rect, None, 1.0, ta, t_blur);
         }
