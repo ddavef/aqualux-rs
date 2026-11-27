@@ -7,6 +7,8 @@ struct PresentUniform {
 
 @group(0) @binding(0) var<uniform> u: PresentUniform;
 @group(0) @binding(1) var t_scene: texture_2d<f32>;
+@group(0) @binding(2) var t_bloom: texture_2d<f32>;
+@group(0) @binding(3) var s_lin: sampler;
 
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32) -> @builtin(position) vec4<f32> {
@@ -47,6 +49,14 @@ fn rolloff_hdr(lin: vec3<f32>, headroom: f32) -> vec3<f32> {
     return lin * (mapped / peak);
 }
 
+fn p3_to_bt709(c: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        1.2249401 * c.r - 0.2249401 * c.g,
+        -0.0420569 * c.r + 1.0420569 * c.g,
+        -0.0196376 * c.r - 0.0786361 * c.g + 1.0982737 * c.b,
+    );
+}
+
 fn bt709_to_bt2020(c: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(
         0.6274039 * c.r + 0.3292830 * c.g + 0.0433131 * c.b,
@@ -73,7 +83,15 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     let coord = clamp(vec2<i32>(pos.xy), vec2<i32>(0), max(dims - vec2<i32>(1), vec2<i32>(0)));
     let texel = textureLoad(t_scene, coord, 0);
     let c_srgb = max(texel.rgb, vec3<f32>(0.0));
-    let lin = ext_srgb_to_linear(c_srgb);
+    let scene_lin = ext_srgb_to_linear(c_srgb);
+    let uv = pos.xy / vec2<f32>(max(dims, vec2<i32>(1)));
+    let bloom = max(textureSampleLevel(t_bloom, s_lin, uv, 0.0).rgb, vec3<f32>(0.0));
+    var lin = scene_lin + bloom * 0.28;
+    let lin_peak = max(lin.r, max(lin.g, lin.b));
+    if lin_peak > 1.0 {
+        let wcg_w = 0.55 * smoothstep(1.0, 1.8, lin_peak);
+        lin = mix(lin, p3_to_bt709(lin), wcg_w);
+    }
     let mapped = rolloff_hdr(lin, u.params.z);
 
     if u.params.w < 0.5 {

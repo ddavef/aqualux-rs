@@ -2,6 +2,7 @@
 // Copyright (C) 2026 ddavef aqualux-rs
 
 use crate::game::{Difficulty, MetricResult, Trophy};
+use crate::render::hdr::{HDR_PAPER_WHITE_DEFAULT, HDR_PEAK_DEFAULT};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -39,6 +40,8 @@ pub struct AppConfig {
     pub color_blind: bool,
     pub fullscreen: bool,
     pub hdr: bool,
+    pub hdr_paper_white_nits: f32,
+    pub hdr_peak_nits: f32,
     pub target_fps: u32,
 }
 
@@ -50,6 +53,8 @@ impl Default for AppConfig {
             color_blind: false,
             fullscreen: false,
             hdr: false,
+            hdr_paper_white_nits: HDR_PAPER_WHITE_DEFAULT,
+            hdr_peak_nits: HDR_PEAK_DEFAULT,
             target_fps: 120,
         }
     }

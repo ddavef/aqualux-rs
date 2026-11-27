@@ -191,6 +191,8 @@ pub enum PlayMode {
 pub(crate) enum DragSlider {
     Music,
     Sfx,
+    HdrPaperWhite,
+    HdrPeak,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,6 +221,7 @@ pub struct GameApp {
     pub(crate) modal_ages: Vec<f32>,
     pub(crate) trophy_hover_age: f32,
     pub hdr_available: bool,
+    pub hdr_manual_calibration: bool,
     pub(crate) options_pending_fullscreen: Option<bool>,
     pub(crate) options_pending_hdr: Option<bool>,
     pub(crate) options_board_color_blind: Option<bool>,
@@ -302,7 +305,9 @@ impl GameApp {
         if let Some(fps) = fps_override {
             save.config.target_fps = fps;
         }
-        let hdr_available = gpu.hdr_caps().available;
+        let hdr_caps = gpu.hdr_caps();
+        let hdr_available = hdr_caps.available;
+        let hdr_manual_calibration = hdr_caps.needs_manual_calibration;
         let custom_packs = CustomPackStore::load(custom_levels_dir);
         let renderer = Renderer::new(gpu, &assets)?;
         let audio = AudioEngine::new(
@@ -322,6 +327,7 @@ impl GameApp {
             modal_ages: Vec::new(),
             trophy_hover_age: 0.0,
             hdr_available,
+            hdr_manual_calibration,
             options_pending_fullscreen: None,
             options_pending_hdr: None,
             options_board_color_blind: None,
@@ -385,8 +391,14 @@ impl GameApp {
         })
     }
 
+    #[cfg(test)]
     pub fn set_hdr_available(&mut self, available: bool) {
+        self.set_hdr_display_state(available, self.hdr_manual_calibration);
+    }
+
+    pub fn set_hdr_display_state(&mut self, available: bool, manual_calibration: bool) {
         self.hdr_available = available;
+        self.hdr_manual_calibration = manual_calibration;
         if !available && let Some(pending) = &mut self.options_pending_hdr {
             *pending = false;
         }

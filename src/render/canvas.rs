@@ -436,6 +436,17 @@ impl Canvas {
         }
     }
 
+    pub fn sheen_last_sprite(&mut self, boost: f32) {
+        let neg = -boost.max(1.0);
+        if let Some(DrawCmd::SpriteTex(_, inst) | DrawCmd::SpriteDirect(_, inst)) =
+            self.cmds.last_mut()
+        {
+            inst.tint[0] = neg;
+            inst.tint[1] = neg;
+            inst.tint[2] = neg;
+        }
+    }
+
     pub fn transform_cmds_since(
         &mut self,
         start_idx: usize,

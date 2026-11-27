@@ -4,7 +4,7 @@
 use crate::render::{BoardLayout, CursorKind, Rect};
 use crate::ui::editor::{EditorTool, build_editor_buttons, editor_board_area};
 use crate::ui::hud;
-use crate::ui::modals::{OPTIONS_SLIDER_X, options_layout};
+use crate::ui::modals::{OPTIONS_SLIDER_X, options_layout_for};
 use crate::ui::title::TitleSubmenu;
 use crate::ui::widgets::{ModalState, QuestionId, UiAction};
 use crate::ui::{DragSlider, GameApp, Screen};
@@ -17,6 +17,8 @@ impl GameApp {
             match sl {
                 DragSlider::Music => self.trigger_action(UiAction::SetMusicVol(v)),
                 DragSlider::Sfx => self.trigger_action(UiAction::SetSfxVol(v)),
+                DragSlider::HdrPaperWhite => self.trigger_action(UiAction::SetHdrPaperWhite(v)),
+                DragSlider::HdrPeak => self.trigger_action(UiAction::SetHdrPeak(v)),
             }
         }
         if self.screen == Screen::Editor && self.modals.is_empty() {
@@ -105,7 +107,8 @@ impl GameApp {
     pub fn on_mouse_down(&mut self, x: f32, y: f32) {
         self.mouse_pos = (x, y);
         if let Some(ModalState::Options { allow_difficulty }) = self.modals.last() {
-            let lay = options_layout(*allow_difficulty);
+            let show_cal = self.hdr_available && self.hdr_manual_calibration;
+            let lay = options_layout_for(*allow_difficulty, show_cal);
             if Rect::new(OPTIONS_SLIDER_X - 10.0, lay.fx_y - 4.0, 140.0, 28.0).contains(x, y) {
                 self.dragging_slider = Some(DragSlider::Sfx);
                 let v = ((x - OPTIONS_SLIDER_X) / 120.0).clamp(0.0, 1.0);
@@ -117,6 +120,26 @@ impl GameApp {
                 let v = ((x - OPTIONS_SLIDER_X) / 120.0).clamp(0.0, 1.0);
                 self.trigger_action(UiAction::SetMusicVol(v));
                 return;
+            }
+            let hdr_checked =
+                self.hdr_available && self.options_pending_hdr.unwrap_or(self.save.config.hdr);
+            if show_cal && hdr_checked {
+                if let Some(wy) = lay.hdr_white_y
+                    && Rect::new(OPTIONS_SLIDER_X - 10.0, wy - 4.0, 140.0, 28.0).contains(x, y)
+                {
+                    self.dragging_slider = Some(DragSlider::HdrPaperWhite);
+                    let v = ((x - OPTIONS_SLIDER_X) / 120.0).clamp(0.0, 1.0);
+                    self.trigger_action(UiAction::SetHdrPaperWhite(v));
+                    return;
+                }
+                if let Some(py) = lay.hdr_peak_y
+                    && Rect::new(OPTIONS_SLIDER_X - 10.0, py - 4.0, 140.0, 28.0).contains(x, y)
+                {
+                    self.dragging_slider = Some(DragSlider::HdrPeak);
+                    let v = ((x - OPTIONS_SLIDER_X) / 120.0).clamp(0.0, 1.0);
+                    self.trigger_action(UiAction::SetHdrPeak(v));
+                    return;
+                }
             }
         }
 

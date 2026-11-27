@@ -162,7 +162,7 @@ impl Runner {
         };
         ws.hdr_caps = ws.gpu.query_surface_hdr(&ws.surface);
         ws.last_hdr_poll = Instant::now();
-        app.set_hdr_available(ws.hdr_caps.available);
+        app.set_hdr_display_state(ws.hdr_caps.available, ws.hdr_caps.needs_manual_calibration);
         let want_hdr = app.save.config.hdr && ws.hdr_caps.available;
         let mode_changed =
             want_hdr != ws.hdr_active || (want_hdr && ws.hdr_caps.surface_mode != ws.hdr_mode);
@@ -183,67 +183,73 @@ impl Runner {
     }
 
     fn present_frame(&mut self) {
-        let (Some(ws), Some(app)) = (&mut self.win_state, &mut self.app) else {
-            return;
-        };
-        if ws.config.width == 0 || ws.config.height == 0 {
-            return;
-        }
-        let target_fps = app.target_fps();
-        if target_fps != ws.configured_fps {
-            let hz = monitor_refresh_hz(&ws.window);
-            let desired_pm = choose_present_mode(&ws.gpu.present_modes, target_fps, hz);
-            if desired_pm != ws.config.present_mode {
-                ws.config.present_mode = desired_pm;
-                ws.surface.configure(&ws.gpu.device, &ws.config);
-            }
-            ws.configured_fps = target_fps;
-        }
-        let scale = (ws.config.width as f32 / LOGICAL_W as f32)
-            .min(ws.config.height as f32 / LOGICAL_H as f32);
-        self.canvas.begin_frame(scale);
-        app.render(&mut self.canvas);
-
-        let frame = match ws.surface.get_current_texture() {
-            CurrentSurfaceTexture::Success(f) => f,
-            CurrentSurfaceTexture::Suboptimal(f) => {
-                ws.surface.configure(&ws.gpu.device, &ws.config);
-                f
-            }
-            CurrentSurfaceTexture::Lost | CurrentSurfaceTexture::Outdated => {
-                ws.surface.configure(&ws.gpu.device, &ws.config);
+        let need_reconfigure = {
+            let (Some(ws), Some(app)) = (&mut self.win_state, &mut self.app) else {
+                return;
+            };
+            if ws.config.width == 0 || ws.config.height == 0 {
                 return;
             }
-            CurrentSurfaceTexture::Timeout
-            | CurrentSurfaceTexture::Occluded
-            | CurrentSurfaceTexture::Validation => return,
+            let target_fps = app.target_fps();
+            if target_fps != ws.configured_fps {
+                let hz = monitor_refresh_hz(&ws.window);
+                let desired_pm = choose_present_mode(&ws.gpu.present_modes, target_fps, hz);
+                if desired_pm != ws.config.present_mode {
+                    ws.config.present_mode = desired_pm;
+                    ws.surface.configure(&ws.gpu.device, &ws.config);
+                }
+                ws.configured_fps = target_fps;
+            }
+            let scale = (ws.config.width as f32 / LOGICAL_W as f32)
+                .min(ws.config.height as f32 / LOGICAL_H as f32);
+            self.canvas.begin_frame(scale);
+            app.render(&mut self.canvas);
+
+            let (frame, suboptimal) = match ws.surface.get_current_texture() {
+                CurrentSurfaceTexture::Success(f) => (f, false),
+                CurrentSurfaceTexture::Suboptimal(f) => (f, true),
+                CurrentSurfaceTexture::Lost | CurrentSurfaceTexture::Outdated => {
+                    self.sync_hdr_surface(true);
+                    return;
+                }
+                CurrentSurfaceTexture::Timeout
+                | CurrentSurfaceTexture::Occluded
+                | CurrentSurfaceTexture::Validation => return,
+            };
+            if ws.hdr_active
+                && let Some(params) = ws.hdr_caps.present_params_with_calibration(
+                    app.save.config.hdr_paper_white_nits,
+                    app.save.config.hdr_peak_nits,
+                )
+            {
+                let view = frame.texture.create_view(&TextureViewDescriptor::default());
+                ws.gpu.render_frame_hdr(
+                    &self.canvas,
+                    &app.renderer.bank,
+                    &view,
+                    ws.config.width,
+                    ws.config.height,
+                    params,
+                );
+            } else {
+                let view = frame.texture.create_view(&TextureViewDescriptor {
+                    format: Some(ws.gpu.target_format),
+                    ..Default::default()
+                });
+                ws.gpu.render_frame(
+                    &self.canvas,
+                    &app.renderer.bank,
+                    &view,
+                    ws.config.width,
+                    ws.config.height,
+                );
+            }
+            ws.gpu.queue.present(frame);
+            suboptimal
         };
-        if ws.hdr_active
-            && let Some(params) = ws.hdr_caps.present_params()
-        {
-            let view = frame.texture.create_view(&TextureViewDescriptor::default());
-            ws.gpu.render_frame_hdr(
-                &self.canvas,
-                &app.renderer.bank,
-                &view,
-                ws.config.width,
-                ws.config.height,
-                params,
-            );
-        } else {
-            let view = frame.texture.create_view(&TextureViewDescriptor {
-                format: Some(ws.gpu.target_format),
-                ..Default::default()
-            });
-            ws.gpu.render_frame(
-                &self.canvas,
-                &app.renderer.bank,
-                &view,
-                ws.config.width,
-                ws.config.height,
-            );
+        if need_reconfigure {
+            self.sync_hdr_surface(true);
         }
-        ws.gpu.queue.present(frame);
     }
 }
 

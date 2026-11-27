@@ -3,6 +3,7 @@
 
 use crate::game::Difficulty;
 use crate::render::BoardLayout;
+use crate::render::hdr::{HDR_PAPER_WHITE_MAX, HDR_PAPER_WHITE_MIN, HDR_PEAK_MAX, HDR_PEAK_MIN};
 use crate::ui::hud;
 use crate::ui::summary::SummaryHideAction;
 use crate::ui::title::{TitleMenuAnim, TitleSubmenu};
@@ -23,6 +24,8 @@ impl GameApp {
                 | UiAction::ToggleColorBlind
                 | UiAction::ToggleWindowed
                 | UiAction::ToggleHdr
+                | UiAction::SetHdrPaperWhite(_)
+                | UiAction::SetHdrPeak(_)
                 | UiAction::EndlessToggleDifficulty(_)
                 | UiAction::NextTutorial
                 | UiAction::PauseGame
@@ -374,6 +377,17 @@ impl GameApp {
                         self.sync_hdr_req = true;
                     }
                 }
+            }
+            UiAction::SetHdrPaperWhite(v) => {
+                let nits = (HDR_PAPER_WHITE_MIN
+                    + v.clamp(0.0, 1.0) * (HDR_PAPER_WHITE_MAX - HDR_PAPER_WHITE_MIN))
+                    .round();
+                self.save.config.hdr_paper_white_nits = nits;
+            }
+            UiAction::SetHdrPeak(v) => {
+                let nits =
+                    (HDR_PEAK_MIN + v.clamp(0.0, 1.0) * (HDR_PEAK_MAX - HDR_PEAK_MIN)).round();
+                self.save.config.hdr_peak_nits = nits;
             }
             UiAction::CycleFps => {
                 let cur = self.save.config.target_fps;

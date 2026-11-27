@@ -2245,13 +2245,14 @@ fn hud_fades_click_gating_rollback_counters_and_audio_parity() {
 #[test]
 fn hdr_detection_platforms_and_options_toggle_gating() {
     use crate::render::HdrOutputMode;
-    use crate::render::hdr::evaluate_hdr_caps;
-    use crate::ui::modals::{build_modal_buttons, options_layout, render_modal_stack};
-    use wgpu::{
-        DisplayCoarseRange, DisplayHeadroom, DisplayHdrInfo, DisplayLuminance,
+    use crate::render::hdr::{HDR_PAPER_WHITE_DEFAULT, HDR_PEAK_DEFAULT, evaluate_hdr_caps};
+    use crate::ui::modals::{
+        OPTIONS_SLIDER_X, build_modal_buttons, options_layout, options_layout_for,
+        render_modal_stack,
     };
+    use wgpu::{DisplayCoarseRange, DisplayHdrInfo, DisplayHeadroom, DisplayLuminance};
 
-    // 1. Cross-platform HDR monitor evaluation rules.
+    // 1. Cross-platform HDR monitor evaluation & manual calibration rules.
     // Windows HDR active (DXGI + DISPLAYCONFIG_SDR_WHITE_LEVEL = 240 nits, peak = 960 nits)
     let win_hdr = evaluate_hdr_caps(
         Some(HdrOutputMode::ScRgb),
@@ -2269,8 +2270,14 @@ fn hdr_detection_platforms_and_options_toggle_gating() {
         },
     );
     assert!(win_hdr.available);
+    assert!(!win_hdr.needs_manual_calibration);
     assert!((win_hdr.scrgb_white_scale - 3.0).abs() < 1e-4);
     assert!((win_hdr.peak_headroom - 4.0).abs() < 1e-4);
+    // Windows ignores manual slider overrides and follows OS DXGI metrics.
+    assert_eq!(
+        win_hdr.present_params_with_calibration(400.0, 1400.0),
+        win_hdr.present_params()
+    );
 
     // Windows SDR monitor / HDR toggled off (DXGI always reports high_dynamic_range = Some(false))
     let win_sdr = evaluate_hdr_caps(
@@ -2289,6 +2296,7 @@ fn hdr_detection_platforms_and_options_toggle_gating() {
         },
     );
     assert!(!win_sdr.available);
+    assert!(!win_sdr.needs_manual_calibration);
     assert!(win_sdr.present_params().is_none());
 
     // macOS Metal XDR active
@@ -2308,6 +2316,7 @@ fn hdr_detection_platforms_and_options_toggle_gating() {
         },
     );
     assert!(mac_hdr.available);
+    assert!(!mac_hdr.needs_manual_calibration);
     assert!((mac_hdr.scrgb_white_scale - 1.0).abs() < 1e-4);
     assert!((mac_hdr.peak_headroom - 3.5).abs() < 1e-4);
 
@@ -2328,6 +2337,7 @@ fn hdr_detection_platforms_and_options_toggle_gating() {
         },
     );
     assert!(mac_xdr_max_bright.available);
+    assert!(!mac_xdr_max_bright.needs_manual_calibration);
 
     // macOS SDR monitor (potential <= 1.0)
     let mac_sdr = evaluate_hdr_caps(
@@ -2347,27 +2357,45 @@ fn hdr_detection_platforms_and_options_toggle_gating() {
     );
     assert!(!mac_sdr.available);
 
-    // Linux Wayland / Gamescope HDR (no DisplayHdrInfo fields, but surface advertised BT2100_PQ / scRGB)
+    // Linux Wayland / Gamescope HDR uses manual calibration sliders because OS nits are unavailable.
     let wayland_pq = evaluate_hdr_caps(Some(HdrOutputMode::Hdr10Pq), DisplayHdrInfo::default());
     assert!(wayland_pq.available);
+    assert!(wayland_pq.needs_manual_calibration);
     assert_eq!(wayland_pq.surface_mode, Some(HdrOutputMode::Hdr10Pq));
+    let pq_cal = wayland_pq
+        .present_params_with_calibration(300.0, 1200.0)
+        .expect("linux calibrated params");
+    assert!((pq_cal.sdr_white_nits - 300.0).abs() < 1e-4);
+    assert!((pq_cal.peak_headroom - 4.0).abs() < 1e-4);
 
     let wayland_scrgb = evaluate_hdr_caps(Some(HdrOutputMode::ScRgb), DisplayHdrInfo::default());
     assert!(wayland_scrgb.available);
+    assert!(wayland_scrgb.needs_manual_calibration);
+    let scrgb_cal = wayland_scrgb
+        .present_params_with_calibration(406.0, 1200.0)
+        .expect("linux scrgb cal");
+    assert!((scrgb_cal.scrgb_white_scale - 2.0).abs() < 1e-3);
 
     // Linux X11 / SDR surface (no HDR color spaces advertised)
     let x11_sdr = evaluate_hdr_caps(None, DisplayHdrInfo::default());
     assert!(!x11_sdr.available);
+    assert!(!x11_sdr.needs_manual_calibration);
     assert!(x11_sdr.present_params().is_none());
 
-    // 2. Options UI disables HDR toggle when unsupported and preserves config; allows deferred toggle when supported.
-    let mut cfg: crate::save::AppConfig =
-        serde_json::from_str(r#"{"fullscreen":true}"#).expect("legacy AppConfig without hdr must parse");
+    // 2. Options UI disables HDR toggle when unsupported, preserves config, and shows manual sliders on Linux.
+    let mut cfg: crate::save::AppConfig = serde_json::from_str(r#"{"fullscreen":true}"#)
+        .expect("legacy AppConfig without hdr must parse");
     assert!(!cfg.hdr);
+    assert!((cfg.hdr_paper_white_nits - HDR_PAPER_WHITE_DEFAULT).abs() < 1e-4);
+    assert!((cfg.hdr_peak_nits - HDR_PEAK_DEFAULT).abs() < 1e-4);
     cfg.hdr = true;
+    cfg.hdr_paper_white_nits = 310.0;
+    cfg.hdr_peak_nits = 1100.0;
     let json = serde_json::to_string(&cfg).expect("serialize AppConfig");
     let cfg_rt: crate::save::AppConfig = serde_json::from_str(&json).expect("round-trip AppConfig");
     assert!(cfg_rt.hdr);
+    assert!((cfg_rt.hdr_paper_white_nits - 310.0).abs() < 1e-4);
+    assert!((cfg_rt.hdr_peak_nits - 1100.0).abs() < 1e-4);
 
     let bundle = match asset_file_if_present() {
         Some(p) => AssetBundle::load_from_path(p).expect("assets"),
@@ -2379,6 +2407,7 @@ fn hdr_detection_platforms_and_options_toggle_gating() {
 
     // Headless GPU starts with hdr_available = false.
     assert!(!app.hdr_available);
+    assert!(!app.hdr_manual_calibration);
     app.save.config.hdr = true; // e.g. saved from previous HDR session
     app.trigger_action(UiAction::OpenOptions);
     let btns_disabled = build_modal_buttons(
@@ -2388,12 +2417,16 @@ fn hdr_detection_platforms_and_options_toggle_gating() {
         &app.renderer.fonts,
         &app.save,
         app.hdr_available,
+        app.hdr_manual_calibration,
     );
     let hdr_btn_off = btns_disabled
         .iter()
         .find(|b| b.id == "opt_hdr")
         .expect("opt_hdr button must exist");
-    assert!(!hdr_btn_off.enabled, "opt_hdr must be disabled when !hdr_available");
+    assert!(
+        !hdr_btn_off.enabled,
+        "opt_hdr must be disabled when !hdr_available"
+    );
     app.trigger_action(UiAction::ToggleHdr);
     app.trigger_action(UiAction::OptionsDone);
     assert!(
@@ -2409,11 +2442,21 @@ fn hdr_detection_platforms_and_options_toggle_gating() {
     app.trigger_action(UiAction::OptionsDone);
     assert!(!app.save.config.hdr);
 
-    // Enable HDR availability -> button enabled, toggle is silent & deferred until OptionsDone.
-    app.set_hdr_available(true);
-    let lay = options_layout(false);
-    assert!(((lay.base_y + lay.bh * 0.5) - 300.0).abs() < 0.5);
+    // Enable HDR + Linux manual calibration -> sliders visible, centered, gated on HDR checked.
+    app.set_hdr_display_state(true, true);
+    let lay_no_cal = options_layout(false);
+    assert!(lay_no_cal.hdr_white_y.is_none() && lay_no_cal.hdr_peak_y.is_none());
+    let lay_cal = options_layout_for(false, true);
+    assert!(((lay_cal.base_y + lay_cal.bh * 0.5) - 300.0).abs() < 0.5);
+    let wy = lay_cal.hdr_white_y.expect("hdr_white_y must be present");
+    let py = lay_cal.hdr_peak_y.expect("hdr_peak_y must be present");
+
     app.trigger_action(UiAction::OpenOptions);
+    // Calibration sliders must ignore pointer input while HDR checkbox is unchecked.
+    app.on_mouse_down(OPTIONS_SLIDER_X + 60.0, wy + 6.0);
+    app.on_mouse_up(OPTIONS_SLIDER_X + 60.0, wy + 6.0);
+    assert!((app.save.config.hdr_paper_white_nits - HDR_PAPER_WHITE_DEFAULT).abs() < 1e-4);
+
     let btns_enabled = build_modal_buttons(
         app.modals.last().unwrap(),
         &app.assets,
@@ -2421,6 +2464,7 @@ fn hdr_detection_platforms_and_options_toggle_gating() {
         &app.renderer.fonts,
         &app.save,
         app.hdr_available,
+        app.hdr_manual_calibration,
     );
     let hdr_btn_on = btns_enabled
         .iter()
@@ -2435,11 +2479,25 @@ fn hdr_detection_platforms_and_options_toggle_gating() {
         app.audio.take_sfx_log().is_empty(),
         "ToggleHdr checkbox must be silent"
     );
-    assert!(!app.save.config.hdr, "ToggleHdr must defer applying until Done");
+    assert!(
+        !app.save.config.hdr,
+        "ToggleHdr must defer applying until Done"
+    );
     assert!(!app.sync_hdr_req);
     assert_eq!(app.save.save_count.get(), before_saves);
 
-    // Render check while HDR option is pending-checked.
+    // Now that HDR is pending-checked, calibration sliders respond silently and live.
+    let _ = app.audio.take_sfx_log();
+    app.on_mouse_down(OPTIONS_SLIDER_X + 60.0, wy + 6.0);
+    app.on_mouse_up(OPTIONS_SLIDER_X + 60.0, wy + 6.0);
+    app.on_mouse_down(OPTIONS_SLIDER_X + 120.0, py + 6.0);
+    app.on_mouse_up(OPTIONS_SLIDER_X + 120.0, py + 6.0);
+    assert!(app.audio.take_sfx_log().is_empty());
+    assert!((app.save.config.hdr_paper_white_nits - 290.0).abs() < 1e-3);
+    assert!((app.save.config.hdr_peak_nits - 1600.0).abs() < 1e-3);
+    assert_eq!(app.save.save_count.get(), before_saves);
+
+    // Render check while HDR option + manual calibration sliders are active.
     let mut c_opt = Canvas::new();
     render_modal_stack(
         &mut c_opt,
@@ -2450,6 +2508,7 @@ fn hdr_detection_platforms_and_options_toggle_gating() {
         &app.modals,
         &app.modal_ages,
         0.0,
+        true,
         true,
         true,
         true,

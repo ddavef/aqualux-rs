@@ -56,6 +56,12 @@ pub struct PresentUniform {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
+pub struct BloomUniform {
+    pub params: [f32; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 pub struct ColorMatGpu {
     pub r0: [f32; 4],
     pub r1: [f32; 4],

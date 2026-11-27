@@ -289,6 +289,16 @@ pub fn render_summary_screen(
                 canvas.boost_last_sprite(1.38);
             }
             canvas.draw_tex_rect_blur(tid, rect, None, 1.0, ta, t_blur);
+            let sheen = match summary.result.trophy {
+                Trophy::Platinum => Some(1.45),
+                Trophy::Gold => Some(1.38),
+                Trophy::Silver => Some(1.28),
+                Trophy::Bronze => Some(1.20),
+                Trophy::None => None,
+            };
+            if let Some(s) = sheen {
+                canvas.sheen_last_sprite(s);
+            }
         }
         if summary.age >= 3.3 {
             let lu = ((summary.age - 3.3) / 1.2).clamp(0.0, 1.0);

@@ -6,6 +6,13 @@ use wgpu::{
     TextureFormat,
 };
 
+pub const HDR_PAPER_WHITE_MIN: f32 = 80.0;
+pub const HDR_PAPER_WHITE_MAX: f32 = 500.0;
+pub const HDR_PAPER_WHITE_DEFAULT: f32 = 203.0;
+pub const HDR_PEAK_MIN: f32 = 300.0;
+pub const HDR_PEAK_MAX: f32 = 1600.0;
+pub const HDR_PEAK_DEFAULT: f32 = 800.0;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HdrOutputMode {
     ScRgb,
@@ -40,6 +47,7 @@ pub struct HdrPresentParams {
 pub struct HdrDisplayCaps {
     pub surface_mode: Option<HdrOutputMode>,
     pub available: bool,
+    pub needs_manual_calibration: bool,
     pub sdr_white_nits: f32,
     pub peak_headroom: f32,
     pub scrgb_white_scale: f32,
@@ -50,7 +58,8 @@ impl HdrDisplayCaps {
         Self {
             surface_mode: None,
             available: false,
-            sdr_white_nits: 203.0,
+            needs_manual_calibration: false,
+            sdr_white_nits: HDR_PAPER_WHITE_DEFAULT,
             peak_headroom: 1.0,
             scrgb_white_scale: 1.0,
         }
@@ -63,6 +72,28 @@ impl HdrDisplayCaps {
             scrgb_white_scale: self.scrgb_white_scale,
             sdr_white_nits: self.sdr_white_nits,
             peak_headroom: self.peak_headroom,
+        })
+    }
+
+    pub fn present_params_with_calibration(
+        self,
+        paper_white_nits: f32,
+        peak_nits: f32,
+    ) -> Option<HdrPresentParams> {
+        if !self.available {
+            return None;
+        }
+        if !self.needs_manual_calibration {
+            return self.present_params();
+        }
+        let mode = self.surface_mode?;
+        let pw = paper_white_nits.clamp(HDR_PAPER_WHITE_MIN, HDR_PAPER_WHITE_MAX);
+        let pk = peak_nits.clamp(HDR_PEAK_MIN, HDR_PEAK_MAX);
+        Some(HdrPresentParams {
+            mode,
+            scrgb_white_scale: pw / HDR_PAPER_WHITE_DEFAULT,
+            sdr_white_nits: pw,
+            peak_headroom: (pk / pw).clamp(1.2, 12.0),
         })
     }
 }
@@ -106,7 +137,8 @@ pub fn evaluate_hdr_caps(
         return HdrDisplayCaps {
             surface_mode: Some(mode),
             available,
-            sdr_white_nits: 203.0,
+            needs_manual_calibration: false,
+            sdr_white_nits: HDR_PAPER_WHITE_DEFAULT,
             peak_headroom,
             scrgb_white_scale: 1.0,
         };
@@ -134,6 +166,7 @@ pub fn evaluate_hdr_caps(
         return HdrDisplayCaps {
             surface_mode: Some(mode),
             available,
+            needs_manual_calibration: false,
             sdr_white_nits,
             peak_headroom,
             scrgb_white_scale: sdr_white_nits / 80.0,
@@ -144,7 +177,8 @@ pub fn evaluate_hdr_caps(
         return HdrDisplayCaps {
             surface_mode: Some(mode),
             available: false,
-            sdr_white_nits: 203.0,
+            needs_manual_calibration: false,
+            sdr_white_nits: HDR_PAPER_WHITE_DEFAULT,
             peak_headroom: 1.0,
             scrgb_white_scale: 1.0,
         };
@@ -153,8 +187,9 @@ pub fn evaluate_hdr_caps(
     HdrDisplayCaps {
         surface_mode: Some(mode),
         available: true,
-        sdr_white_nits: 203.0,
-        peak_headroom: 4.0,
+        needs_manual_calibration: true,
+        sdr_white_nits: HDR_PAPER_WHITE_DEFAULT,
+        peak_headroom: HDR_PEAK_DEFAULT / HDR_PAPER_WHITE_DEFAULT,
         scrgb_white_scale: 1.0,
     }
 }

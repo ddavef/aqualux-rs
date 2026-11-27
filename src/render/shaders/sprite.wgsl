@@ -142,7 +142,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let nb = dot(m.r2.xyz, rgb) + m.off.z * tex.a;
         rgb = clamp(vec3<f32>(nr, ng, nb), vec3<f32>(0.0), vec3<f32>(tex.a));
     }
-    let tint_rgb = select(min(in.tint.rgb, vec3<f32>(1.0)), in.tint.rgb, hdr_on);
+    let is_sheen = in.tint.r < -0.5;
+    let straight = rgb / max(tex.a, 1e-4);
+    let lum = dot(straight, vec3<f32>(0.2126, 0.7152, 0.0722));
+    let sheen_rgb = mix(vec3<f32>(1.0), abs(in.tint.rgb), smoothstep(0.48, 0.90, lum));
+    let eff_tint = select(in.tint.rgb, sheen_rgb, is_sheen);
+    let tint_rgb = select(min(eff_tint, vec3<f32>(1.0)), eff_tint, hdr_on);
     if in.params.y > 1.0 {
         let add = ((in.params.y - 1.0) * 100.0 / 255.0) * tex.a;
         let raw = rgb * tint_rgb + vec3<f32>(add);

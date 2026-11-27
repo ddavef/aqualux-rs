@@ -20,6 +20,7 @@ pub struct GpuPipelines {
     pub leak_bgl: BindGroupLayout,
     pub blur_bgl: BindGroupLayout,
     pub glyph_bgl: BindGroupLayout,
+    pub bloom_bgl: BindGroupLayout,
     pub present_bgl: BindGroupLayout,
     pub sprite_target: RenderPipeline,
     pub sprite_unorm: RenderPipeline,
@@ -35,6 +36,8 @@ pub struct GpuPipelines {
     pub blur_unorm: RenderPipeline,
     pub glyph_stencil: RenderPipeline,
     pub glyph_cover: RenderPipeline,
+    pub bloom_extract: RenderPipeline,
+    pub bloom_blur: RenderPipeline,
     pub present_scrgb: RenderPipeline,
     pub present_pq: RenderPipeline,
 }
@@ -175,11 +178,13 @@ const GLYPH_ATTRS: [VertexAttribute; 1] = [VertexAttribute {
     shader_location: 0,
 }];
 
-fn build_pipe(
+#[allow(clippy::too_many_arguments)]
+fn build_pipe_fs(
     device: &Device,
     label: &str,
     bgls: &[&BindGroupLayout],
     shader: &ShaderModule,
+    fs_entry: &str,
     buffers: &[Option<VertexBufferLayout<'_>>],
     target: ColorTargetState,
     msaa_ds: (u32, Option<DepthStencilState>),
@@ -211,13 +216,27 @@ fn build_pipe(
         },
         fragment: Some(FragmentState {
             module: shader,
-            entry_point: Some("fs_main"),
+            entry_point: Some(fs_entry),
             compilation_options: PipelineCompilationOptions::default(),
             targets: &targets,
         }),
         multiview_mask: None,
         cache: None,
     })
+}
+
+fn build_pipe(
+    device: &Device,
+    label: &str,
+    bgls: &[&BindGroupLayout],
+    shader: &ShaderModule,
+    buffers: &[Option<VertexBufferLayout<'_>>],
+    target: ColorTargetState,
+    msaa_ds: (u32, Option<DepthStencilState>),
+) -> RenderPipeline {
+    build_pipe_fs(
+        device, label, bgls, shader, "fs_main", buffers, target, msaa_ds,
+    )
 }
 
 fn premul(format: TextureFormat) -> ColorTargetState {
@@ -275,11 +294,31 @@ impl GpuPipelines {
                 ShaderStages::VERTEX | ShaderStages::FRAGMENT,
             )],
         });
+        let bloom_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("bloom_bgl"),
+            entries: &[
+                uniform_entry(0, ShaderStages::FRAGMENT),
+                tex_entry(1, true),
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
         let present_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("present_bgl"),
             entries: &[
                 uniform_entry(0, ShaderStages::FRAGMENT),
                 tex_entry(1, false),
+                tex_entry(2, true),
+                BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
 
@@ -298,6 +337,7 @@ impl GpuPipelines {
         let sh_leak = load("leak.wgsl", include_str!("shaders/leak.wgsl").into());
         let sh_blur = load("blur.wgsl", include_str!("shaders/blur.wgsl").into());
         let sh_glyph = load("glyph.wgsl", include_str!("shaders/glyph.wgsl").into());
+        let sh_bloom = load("bloom.wgsl", include_str!("shaders/bloom.wgsl").into());
         let sh_present = load("present.wgsl", include_str!("shaders/present.wgsl").into());
 
         let sp_buf = [Some(VertexBufferLayout {
@@ -427,6 +467,34 @@ impl GpuPipelines {
             premul(TextureFormat::Rgba16Float),
             (1, None),
         );
+        let bloom_extract = build_pipe_fs(
+            device,
+            "bloom_extract",
+            &[&bloom_bgl],
+            &sh_bloom,
+            "fs_extract",
+            &[],
+            ColorTargetState {
+                format: TextureFormat::Rgba16Float,
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            },
+            (1, None),
+        );
+        let bloom_blur = build_pipe_fs(
+            device,
+            "bloom_blur",
+            &[&bloom_bgl],
+            &sh_bloom,
+            "fs_blur",
+            &[],
+            ColorTargetState {
+                format: TextureFormat::Rgba16Float,
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            },
+            (1, None),
+        );
         let present_scrgb = build_pipe(
             device,
             "present_scrgb",
@@ -521,6 +589,7 @@ impl GpuPipelines {
             leak_bgl,
             blur_bgl,
             glyph_bgl,
+            bloom_bgl,
             present_bgl,
             sprite_target,
             sprite_unorm,
@@ -536,6 +605,8 @@ impl GpuPipelines {
             blur_unorm,
             glyph_stencil,
             glyph_cover,
+            bloom_extract,
+            bloom_blur,
             present_scrgb,
             present_pq,
         }

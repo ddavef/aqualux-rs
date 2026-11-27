@@ -19,6 +19,7 @@ impl GameApp {
                 &self.renderer.fonts,
                 &self.save,
                 self.hdr_available,
+                self.hdr_manual_calibration,
             );
         }
         match self.screen {
@@ -211,9 +212,8 @@ impl GameApp {
             let win_chk = !self
                 .options_pending_fullscreen
                 .unwrap_or(self.save.config.fullscreen);
-            let hdr_chk = self
-                .hdr_available
-                && self.options_pending_hdr.unwrap_or(self.save.config.hdr);
+            let hdr_chk =
+                self.hdr_available && self.options_pending_hdr.unwrap_or(self.save.config.hdr);
             modals::render_modal_stack(
                 canvas,
                 &self.assets,
@@ -226,6 +226,7 @@ impl GameApp {
                 win_chk,
                 hdr_chk,
                 self.hdr_available,
+                self.hdr_manual_calibration,
                 self.time,
                 self.mouse_pos,
             );

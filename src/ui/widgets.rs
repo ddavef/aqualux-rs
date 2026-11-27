@@ -206,6 +206,8 @@ pub enum UiAction {
     ToggleColorBlind,
     ToggleWindowed,
     ToggleHdr,
+    SetHdrPaperWhite(f32),
+    SetHdrPeak(f32),
     CycleFps,
     OpenOptionsDifficulty,
     OptionsDone,
@@ -463,18 +465,37 @@ pub fn draw_checkbox_enabled(
 
 /// Renders 120px `#4283B3` volume slider track with draggable `#7EADCF` rounded nub.
 pub fn draw_slider(canvas: &mut Canvas, x: f32, y: f32, value_01: f32) {
+    draw_slider_enabled(canvas, x, y, value_01, true);
+}
+
+pub fn draw_slider_enabled(canvas: &mut Canvas, x: f32, y: f32, value_01: f32, enabled: bool) {
     let w = 120.0;
     let h = 20.0;
     let cy = y + h * 0.5;
-    canvas.draw_line(x, cy, x + w, cy, 4.0, (0x42, 0x83, 0xB3, 255));
+    let track_col = if enabled {
+        (0x42, 0x83, 0xB3, 255)
+    } else {
+        (0x32, 0x52, 0x6E, 180)
+    };
+    let nub_col = if enabled {
+        (0x7E, 0xAD, 0xCF, 255)
+    } else {
+        (0x55, 0x6C, 0x80, 190)
+    };
+    let border_col = if enabled {
+        (255, 255, 255, 255, 2.0)
+    } else {
+        (160, 170, 185, 190, 2.0)
+    };
+    canvas.draw_line(x, cy, x + w, cy, 4.0, track_col);
     let nx = x + value_01.clamp(0.0, 1.0) * w;
     let nw = 12.0;
     let nh = 20.0;
     canvas.draw_rounded_rect(
         Rect::new(nx - nw * 0.5, cy - nh * 0.5, nw, nh),
         4.0,
-        (0x7E, 0xAD, 0xCF, 255),
-        Some((255, 255, 255, 255, 2.0)),
+        nub_col,
+        Some(border_col),
     );
 }
 

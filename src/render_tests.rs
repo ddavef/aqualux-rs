@@ -2229,6 +2229,7 @@ fn modal_pop_in_pause_scrim_enter_name_clip_and_trophy_tooltip_render_parity() {
             true,
             false,
             false,
+            false,
             0.0,
             mpos,
         );
@@ -2370,6 +2371,7 @@ fn modal_pop_in_pause_scrim_enter_name_clip_and_trophy_tooltip_render_parity() {
             &app.renderer.fonts,
             &app.save,
             false,
+            false,
         )
         .into_iter()
         .filter(|bt| (bt.rect.w - 94.0).abs() < 0.5)
@@ -2404,6 +2406,7 @@ fn modal_pop_in_pause_scrim_enter_name_clip_and_trophy_tooltip_render_parity() {
         &[1.0],
         0.0,
         true,
+        false,
         false,
         false,
         0.0,
@@ -2503,7 +2506,13 @@ fn hdr_pipeline_scrgb_pq_and_emissive_headroom() {
         sdr_white_nits: 203.0,
         peak_headroom: 4.0,
     };
-    let px_4x = gpu.render_to_hdr_f32(&c_base, &bank_empty, LOGICAL_W as u32, LOGICAL_H as u32, scrgb_4x);
+    let px_4x = gpu.render_to_hdr_f32(
+        &c_base,
+        &bank_empty,
+        LOGICAL_W as u32,
+        LOGICAL_H as u32,
+        scrgb_4x,
+    );
     let black = hdr_px_at(&px_4x, 10, 10);
     assert!(
         black[0].abs() < 1e-4 && black[1].abs() < 1e-4 && black[2].abs() < 1e-4,
@@ -2537,8 +2546,13 @@ fn hdr_pipeline_scrgb_pq_and_emissive_headroom() {
         sdr_white_nits: 240.0,
         peak_headroom: 4.0,
     };
-    let px_win =
-        gpu.render_to_hdr_f32(&c_base, &bank_empty, LOGICAL_W as u32, LOGICAL_H as u32, scrgb_win);
+    let px_win = gpu.render_to_hdr_f32(
+        &c_base,
+        &bank_empty,
+        LOGICAL_W as u32,
+        LOGICAL_H as u32,
+        scrgb_win,
+    );
     let white_win = hdr_px_at(&px_win, 70, 70);
     assert!(
         (white_win[0] - 3.0).abs() < 0.05 && (white_win[1] - 3.0).abs() < 0.05,
@@ -2589,7 +2603,13 @@ fn hdr_pipeline_scrgb_pq_and_emissive_headroom() {
         leak.update(1.0 / 30.0);
     }
     leak.draw_at_fx(&mut c_fx, 500.0, 250.0, 1.0, 0.0);
-    let px_fx = gpu.render_to_hdr_f32(&c_fx, &bank_empty, LOGICAL_W as u32, LOGICAL_H as u32, scrgb_4x);
+    let px_fx = gpu.render_to_hdr_f32(
+        &c_fx,
+        &bank_empty,
+        LOGICAL_W as u32,
+        LOGICAL_H as u32,
+        scrgb_4x,
+    );
     let fw_peak = max_rgb_in(&px_fx, 150, 150, 250, 250);
     let leak_peak = max_rgb_in(&px_fx, 450, 220, 550, 340);
     assert!(
@@ -2604,8 +2624,13 @@ fn hdr_pipeline_scrgb_pq_and_emissive_headroom() {
         sdr_white_nits: 203.0,
         peak_headroom: 4.0,
     };
-    let pq =
-        gpu.render_to_hdr10_u10(&c_base, &bank_empty, LOGICAL_W as u32, LOGICAL_H as u32, pq_params);
+    let pq = gpu.render_to_hdr10_u10(
+        &c_base,
+        &bank_empty,
+        LOGICAL_W as u32,
+        LOGICAL_H as u32,
+        pq_params,
+    );
     let pq_at = |x: usize, y: usize| pq[y * LOGICAL_W + x];
     assert_eq!(pq_at(10, 10)[0], 0);
     let pq_white = pq_at(70, 70);
@@ -2634,10 +2659,18 @@ fn hdr_pipeline_scrgb_pq_and_emissive_headroom() {
         let mut c_real = Canvas::new();
         c_real.clear((0, 0, 0));
         draw_rainbow(&mut c_real, &renderer.bank, 1.0, 1.0);
-        let px_rb =
-            gpu.render_to_hdr_f32(&c_real, &renderer.bank, LOGICAL_W as u32, LOGICAL_H as u32, scrgb_4x);
+        let px_rb = gpu.render_to_hdr_f32(
+            &c_real,
+            &renderer.bank,
+            LOGICAL_W as u32,
+            LOGICAL_H as u32,
+            scrgb_4x,
+        );
         let rb_peak = max_rgb_in(&px_rb, 50, 120, 750, 560);
-        assert!(rb_peak > 1.45, "Rainbow win glow must reach HDR, got {rb_peak}");
+        assert!(
+            rb_peak > 1.45,
+            "Rainbow win glow must reach HDR, got {rb_peak}"
+        );
 
         let mut tile = Tile::from_def(
             &TileDef {
@@ -2666,7 +2699,8 @@ fn hdr_pipeline_scrgb_pq_and_emissive_headroom() {
         let mut c_pipe = Canvas::new();
         c_pipe.clear((0, 0, 0));
         let full_tid = renderer.bank.named("StraightFullBitmap").unwrap().0;
-        let (caps, radii, count) = crate::render::pipe_mask::build_pipe_capsules(&tile.fills, tile.direction);
+        let (caps, radii, count) =
+            crate::render::pipe_mask::build_pipe_capsules(&tile.fills, tile.direction);
         c_pipe.draw_pipe_masked(
             full_tid,
             400.0,
@@ -2682,10 +2716,18 @@ fn hdr_pipeline_scrgb_pq_and_emissive_headroom() {
             1.0,
             (0.0, 0.0),
         );
-        let px_pipe =
-            gpu.render_to_hdr_f32(&c_pipe, &renderer.bank, LOGICAL_W as u32, LOGICAL_H as u32, scrgb_4x);
+        let px_pipe = gpu.render_to_hdr_f32(
+            &c_pipe,
+            &renderer.bank,
+            LOGICAL_W as u32,
+            LOGICAL_H as u32,
+            scrgb_4x,
+        );
         let pipe_peak = max_rgb_in(&px_pipe, 340, 240, 460, 360);
-        assert!(pipe_peak > 1.15, "Pipe liquid must reach subtle HDR glow, got {pipe_peak}");
+        assert!(
+            pipe_peak > 1.15,
+            "Pipe liquid must reach subtle HDR glow, got {pipe_peak}"
+        );
 
         let mut c_text = Canvas::new();
         c_text.clear((0, 0, 0));
@@ -2699,8 +2741,13 @@ fn hdr_pipeline_scrgb_pq_and_emissive_headroom() {
             TextAlign::Center,
             "Options",
         );
-        let px_txt =
-            gpu.render_to_hdr_f32(&c_text, &renderer.bank, LOGICAL_W as u32, LOGICAL_H as u32, scrgb_4x);
+        let px_txt = gpu.render_to_hdr_f32(
+            &c_text,
+            &renderer.bank,
+            LOGICAL_W as u32,
+            LOGICAL_H as u32,
+            scrgb_4x,
+        );
         let txt_peak = max_rgb_in(&px_txt, 250, 260, 550, 340);
         assert!(
             txt_peak <= 1.02,
@@ -2711,10 +2758,252 @@ fn hdr_pipeline_scrgb_pq_and_emissive_headroom() {
         champ.age = 5.0;
         let mut c_ch = Canvas::new();
         c_ch.clear((0, 0, 0));
-        render_champion_screen(&mut c_ch, &renderer.bank, &renderer.fonts, &champ, (400.0, 300.0));
-        let px_ch =
-            gpu.render_to_hdr_f32(&c_ch, &renderer.bank, LOGICAL_W as u32, LOGICAL_H as u32, scrgb_4x);
+        render_champion_screen(
+            &mut c_ch,
+            &renderer.bank,
+            &renderer.fonts,
+            &champ,
+            (400.0, 300.0),
+        );
+        let px_ch = gpu.render_to_hdr_f32(
+            &c_ch,
+            &renderer.bank,
+            LOGICAL_W as u32,
+            LOGICAL_H as u32,
+            scrgb_4x,
+        );
         let ch_peak = max_rgb_in(&px_ch, 100, 80, 700, 360);
-        assert!(ch_peak > 1.25, "Champion title/glow must reach HDR, got {ch_peak}");
+        assert!(
+            ch_peak > 1.25,
+            "Champion title/glow must reach HDR, got {ch_peak}"
+        );
+    }
+}
+
+#[test]
+fn hdr_bloom_wcg_and_specular_sheen() {
+    use crate::render::hdr::HdrPresentParams;
+    use crate::render::{HdrOutputMode, LOGICAL_H, LOGICAL_W, draw_sprite_title};
+
+    let gpu = test_gpu();
+    let hdr_px_at = |buf: &[[f32; 4]], x: usize, y: usize| -> [f32; 4] { buf[y * LOGICAL_W + x] };
+    let max_rgb_in = |buf: &[[f32; 4]], x0: usize, y0: usize, x1: usize, y1: usize| -> f32 {
+        let mut best = 0.0f32;
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let p = hdr_px_at(buf, x, y);
+                best = best.max(p[0]).max(p[1]).max(p[2]);
+            }
+        }
+        best
+    };
+
+    let mut b_syn = empty_bundle();
+    let mut green_px = Vec::with_capacity(32 * 32 * 4);
+    let mut white_px = Vec::with_capacity(32 * 32 * 4);
+    let mut twotone_px = Vec::with_capacity(64 * 32 * 4);
+    for _y in 0..32 {
+        for _x in 0..32 {
+            green_px.extend_from_slice(&[0, 255, 0, 255]);
+            white_px.extend_from_slice(&[255, 255, 255, 255]);
+        }
+        for x in 0..64 {
+            if x < 32 {
+                twotone_px.extend_from_slice(&[30, 30, 30, 255]);
+            } else {
+                twotone_px.extend_from_slice(&[255, 255, 255, 255]);
+            }
+        }
+    }
+    b_syn.images.insert(
+        "green".into(),
+        RgbaImage {
+            width: 32,
+            height: 32,
+            data: green_px,
+        },
+    );
+    b_syn.images.insert(
+        "white".into(),
+        RgbaImage {
+            width: 32,
+            height: 32,
+            data: white_px,
+        },
+    );
+    b_syn.images.insert(
+        "twotone".into(),
+        RgbaImage {
+            width: 64,
+            height: 32,
+            data: twotone_px,
+        },
+    );
+    let bank_syn = TexBank::new(gpu.clone(), &b_syn);
+    let green_tid = bank_syn.named("green").unwrap().0;
+    let white_tid = bank_syn.named("white").unwrap().0;
+    let twotone_tid = bank_syn.named("twotone").unwrap().0;
+
+    let scrgb_4x = HdrPresentParams {
+        mode: HdrOutputMode::ScRgb,
+        scrgb_white_scale: 1.0,
+        sdr_white_nits: 203.0,
+        peak_headroom: 4.0,
+    };
+
+    // 1. Half-res thresholded HDR bloom produces halo around emissive sprite, zero haze near SDR white.
+    let mut c_bloom = Canvas::new();
+    c_bloom.clear((0, 0, 0));
+    c_bloom.fill_rect_alpha(Rect::new(50.0, 50.0, 40.0, 40.0), 255, 255, 255, 255);
+    c_bloom.draw_tex_rect(
+        white_tid,
+        Rect::new(500.0, 290.0, 20.0, 20.0),
+        None,
+        1.0,
+        1.0,
+    );
+    c_bloom.boost_last_sprite(1.65);
+    let px_bloom = gpu.render_to_hdr_f32(
+        &c_bloom,
+        &bank_syn,
+        LOGICAL_W as u32,
+        LOGICAL_H as u32,
+        scrgb_4x,
+    );
+    let near_sdr = hdr_px_at(&px_bloom, 95, 70);
+    assert!(
+        near_sdr[0].abs() < 1e-4 && near_sdr[1].abs() < 1e-4 && near_sdr[2].abs() < 1e-4,
+        "SDR rect must cast zero bloom haze, got {:?}",
+        near_sdr
+    );
+    let emissive_halo = hdr_px_at(&px_bloom, 526, 300);
+    assert!(
+        emissive_halo[0] > 0.03,
+        "Emissive sprite must cast smooth HDR bloom halo outside its edge, got {:?}",
+        emissive_halo
+    );
+
+    // 2. Wide Color Gamut expands saturated emissive greens beyond BT.709 into Display P3 / BT.2020.
+    let mut c_wcg = Canvas::new();
+    c_wcg.clear((0, 0, 0));
+    c_wcg.draw_tex_rect(
+        green_tid,
+        Rect::new(200.0, 200.0, 40.0, 40.0),
+        None,
+        1.0,
+        1.0,
+    );
+    c_wcg.boost_last_sprite(1.65);
+    c_wcg.fill_rect_alpha(Rect::new(50.0, 50.0, 40.0, 40.0), 255, 255, 255, 255);
+
+    let px_wcg = gpu.render_to_hdr_f32(
+        &c_wcg,
+        &bank_syn,
+        LOGICAL_W as u32,
+        LOGICAL_H as u32,
+        scrgb_4x,
+    );
+    let green_scrgb = hdr_px_at(&px_wcg, 220, 220);
+    assert!(
+        green_scrgb[1] > 1.8 && green_scrgb[0] < -0.02,
+        "Wide-gamut scRGB green must push past BT.709 (negative red primary), got {:?}",
+        green_scrgb
+    );
+    let white_scrgb = hdr_px_at(&px_wcg, 70, 70);
+    assert!(
+        (white_scrgb[0] - white_scrgb[1]).abs() < 0.01 && (white_scrgb[1] - 1.0).abs() < 0.02,
+        "Neutral SDR white must remain un-shifted at 1.0, got {:?}",
+        white_scrgb
+    );
+    let pq_wcg = gpu.render_to_hdr10_u10(
+        &c_wcg,
+        &bank_syn,
+        LOGICAL_W as u32,
+        LOGICAL_H as u32,
+        HdrPresentParams {
+            mode: HdrOutputMode::Hdr10Pq,
+            ..scrgb_4x
+        },
+    );
+    let green_pq = pq_wcg[220 * LOGICAL_W + 220];
+    assert!(
+        green_pq[1] > 640 && green_pq[1] <= 1023,
+        "HDR10 BT.2020 green PQ code must exceed SDR white, got {:?}",
+        green_pq
+    );
+
+    // 3. Luminance-gated specular sheen keeps SDR bit-identical and dark tones grounded in HDR.
+    let mut c_sheen = Canvas::new();
+    c_sheen.clear((0, 0, 0));
+    c_sheen.draw_tex_rect(
+        twotone_tid,
+        Rect::new(100.0, 100.0, 64.0, 32.0),
+        None,
+        1.0,
+        1.0,
+    );
+    c_sheen.sheen_last_sprite(1.42);
+    let sdr_sheen = gpu.render_to_rgba(&c_sheen, &bank_syn, LOGICAL_W as u32, LOGICAL_H as u32);
+    let sdr_dark = &sdr_sheen[(116 * LOGICAL_W + 108) * 4..(116 * LOGICAL_W + 108) * 4 + 3];
+    let sdr_hi = &sdr_sheen[(116 * LOGICAL_W + 148) * 4..(116 * LOGICAL_W + 148) * 4 + 3];
+    assert!(
+        sdr_dark[0].abs_diff(30) <= 1 && sdr_hi[0] == 255,
+        "SDR mode must ignore sheen tag bit-identically, got dark={:?} hi={:?}",
+        sdr_dark,
+        sdr_hi
+    );
+    let hdr_sheen = gpu.render_to_hdr_f32(
+        &c_sheen,
+        &bank_syn,
+        LOGICAL_W as u32,
+        LOGICAL_H as u32,
+        scrgb_4x,
+    );
+    let dark_lin = hdr_px_at(&hdr_sheen, 108, 116);
+    let hi_lin = hdr_px_at(&hdr_sheen, 148, 116);
+    assert!(
+        dark_lin[0] <= 0.025 && hi_lin[0] > 1.35,
+        "HDR sheen must keep dark ink grounded ({dark_lin:?}) while lifting specular highlights ({hi_lin:?})",
+    );
+
+    // 4. Real-asset Title logo and Platinum trophy sheen in HDR.
+    if let Some(path) = asset_file_if_present() {
+        let bundle = AssetBundle::load_from_path(path).expect("real assets load");
+        let renderer = Renderer::new(gpu.clone(), &bundle).expect("renderer");
+
+        let mut c_title = Canvas::new();
+        c_title.clear((0, 0, 0));
+        draw_sprite_title(&mut c_title, &bundle, &renderer.bank, 400.0, 120.0, 6.0);
+        let px_title = gpu.render_to_hdr_f32(
+            &c_title,
+            &renderer.bank,
+            LOGICAL_W as u32,
+            LOGICAL_H as u32,
+            scrgb_4x,
+        );
+        let title_peak = max_rgb_in(&px_title, 100, 40, 700, 240);
+        assert!(
+            title_peak > 1.25,
+            "Illuminated Title logo specular sheen must reach HDR, got {title_peak}"
+        );
+
+        let mut c_trop = Canvas::new();
+        c_trop.clear((0, 0, 0));
+        if let Some((tid, _, _)) = renderer.bank.named("PlatinumTrophyBitmap") {
+            c_trop.draw_tex_rect(tid, Rect::new(350.0, 250.0, 100.0, 100.0), None, 1.0, 1.0);
+            c_trop.sheen_last_sprite(1.45);
+        }
+        let px_trop = gpu.render_to_hdr_f32(
+            &c_trop,
+            &renderer.bank,
+            LOGICAL_W as u32,
+            LOGICAL_H as u32,
+            scrgb_4x,
+        );
+        let trop_peak = max_rgb_in(&px_trop, 350, 250, 450, 350);
+        assert!(
+            trop_peak > 1.25,
+            "Platinum trophy specular sheen must reach HDR, got {trop_peak}"
+        );
     }
 }

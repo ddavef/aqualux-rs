@@ -4,12 +4,10 @@
 use crate::render::canvas::{Canvas, DrawCmd, LOGICAL_H, LOGICAL_W, Rect};
 use crate::render::gpu_pipelines::GpuPipelines;
 use crate::render::gpu_types::{
-    PipeMaskInstance, PresentUniform, ShapeInstance, SpriteInstance, StageUniform, TexId,
-    build_color_matrix_table,
+    BloomUniform, PipeMaskInstance, PresentUniform, ShapeInstance, SpriteInstance, StageUniform,
+    TexId, build_color_matrix_table,
 };
-use crate::render::hdr::{
-    HdrDisplayCaps, HdrOutputMode, HdrPresentParams, query_surface_hdr_caps,
-};
+use crate::render::hdr::{HdrDisplayCaps, HdrOutputMode, HdrPresentParams, query_surface_hdr_caps};
 use crate::render::tex_bank::TexBank;
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
@@ -56,8 +54,17 @@ impl DynBuf {
 struct HdrSceneTarget {
     width: u32,
     height: u32,
+    bloom_w: u32,
+    bloom_h: u32,
     _tex: wgpu::Texture,
     view: TextureView,
+    _bloom_a: wgpu::Texture,
+    bloom_a_view: TextureView,
+    _bloom_b: wgpu::Texture,
+    bloom_b_view: TextureView,
+    bloom_ext_bg: BindGroup,
+    bloom_h_bg: BindGroup,
+    bloom_v_bg: BindGroup,
     present_bg: BindGroup,
 }
 
@@ -87,6 +94,9 @@ pub struct GpuCore {
     pub stage_cmat_hdr_bg: BindGroup,
     pub stage_only_hdr_bg: BindGroup,
     present_uni_buf: Buffer,
+    bloom_ext_uni: Buffer,
+    bloom_h_uni: Buffer,
+    bloom_v_uni: Buffer,
     bufs: Mutex<FrameBufs>,
 }
 
@@ -151,6 +161,16 @@ fn init_from_adapter(
         }),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
+    let mk_bloom_uni = |label| {
+        device.create_buffer_init(&BufferInitDescriptor {
+            label: Some(label),
+            contents: bytemuck::bytes_of(&BloomUniform { params: [0.0; 4] }),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        })
+    };
+    let bloom_ext_uni = mk_bloom_uni("bloom_ext_uni");
+    let bloom_h_uni = mk_bloom_uni("bloom_h_uni");
+    let bloom_v_uni = mk_bloom_uni("bloom_v_uni");
     let make_stage_cmat_bg = |label, buf: &Buffer| {
         device.create_bind_group(&BindGroupDescriptor {
             label: Some(label),
@@ -204,6 +224,9 @@ fn init_from_adapter(
         stage_cmat_hdr_bg,
         stage_only_hdr_bg,
         present_uni_buf,
+        bloom_ext_uni,
+        bloom_h_uni,
+        bloom_v_uni,
         bufs: Mutex::new(FrameBufs::default()),
     })
 }
@@ -539,7 +562,16 @@ impl GpuCore {
         let mut fbs = self.bufs.lock().expect("gpu bufs lock");
         let ops = self.prepare_scene_ops(canvas, &mut fbs);
         let mut enc = self.device.create_command_encoder(&Default::default());
-        self.encode_scene_pass(&mut enc, &fbs, ops, bank, target_view, phys_w, phys_h, false);
+        self.encode_scene_pass(
+            &mut enc,
+            &fbs,
+            ops,
+            bank,
+            target_view,
+            phys_w,
+            phys_h,
+            false,
+        );
         self.queue.submit(Some(enc.finish()));
     }
 
@@ -559,21 +591,53 @@ impl GpuCore {
             .as_ref()
             .is_none_or(|t| t.width != w || t.height != h);
         if need_new {
-            let tex = self.device.create_texture(&TextureDescriptor {
-                label: Some("hdr_scene_tex"),
-                size: Extent3d {
-                    width: w,
-                    height: h,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba16Float,
-                usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            });
+            let mk_hdr_tex = |label, tw, th| {
+                self.device.create_texture(&TextureDescriptor {
+                    label: Some(label),
+                    size: Extent3d {
+                        width: tw,
+                        height: th,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format: TextureFormat::Rgba16Float,
+                    usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                })
+            };
+            let (bw, bh) = ((w / 2).max(1), (h / 2).max(1));
+            let tex = mk_hdr_tex("hdr_scene_tex", w, h);
             let view = tex.create_view(&TextureViewDescriptor::default());
+            let bloom_a = mk_hdr_tex("hdr_bloom_a", bw, bh);
+            let bloom_a_view = bloom_a.create_view(&TextureViewDescriptor::default());
+            let bloom_b = mk_hdr_tex("hdr_bloom_b", bw, bh);
+            let bloom_b_view = bloom_b.create_view(&TextureViewDescriptor::default());
+
+            let mk_bloom_bg = |label, uni: &Buffer, src: &TextureView| {
+                self.device.create_bind_group(&BindGroupDescriptor {
+                    label: Some(label),
+                    layout: &self.pipelines.bloom_bgl,
+                    entries: &[
+                        BindGroupEntry {
+                            binding: 0,
+                            resource: uni.as_entire_binding(),
+                        },
+                        BindGroupEntry {
+                            binding: 1,
+                            resource: BindingResource::TextureView(src),
+                        },
+                        BindGroupEntry {
+                            binding: 2,
+                            resource: BindingResource::Sampler(&self.sampler),
+                        },
+                    ],
+                })
+            };
+            let bloom_ext_bg = mk_bloom_bg("bloom_ext_bg", &self.bloom_ext_uni, &view);
+            let bloom_h_bg = mk_bloom_bg("bloom_h_bg", &self.bloom_h_uni, &bloom_a_view);
+            let bloom_v_bg = mk_bloom_bg("bloom_v_bg", &self.bloom_v_uni, &bloom_b_view);
             let present_bg = self.device.create_bind_group(&BindGroupDescriptor {
                 label: Some("hdr_present_bg"),
                 layout: &self.pipelines.present_bgl,
@@ -586,13 +650,51 @@ impl GpuCore {
                         binding: 1,
                         resource: BindingResource::TextureView(&view),
                     },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: BindingResource::TextureView(&bloom_a_view),
+                    },
+                    BindGroupEntry {
+                        binding: 3,
+                        resource: BindingResource::Sampler(&self.sampler),
+                    },
                 ],
             });
+            self.queue.write_buffer(
+                &self.bloom_ext_uni,
+                0,
+                bytemuck::bytes_of(&BloomUniform {
+                    params: [1.0 / w as f32, 1.0 / h as f32, 0.0, 0.0],
+                }),
+            );
+            self.queue.write_buffer(
+                &self.bloom_h_uni,
+                0,
+                bytemuck::bytes_of(&BloomUniform {
+                    params: [1.0 / bw as f32, 1.0 / bh as f32, 1.0, 0.0],
+                }),
+            );
+            self.queue.write_buffer(
+                &self.bloom_v_uni,
+                0,
+                bytemuck::bytes_of(&BloomUniform {
+                    params: [1.0 / bw as f32, 1.0 / bh as f32, 0.0, 1.0],
+                }),
+            );
             fbs.hdr_scene = Some(HdrSceneTarget {
                 width: w,
                 height: h,
+                bloom_w: bw,
+                bloom_h: bh,
                 _tex: tex,
                 view,
+                _bloom_a: bloom_a,
+                bloom_a_view,
+                _bloom_b: bloom_b,
+                bloom_b_view,
+                bloom_ext_bg,
+                bloom_h_bg,
+                bloom_v_bg,
                 present_bg,
             });
         }
@@ -616,11 +718,11 @@ impl GpuCore {
         let mut enc = self.device.create_command_encoder(&Default::default());
         let scene = fbs.hdr_scene.as_ref().expect("hdr scene target");
         self.encode_scene_pass(&mut enc, &fbs, ops, bank, &scene.view, w, h, true);
-        {
+        let run_full = |enc: &mut CommandEncoder, label, pipe, bg, view, tw: u32, th: u32| {
             let mut rp = enc.begin_render_pass(&RenderPassDescriptor {
-                label: Some("hdr_present"),
+                label: Some(label),
                 color_attachments: &[Some(RenderPassColorAttachment {
-                    view: swapchain_view,
+                    view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: Operations {
@@ -633,16 +735,52 @@ impl GpuCore {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            rp.set_viewport(0.0, 0.0, w as f32, h as f32, 0.0, 1.0);
-            rp.set_scissor_rect(0, 0, w, h);
-            let present_pipe = match params.mode {
-                HdrOutputMode::ScRgb => &self.pipelines.present_scrgb,
-                HdrOutputMode::Hdr10Pq => &self.pipelines.present_pq,
-            };
-            rp.set_pipeline(present_pipe);
-            rp.set_bind_group(0, &scene.present_bg, &[]);
+            rp.set_viewport(0.0, 0.0, tw as f32, th as f32, 0.0, 1.0);
+            rp.set_scissor_rect(0, 0, tw, th);
+            rp.set_pipeline(pipe);
+            rp.set_bind_group(0, bg, &[]);
             rp.draw(0..3, 0..1);
-        }
+        };
+        run_full(
+            &mut enc,
+            "hdr_bloom_ext",
+            &self.pipelines.bloom_extract,
+            &scene.bloom_ext_bg,
+            &scene.bloom_a_view,
+            scene.bloom_w,
+            scene.bloom_h,
+        );
+        run_full(
+            &mut enc,
+            "hdr_bloom_h",
+            &self.pipelines.bloom_blur,
+            &scene.bloom_h_bg,
+            &scene.bloom_b_view,
+            scene.bloom_w,
+            scene.bloom_h,
+        );
+        run_full(
+            &mut enc,
+            "hdr_bloom_v",
+            &self.pipelines.bloom_blur,
+            &scene.bloom_v_bg,
+            &scene.bloom_a_view,
+            scene.bloom_w,
+            scene.bloom_h,
+        );
+        let present_pipe = match params.mode {
+            HdrOutputMode::ScRgb => &self.pipelines.present_scrgb,
+            HdrOutputMode::Hdr10Pq => &self.pipelines.present_pq,
+        };
+        run_full(
+            &mut enc,
+            "hdr_present",
+            present_pipe,
+            &scene.present_bg,
+            swapchain_view,
+            w,
+            h,
+        );
         self.queue.submit(Some(enc.finish()));
     }
 

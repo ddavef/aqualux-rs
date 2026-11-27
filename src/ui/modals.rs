@@ -5,6 +5,7 @@ use crate::assets::AssetBundle;
 use crate::game::generator::{GenDifficulty, MIN_GEN_COLS, MIN_GEN_ROWS};
 use crate::game::level_io::{MAX_GRID_COLS, MAX_GRID_ROWS};
 use crate::game::{AwardKind, Difficulty};
+use crate::render::hdr::{HDR_PAPER_WHITE_MAX, HDR_PAPER_WHITE_MIN, HDR_PEAK_MAX, HDR_PEAK_MIN};
 use crate::render::{
     Canvas, FontFamily, FontSet, GlowPreset, LOGICAL_H, LOGICAL_W, Rect, TexBank, TextAlign,
 };
@@ -18,7 +19,8 @@ use crate::ui::profiles::{
 use crate::ui::trophy_room::{build_trophy_room_buttons, render_trophy_room};
 use crate::ui::widgets::{
     ModalState, UiAction, UiButton, draw_checkbox, draw_checkbox_enabled, draw_modal_bubble,
-    draw_modal_button, draw_plain_text_button, draw_radio, draw_slider, draw_text_button,
+    draw_modal_button, draw_plain_text_button, draw_radio, draw_slider, draw_slider_enabled,
+    draw_text_button,
 };
 
 pub const OPTIONS_SLIDER_X: f32 = 435.0;
@@ -34,17 +36,28 @@ pub struct OptionsLayout {
     pub cb_y: f32,
     pub win_y: f32,
     pub hdr_y: f32,
+    pub hdr_white_y: Option<f32>,
+    pub hdr_peak_y: Option<f32>,
     pub fps_y: f32,
     pub done_y: f32,
 }
 
+#[cfg(test)]
 pub fn options_layout(allow_difficulty: bool) -> OptionsLayout {
+    options_layout_for(allow_difficulty, false)
+}
+
+pub fn options_layout_for(allow_difficulty: bool, show_hdr_calibration: bool) -> OptionsLayout {
     let bx = 215.0;
     let diff_off = 125.0;
     let cb_off = if allow_difficulty { 168.0 } else { 138.0 };
     let win_off = cb_off + 30.0;
     let hdr_off = win_off + 30.0;
-    let fps_off = hdr_off + 30.0;
+    let (white_off, peak_off, fps_off) = if show_hdr_calibration {
+        (Some(hdr_off + 30.0), Some(hdr_off + 60.0), hdr_off + 92.0)
+    } else {
+        (None, None, hdr_off + 30.0)
+    };
     let done_off = fps_off + 38.0;
     let bh = done_off + 53.0 + 18.0;
     let base_y = (LOGICAL_H as f32 - bh) * 0.5;
@@ -58,6 +71,8 @@ pub fn options_layout(allow_difficulty: bool) -> OptionsLayout {
         cb_y: base_y + cb_off,
         win_y: base_y + win_off,
         hdr_y: base_y + hdr_off,
+        hdr_white_y: white_off.map(|o| base_y + o),
+        hdr_peak_y: peak_off.map(|o| base_y + o),
         fps_y: base_y + fps_off,
         done_y: base_y + done_off,
     }
@@ -150,11 +165,13 @@ pub fn build_modal_buttons(
     fonts: &FontSet,
     save: &SaveData,
     hdr_available: bool,
+    hdr_manual_calibration: bool,
 ) -> Vec<UiButton> {
     match modal {
         ModalState::TrophyRoom { page, .. } => build_trophy_room_buttons(assets, bank, save, *page),
         ModalState::Options { allow_difficulty } => {
-            let lay = options_layout(*allow_difficulty);
+            let lay =
+                options_layout_for(*allow_difficulty, hdr_available && hdr_manual_calibration);
             let mut out = Vec::new();
             if *allow_difficulty {
                 out.push(UiButton {
@@ -421,6 +438,7 @@ pub fn render_modal_stack(
     options_windowed_checked: bool,
     options_hdr_checked: bool,
     hdr_available: bool,
+    hdr_manual_calibration: bool,
     time: f32,
     mouse_pos: (f32, f32),
 ) {
@@ -461,6 +479,7 @@ pub fn render_modal_stack(
                     options_windowed_checked,
                     options_hdr_checked,
                     hdr_available,
+                    hdr_manual_calibration,
                     mpos,
                 );
             }
@@ -535,9 +554,11 @@ fn render_options_modal(
     windowed_checked: bool,
     hdr_checked: bool,
     hdr_available: bool,
+    hdr_manual_calibration: bool,
     mouse_pos: (f32, f32),
 ) {
-    let lay = options_layout(allow_difficulty);
+    let show_cal = hdr_available && hdr_manual_calibration;
+    let lay = options_layout_for(allow_difficulty, show_cal);
     draw_modal_bubble(canvas, Rect::new(lay.bx, lay.base_y, 370.0, lay.bh));
 
     fonts.draw(
@@ -641,6 +662,44 @@ fn render_options_modal(
             && Rect::new(lay.bx + 20.0, lay.hdr_y, 330.0, 22.0).contains(mouse_pos.0, mouse_pos.1),
         hdr_available,
     );
+    if show_cal && let (Some(wy), Some(py)) = (lay.hdr_white_y, lay.hdr_peak_y) {
+        let cal_col = if hdr_checked {
+            (255, 255, 255)
+        } else {
+            (155, 165, 180)
+        };
+        let white_nits = save
+            .config
+            .hdr_paper_white_nits
+            .clamp(HDR_PAPER_WHITE_MIN, HDR_PAPER_WHITE_MAX);
+        let white_01 =
+            (white_nits - HDR_PAPER_WHITE_MIN) / (HDR_PAPER_WHITE_MAX - HDR_PAPER_WHITE_MIN);
+        fonts.draw(
+            canvas,
+            FontFamily::Neuropol,
+            lay.bx + 20.0,
+            wy + 1.0,
+            15.0,
+            cal_col,
+            TextAlign::Left,
+            &format!("hdr white ({:.0})", white_nits),
+        );
+        draw_slider_enabled(canvas, OPTIONS_SLIDER_X, wy, white_01, hdr_checked);
+
+        let peak_nits = save.config.hdr_peak_nits.clamp(HDR_PEAK_MIN, HDR_PEAK_MAX);
+        let peak_01 = (peak_nits - HDR_PEAK_MIN) / (HDR_PEAK_MAX - HDR_PEAK_MIN);
+        fonts.draw(
+            canvas,
+            FontFamily::Neuropol,
+            lay.bx + 20.0,
+            py + 1.0,
+            15.0,
+            cal_col,
+            TextAlign::Left,
+            &format!("hdr peak ({:.0})", peak_nits),
+        );
+        draw_slider_enabled(canvas, OPTIONS_SLIDER_X, py, peak_01, hdr_checked);
+    }
 
     fonts.draw(
         canvas,
@@ -918,6 +977,9 @@ fn render_award_modal(
             );
         }
         canvas.draw_tex_rect(tid, Rect::new(x, y, w, h), None, 1.0, 1.0);
+        if kind != AwardKind::Mystery {
+            canvas.sheen_last_sprite(1.38);
+        }
     }
     fonts.draw_multiline(
         canvas,

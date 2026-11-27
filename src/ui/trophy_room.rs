@@ -445,4 +445,14 @@ fn draw_trophy_slot(canvas: &mut Canvas, bank: &TexBank, rect: Rect, bmp_key: &s
         }
     }
     canvas.draw_tex_rect(tid, rect, None, 1.0, 1.0);
+    let sheen = match bmp_key {
+        "PlatinumTrophyBitmap" | "UltraluxTrophyBitmap" => Some(1.45),
+        "GoldTrophyBitmap" | "ChampTrophyBitmap" => Some(1.38),
+        "SilverTrophyBitmap" | "LightTrophyBitmap" | "MirrorTrophyBitmap" => Some(1.28),
+        "BronzeTrophyBitmap" => Some(1.20),
+        _ => None,
+    };
+    if let Some(s) = sheen {
+        canvas.sheen_last_sprite(s);
+    }
 }

@@ -174,6 +174,7 @@ pub fn draw_sprite_title(
                     color_shade,
                     1.0,
                 );
+                canvas.sheen_last_sprite(1.42);
             }
         } else if !true_revealed {
             let delay = 1.5 + (((idx * 37) % 23) as f32 / 22.0) * 1.15;
