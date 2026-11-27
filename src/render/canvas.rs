@@ -26,6 +26,7 @@ pub enum DrawCmd {
 pub struct Canvas {
     pub cmds: Vec<DrawCmd>,
     pub dpr: f32,
+    last_sprite_pushed: bool,
 }
 
 fn rgba_f(c: (u8, u8, u8, u8)) -> [f32; 4] {
@@ -42,23 +43,28 @@ impl Canvas {
         Self {
             cmds: Vec::with_capacity(512),
             dpr: 1.0,
+            last_sprite_pushed: false,
         }
     }
 
     pub fn begin_frame(&mut self, dpr: f32) {
         self.cmds.clear();
         self.dpr = dpr.max(1.0);
+        self.last_sprite_pushed = false;
     }
 
     pub fn clear(&mut self, rgb: (u8, u8, u8)) {
+        self.last_sprite_pushed = false;
         self.cmds.push(DrawCmd::Clear(rgb.0, rgb.1, rgb.2));
     }
 
     pub fn set_clip(&mut self, rect: Option<Rect>) {
+        self.last_sprite_pushed = false;
         self.cmds.push(DrawCmd::SetClip(rect));
     }
 
     pub fn fill_rect_alpha(&mut self, rect: Rect, r: u8, g: u8, b: u8, a: u8) {
+        self.last_sprite_pushed = false;
         if a == 0 || rect.w <= 0.0 || rect.h <= 0.0 {
             return;
         }
@@ -79,6 +85,7 @@ impl Canvas {
         fill: (u8, u8, u8, u8),
         border: Option<(u8, u8, u8, u8, f32)>,
     ) {
+        self.last_sprite_pushed = false;
         if rect.w <= 0.0 || rect.h <= 0.0 {
             return;
         }
@@ -100,6 +107,7 @@ impl Canvas {
     }
 
     pub fn draw_modal_bubble(&mut self, rect: Rect) {
+        self.last_sprite_pushed = false;
         let pad = 6.0;
         self.cmds.push(DrawCmd::Shape(ShapeInstance {
             bounds: [
@@ -117,6 +125,7 @@ impl Canvas {
     }
 
     pub fn fill_circle_alpha(&mut self, cx: f32, cy: f32, radius: f32, rgba: (u8, u8, u8, u8)) {
+        self.last_sprite_pushed = false;
         if radius <= 0.0 || rgba.3 == 0 {
             return;
         }
@@ -139,6 +148,7 @@ impl Canvas {
         thickness: f32,
         rgba: (u8, u8, u8, u8),
     ) {
+        self.last_sprite_pushed = false;
         if radius <= 0.0 || thickness <= 0.0 || rgba.3 == 0 {
             return;
         }
@@ -154,6 +164,7 @@ impl Canvas {
     }
 
     pub fn draw_star_glow(&mut self, cx: f32, cy: f32, radius: f32, opacity: f32) {
+        self.last_sprite_pushed = false;
         let op = opacity.clamp(0.0, 1.0);
         if radius <= 0.0 || op <= 0.004 {
             return;
@@ -170,6 +181,7 @@ impl Canvas {
     }
 
     pub fn draw_star_orb(&mut self, cx: f32, cy: f32, radius: f32, opacity: f32) {
+        self.last_sprite_pushed = false;
         let op = opacity.clamp(0.0, 1.0);
         if radius <= 0.0 || op <= 0.004 {
             return;
@@ -194,6 +206,7 @@ impl Canvas {
         thickness: f32,
         rgba: (u8, u8, u8, u8),
     ) {
+        self.last_sprite_pushed = false;
         if rgba.3 == 0 || thickness <= 0.0 {
             return;
         }
@@ -225,6 +238,7 @@ impl Canvas {
         tri_h: f32,
         bevel_scale: f32,
     ) {
+        self.last_sprite_pushed = false;
         let pad = stroke_w * 0.5 + 3.0;
         self.cmds.push(DrawCmd::Shape(ShapeInstance {
             bounds: [bx - pad, by - pad, bw + pad * 2.0, bh + tri_h + pad * 2.0],
@@ -237,6 +251,7 @@ impl Canvas {
     }
 
     pub fn draw_rainbow_tex(&mut self, tid: TexId, t_end: f32, alpha: f32, blur: (f32, f32)) {
+        self.last_sprite_pushed = false;
         let a = alpha.clamp(0.0, 1.0);
         if a <= 0.01 || t_end <= 0.005 {
             return;
@@ -253,6 +268,7 @@ impl Canvas {
                 tint: [1.0, 1.0, 1.0, blur.1],
             },
         ));
+        self.last_sprite_pushed = true;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -265,6 +281,7 @@ impl Canvas {
         alpha: f32,
         blur: (f32, f32),
     ) {
+        self.last_sprite_pushed = false;
         let a = alpha.clamp(0.0, 1.0);
         if a <= 0.004 || rect.w <= 0.0 || rect.h <= 0.0 {
             return;
@@ -279,6 +296,7 @@ impl Canvas {
                 tint: [1.0, 1.0, 1.0, blur.1],
             },
         ));
+        self.last_sprite_pushed = true;
     }
 
     pub fn draw_tex_rect(
@@ -308,6 +326,7 @@ impl Canvas {
         mirror_x: bool,
         blur: (f32, f32),
     ) {
+        self.last_sprite_pushed = false;
         let a = alpha.clamp(0.0, 1.0);
         if a <= 0.004 || draw_w <= 0.0 || draw_h <= 0.0 {
             return;
@@ -323,6 +342,7 @@ impl Canvas {
                 tint: [1.0, 1.0, 1.0, blur.1],
             },
         ));
+        self.last_sprite_pushed = true;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -336,6 +356,7 @@ impl Canvas {
         shade: f32,
         alpha: f32,
     ) {
+        self.last_sprite_pushed = false;
         let a = alpha.clamp(0.0, 1.0);
         if a <= 0.004 || w <= 0.0 || h <= 0.0 {
             return;
@@ -350,6 +371,7 @@ impl Canvas {
                 tint: [1.0, 1.0, 1.0, 0.0],
             },
         ));
+        self.last_sprite_pushed = true;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -363,6 +385,7 @@ impl Canvas {
         tint_rgb: [f32; 3],
         blur: (f32, f32),
     ) {
+        self.last_sprite_pushed = false;
         let a = alpha.clamp(0.0, 1.0);
         if a <= 0.004 {
             return;
@@ -377,6 +400,7 @@ impl Canvas {
                 tint: [tint_rgb[0], tint_rgb[1], tint_rgb[2], blur.1],
             },
         ));
+        self.last_sprite_pushed = true;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -396,6 +420,7 @@ impl Canvas {
         alpha: f32,
         blur: (f32, f32),
     ) {
+        self.last_sprite_pushed = false;
         let a = alpha.clamp(0.0, 1.0);
         if a <= 0.004 || count == 0 || draw_w <= 0.0 || draw_h <= 0.0 {
             return;
@@ -422,10 +447,14 @@ impl Canvas {
     }
 
     pub fn draw_leak(&mut self, uni: LeakUniform) {
+        self.last_sprite_pushed = false;
         self.cmds.push(DrawCmd::Leak(Box::new(uni)));
     }
 
     pub fn boost_last_sprite(&mut self, boost: f32) {
+        if !std::mem::replace(&mut self.last_sprite_pushed, false) {
+            return;
+        }
         let mult = boost.max(1.0);
         if let Some(DrawCmd::SpriteTex(_, inst) | DrawCmd::SpriteDirect(_, inst)) =
             self.cmds.last_mut()
@@ -437,6 +466,9 @@ impl Canvas {
     }
 
     pub fn sheen_last_sprite(&mut self, boost: f32) {
+        if !std::mem::replace(&mut self.last_sprite_pushed, false) {
+            return;
+        }
         let neg = -boost.max(1.0);
         if let Some(DrawCmd::SpriteTex(_, inst) | DrawCmd::SpriteDirect(_, inst)) =
             self.cmds.last_mut()
@@ -455,6 +487,7 @@ impl Canvas {
         scale: f32,
         alpha: f32,
     ) {
+        self.last_sprite_pushed = false;
         let a = alpha.clamp(0.0, 1.0);
         let s = scale.max(0.0);
         if a <= 0.004 || s <= 0.001 {

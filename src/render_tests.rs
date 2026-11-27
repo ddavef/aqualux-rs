@@ -3007,3 +3007,117 @@ fn hdr_bloom_wcg_and_specular_sheen() {
         );
     }
 }
+
+#[test]
+fn skipped_sprite_draws_do_not_boost_prior_snowy_hills_sprite_in_hdr() {
+    use crate::render::canvas::DrawCmd;
+    use crate::render::hdr::HdrPresentParams;
+    use crate::render::{BgAnimState, HdrOutputMode, LOGICAL_H, LOGICAL_W};
+    use crate::ui::summary::{SummaryHideAction, SummaryState, render_summary_screen};
+
+    let gpu = test_gpu();
+    let tid = TexBank::new(gpu.clone(), &empty_bundle()).rainbow_tex();
+
+    // 1. Skipped draw_rainbow_tex must not leak boost_last_sprite onto the previous sprite.
+    let mut c1 = Canvas::new();
+    c1.draw_tex_rect(tid, Rect::new(0.0, 0.0, 100.0, 100.0), None, 1.0, 1.0);
+    c1.draw_rainbow_tex(tid, 1.0, 0.005, (0.0, 0.0));
+    c1.boost_last_sprite(1.50);
+    c1.boost_last_sprite(1.28);
+    assert_eq!(c1.cmds.len(), 1);
+    match &c1.cmds[0] {
+        DrawCmd::SpriteTex(_, inst) => assert_eq!(inst.tint, [1.0, 1.0, 1.0, 0.0]),
+        _ => panic!("expected SpriteTex"),
+    }
+
+    // 2. Skipped draw_tex_rect_blur must not leak sheen_last_sprite onto the previous sprite.
+    let mut c2 = Canvas::new();
+    c2.draw_tex_rect(tid, Rect::new(0.0, 0.0, 100.0, 100.0), None, 1.0, 1.0);
+    c2.draw_tex_rect_blur(
+        tid,
+        Rect::new(10.0, 10.0, 50.0, 50.0),
+        None,
+        1.0,
+        0.002,
+        (0.0, 0.0),
+    );
+    c2.sheen_last_sprite(1.45);
+    assert_eq!(c2.cmds.len(), 1);
+    match &c2.cmds[0] {
+        DrawCmd::SpriteTex(_, inst) => assert_eq!(inst.tint, [1.0, 1.0, 1.0, 0.0]),
+        _ => panic!("expected SpriteTex"),
+    }
+
+    // 3. Double boost on one pushed sprite applies only once.
+    let mut c3 = Canvas::new();
+    c3.draw_tex_rect(tid, Rect::new(0.0, 0.0, 100.0, 100.0), None, 1.0, 1.0);
+    c3.boost_last_sprite(1.50);
+    c3.boost_last_sprite(1.50);
+    match &c3.cmds[0] {
+        DrawCmd::SpriteTex(_, inst) => assert_eq!(inst.tint, [1.50, 1.50, 1.50, 0.0]),
+        _ => panic!("expected SpriteTex"),
+    }
+
+    // 4. Real-asset SnowyHills + SummaryState late hide preserves SDR luminance on left hill.
+    if let Some(path) = asset_file_if_present() {
+        let bundle = AssetBundle::load_from_path(path).expect("real assets load");
+        let renderer = Renderer::new(gpu.clone(), &bundle).expect("renderer");
+        let mut bg = BgAnimState::new("SnowyHills");
+        bg.age = 6.0;
+        bg.darken = 0.2;
+
+        let res = calculate_score(4, 10, 5000, 4, 10, 10000, false);
+        let scrgb_4x = HdrPresentParams {
+            mode: HdrOutputMode::ScRgb,
+            scrgb_white_scale: 1.0,
+            sdr_white_nits: 203.0,
+            peak_headroom: 4.0,
+        };
+
+        for h in [1.88f32, 1.95f32] {
+            let mut summary = SummaryState::new(res, 0, 1000);
+            summary.age = 5.0;
+            summary.hiding = Some((h, SummaryHideAction::NextLevel));
+
+            let mut c = Canvas::new();
+            renderer.draw_background(&mut c, &bundle, &bg);
+            let bg_cmd_count = c.cmds.len();
+            render_summary_screen(
+                &mut c,
+                &renderer.bank,
+                &renderer.fonts,
+                &summary,
+                (-999.0, -999.0),
+            );
+
+            for cmd in &c.cmds[..bg_cmd_count] {
+                if let DrawCmd::SpriteTex(_, inst) = cmd {
+                    assert!(
+                        inst.tint[0] >= 0.0 && inst.tint[0] <= 1.001,
+                        "SnowyHills background sprite tint corrupted at h={h}: {:?}",
+                        inst.tint
+                    );
+                }
+            }
+
+            let px = gpu.render_to_hdr_f32(
+                &c,
+                &renderer.bank,
+                LOGICAL_W as u32,
+                LOGICAL_H as u32,
+                scrgb_4x,
+            );
+            let mut left_hill_peak = 0.0f32;
+            for y in 420..580 {
+                for x in 20..160 {
+                    let p = px[y * LOGICAL_W + x];
+                    left_hill_peak = left_hill_peak.max(p[0]).max(p[1]).max(p[2]);
+                }
+            }
+            assert!(
+                left_hill_peak <= 1.02,
+                "Left SnowyHills hill must stay SDR-grounded before transition (h={h}), got {left_hill_peak}"
+            );
+        }
+    }
+}

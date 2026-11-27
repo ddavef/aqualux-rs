@@ -23,6 +23,10 @@ impl ScoreBlurbFx {
 
 /// Renders the 6-stripe Bezier rainbow arch (`0..0.9s` `Strong.easeIn`, followed by `0.2s` `Strong.easeOut` `#FFFF9D` glow and `2px` blur).
 pub fn draw_rainbow(canvas: &mut Canvas, bank: &TexBank, age: f32, alpha: f32) {
+    let a = alpha.clamp(0.0, 1.0);
+    if a <= 0.01 {
+        return;
+    }
     let draw_p = (age / 0.9).clamp(0.0, 1.0);
     let t_end = strong_in(draw_p).clamp(0.01, 1.0);
     let glow_p = if age > 0.9 {
@@ -30,16 +34,11 @@ pub fn draw_rainbow(canvas: &mut Canvas, bank: &TexBank, age: f32, alpha: f32) {
     } else {
         0.0
     };
-    if glow_p > 0.004 {
-        canvas.draw_rainbow_tex(bank.rainbow_glow_tex(), 1.0, alpha * glow_p, (0.0, 0.0));
+    if a * glow_p > 0.01 {
+        canvas.draw_rainbow_tex(bank.rainbow_glow_tex(), 1.0, a * glow_p, (0.0, 0.0));
         canvas.boost_last_sprite(1.50);
     }
-    canvas.draw_rainbow_tex(
-        bank.rainbow_tex(),
-        t_end,
-        alpha,
-        (2.0 * glow_p, 2.0 * glow_p),
-    );
+    canvas.draw_rainbow_tex(bank.rainbow_tex(), t_end, a, (2.0 * glow_p, 2.0 * glow_p));
     canvas.boost_last_sprite(1.28);
 }
 
