@@ -2186,3 +2186,322 @@ fn endless_max_grid_varies_across_full_range_independent_of_presets() {
     assert!(hard_dims.iter().any(|&(_, r)| r <= 4));
     assert!(hard_dims.iter().any(|&(_, r)| r >= 7));
 }
+
+#[test]
+fn generator_portals_are_always_required_across_presets_and_custom() {
+    use std::collections::HashSet;
+
+    let assert_portals_strictly_required =
+        |lvl: &LevelDef, res: &crate::game::solver::SolveResult| {
+            let mut colors = Vec::new();
+            let mut seen = HashSet::new();
+            for t in &lvl.tiles {
+                if t.piece_type == PieceType::Portal
+                    && let Some(c) = t.secondary_color
+                    && seen.insert(c)
+                {
+                    colors.push(c);
+                }
+            }
+            if colors.is_empty() {
+                return false;
+            }
+            let visited: HashSet<(usize, usize)> = res.path.iter().map(|s| (s.x, s.y)).collect();
+            for &c in &colors {
+                assert!(
+                    lvl.tiles.iter().any(|t| {
+                        t.piece_type == PieceType::Portal
+                            && t.secondary_color == Some(c)
+                            && visited.contains(&(t.x, t.y))
+                    }),
+                    "portal color {:?} was bypassed in solution of '{}'",
+                    c,
+                    lvl.title
+                );
+                let mut stripped = lvl.clone();
+                for t in &mut stripped.tiles {
+                    if t.piece_type == PieceType::Portal && t.secondary_color == Some(c) {
+                        *t = TileDef {
+                            x: t.x,
+                            y: t.y,
+                            ..TileDef::dummy_blocker()
+                        };
+                    }
+                }
+                match solve_level(&stripped, Duration::from_millis(150)) {
+                    SolveOutcome::Unsolvable(_) => {}
+                    other => panic!(
+                        "level '{}' remained {:?} after removing {:?} portals",
+                        lvl.title, other, c
+                    ),
+                }
+            }
+            true
+        };
+
+    let mut saw_two_pairs = false;
+
+    for (diff_idx, diff) in [GenDifficulty::Medium, GenDifficulty::Hard]
+        .into_iter()
+        .enumerate()
+    {
+        let mut portal_levels = 0usize;
+        for &(max_c, max_r, count) in &[(10usize, 8usize, 24usize), (5, 4, 12)] {
+            for seed in 0..count {
+                let mut rng = StdRng::seed_from_u64(
+                    20_000 + (diff_idx as u64) * 500 + (max_c as u64) * 20 + seed as u64,
+                );
+                let lvl = generate_custom_level_with_max_size(diff, max_c, max_r, &mut rng);
+                assert!(validate_level_structure(&lvl).is_empty());
+                let SolveOutcome::Solvable(res) = solve_level(&lvl, Duration::from_millis(250))
+                else {
+                    panic!("{:?} level not solvable", diff);
+                };
+                assert!(res.verified_by_sim && !res.moves.is_empty());
+                if assert_portals_strictly_required(&lvl, &res) {
+                    portal_levels += 1;
+                    if lvl
+                        .tiles
+                        .iter()
+                        .filter(|t| t.piece_type == PieceType::Portal)
+                        .count()
+                        >= 4
+                    {
+                        saw_two_pairs = true;
+                    }
+                }
+            }
+        }
+        assert!(
+            portal_levels >= 8,
+            "expected several portal levels for {:?}, got {}",
+            diff,
+            portal_levels
+        );
+    }
+
+    let custom_suites = [
+        (EndlessElements::default(), 10usize, 8usize, 24usize),
+        (EndlessElements::default(), 4, 3, 12),
+        (
+            EndlessElements {
+                movable: true,
+                rotatable: true,
+                immovable: true,
+                frosted: true,
+                rocks: false,
+                gate_magic: true,
+                portals: true,
+            },
+            8,
+            6,
+            20,
+        ),
+        (
+            EndlessElements {
+                movable: false,
+                rotatable: true,
+                immovable: false,
+                frosted: true,
+                rocks: false,
+                gate_magic: true,
+                portals: true,
+            },
+            8,
+            6,
+            20,
+        ),
+        (
+            EndlessElements {
+                movable: true,
+                rotatable: false,
+                immovable: false,
+                frosted: true,
+                rocks: false,
+                gate_magic: false,
+                portals: true,
+            },
+            8,
+            6,
+            20,
+        ),
+        (
+            EndlessElements {
+                movable: true,
+                rotatable: false,
+                immovable: false,
+                frosted: false,
+                rocks: false,
+                gate_magic: false,
+                portals: true,
+            },
+            4,
+            3,
+            12,
+        ),
+    ];
+
+    for (suite_idx, &(el, max_c, max_r, count)) in custom_suites.iter().enumerate() {
+        let mut suite_portals = 0usize;
+        for seed in 0..count {
+            let mut rng = StdRng::seed_from_u64(30_000 + (suite_idx as u64) * 200 + seed as u64);
+            let lvl = generate_custom_level_with_elements(max_c, max_r, el, &mut rng);
+            assert!(validate_level_structure(&lvl).is_empty());
+            if !el.rocks {
+                assert!(!lvl.tiles.iter().any(|t| t.piece_type == PieceType::Blocker));
+            }
+            if !el.immovable {
+                assert!(!lvl.tiles.iter().any(|t| {
+                    matches!(t.piece_type, PieceType::Pipe | PieceType::FrozenPipe)
+                        && !t.is_moveable
+                        && !t.can_rotate
+                        && !t.is_gate
+                        && !t.is_magic
+                }));
+            }
+            if !el.movable {
+                assert!(!lvl.tiles.iter().any(|t| t.is_moveable));
+            }
+            if !el.rotatable {
+                assert!(!lvl.tiles.iter().any(|t| t.can_rotate));
+            }
+            let SolveOutcome::Solvable(res) = solve_level(&lvl, Duration::from_millis(250)) else {
+                panic!("custom suite {} seed {} not solvable", suite_idx, seed);
+            };
+            assert!(res.verified_by_sim && !res.moves.is_empty());
+            if assert_portals_strictly_required(&lvl, &res) {
+                suite_portals += 1;
+                if lvl
+                    .tiles
+                    .iter()
+                    .filter(|t| t.piece_type == PieceType::Portal)
+                    .count()
+                    >= 4
+                {
+                    saw_two_pairs = true;
+                }
+            }
+        }
+        assert!(
+            suite_portals >= count / 3,
+            "suite {} generated too few portal levels: {}/{}",
+            suite_idx,
+            suite_portals,
+            count
+        );
+    }
+    assert!(
+        saw_two_pairs,
+        "expected at least one 2-portal-pair (4 portals) generated level"
+    );
+}
+
+#[test]
+fn generator_gate_magic_levels_are_varied_and_campaign_like() {
+    use std::collections::HashSet;
+
+    let mut max_magics = 0usize;
+    let mut saw_multi_gate_board = false;
+    let mut saw_multi_gate_path = false;
+    let mut saw_rich_magic = false;
+    let mut saw_gate_plus_portal = false;
+
+    let check_gm_level = |lvl: &LevelDef,
+                          max_magics: &mut usize,
+                          saw_multi_gate_board: &mut bool,
+                          saw_multi_gate_path: &mut bool,
+                          saw_rich_magic: &mut bool,
+                          saw_gate_plus_portal: &mut bool| {
+        assert!(validate_level_structure(lvl).is_empty());
+        let SolveOutcome::Solvable(res) = solve_level(lvl, Duration::from_millis(250)) else {
+            panic!("generated gate/magic level '{}' not solvable", lvl.title);
+        };
+        assert!(res.verified_by_sim && !res.moves.is_empty());
+
+        let gates: Vec<&TileDef> = lvl.tiles.iter().filter(|t| t.is_gate).collect();
+        let magics: Vec<&TileDef> = lvl.tiles.iter().filter(|t| t.is_magic).collect();
+        assert_eq!(gates.is_empty(), magics.is_empty());
+        if gates.is_empty() {
+            return;
+        }
+
+        let visited: HashSet<(usize, usize)> = res.path.iter().map(|s| (s.x, s.y)).collect();
+        let gates_on_path = gates
+            .iter()
+            .filter(|t| visited.contains(&(t.x, t.y)))
+            .count();
+        let magics_on_path = magics
+            .iter()
+            .filter(|t| visited.contains(&(t.x, t.y)))
+            .count();
+        assert!(
+            gates_on_path >= 1 && magics_on_path >= 1,
+            "expected gate and magic tiles traversed in '{}' (on path: g={} m={})",
+            lvl.title,
+            gates_on_path,
+            magics_on_path
+        );
+
+        *max_magics = (*max_magics).max(magics.len());
+        if magics.len() >= 6 {
+            *saw_rich_magic = true;
+        }
+        if gates.len() >= 2 {
+            *saw_multi_gate_board = true;
+        }
+        if gates_on_path >= 2 {
+            *saw_multi_gate_path = true;
+        }
+        if lvl.tiles.iter().any(|t| t.piece_type == PieceType::Portal) {
+            *saw_gate_plus_portal = true;
+        }
+    };
+
+    for seed in 0..30u64 {
+        let mut rng = StdRng::seed_from_u64(40_000 + seed);
+        let lvl = generate_custom_level_with_max_size(GenDifficulty::Hard, 10, 8, &mut rng);
+        check_gm_level(
+            &lvl,
+            &mut max_magics,
+            &mut saw_multi_gate_board,
+            &mut saw_multi_gate_path,
+            &mut saw_rich_magic,
+            &mut saw_gate_plus_portal,
+        );
+    }
+
+    for portals in [false, true] {
+        let el = EndlessElements {
+            gate_magic: true,
+            portals,
+            ..EndlessElements::default()
+        };
+        for seed in 0..30u64 {
+            let mut rng = StdRng::seed_from_u64(45_000 + u64::from(portals) * 1000 + seed);
+            let lvl = generate_custom_level_with_elements(9, 7, el, &mut rng);
+            check_gm_level(
+                &lvl,
+                &mut max_magics,
+                &mut saw_multi_gate_board,
+                &mut saw_multi_gate_path,
+                &mut saw_rich_magic,
+                &mut saw_gate_plus_portal,
+            );
+        }
+    }
+
+    assert!(
+        saw_rich_magic && max_magics >= 8,
+        "expected rich campaign-style magic constellations (>=8 magics), max observed={}",
+        max_magics
+    );
+    assert!(saw_multi_gate_board, "expected levels with >=2 gates");
+    assert!(
+        saw_multi_gate_path,
+        "expected levels where solution traverses >=2 gates"
+    );
+    assert!(
+        saw_gate_plus_portal,
+        "expected levels combining gate/magic and portals"
+    );
+}
