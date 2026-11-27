@@ -6,7 +6,7 @@ use crate::custom::{CustomPackStore, LoadedPack, PackSource, sanitize_pack_id, v
 use crate::game::Difficulty;
 use crate::game::generator::{
     GenDifficulty, MIN_GEN_COLS, MIN_GEN_ROWS, generate_custom_level,
-    generate_custom_level_with_max_size,
+    generate_custom_level_with_elements, generate_custom_level_with_max_size,
 };
 use crate::game::level_io::{
     CustomPackFile, CustomPackMeta, MAX_CUSTOM_XML_BYTES, MAX_GRID_COLS, MAX_GRID_ROWS,
@@ -18,13 +18,13 @@ use crate::game::types::{
     CAMPAIGN_LIQUID_COLORS, GameColor, LevelDef, PieceShape, PieceType, TileDef, TutorialMsg,
 };
 use crate::render::{BoardLayout, Canvas};
-use crate::save::{ProfileData, SaveData};
+use crate::save::{EndlessElements, ProfileData, SaveData};
 use crate::tests::{asset_file_if_present, test_gpu};
 use crate::ui::editor::{EditorState, EditorTool, PipeBehavior, SolveStatus, editor_board_area};
 use crate::ui::title::title_menu_metrics;
 use crate::ui::title_data::{TitleSubmenu, menu_entries};
 use crate::ui::widgets::{ModalState, QuestionId, UiAction};
-use crate::ui::{EndlessConfig, EndlessRules, GameApp, PlayMode, Screen};
+use crate::ui::{EndlessConfig, EndlessElement, EndlessRules, GameApp, PlayMode, Screen};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::fs;
@@ -336,7 +336,6 @@ fn custom_pack_store_lifecycle_and_safety() {
 
     let _ = fs::remove_dir_all(&root);
 }
-
 #[test]
 fn solver_validation_and_mechanics() {
     // Structural checks
@@ -803,7 +802,6 @@ fn custom_hub_pack_and_level_management_and_drop_import() {
 
     let _ = fs::remove_dir_all(&root);
 }
-
 #[test]
 fn custom_pack_playback_and_isolated_progress() {
     let Some(path) = asset_file_if_present() else {
@@ -869,7 +867,6 @@ fn custom_pack_playback_and_isolated_progress() {
 
     let _ = fs::remove_dir_all(&root);
 }
-
 #[test]
 fn editor_grid_editing_undo_redo_resize_verify_autopar_and_save() {
     let Some(path) = asset_file_if_present() else {
@@ -1079,7 +1076,6 @@ fn editor_grid_editing_undo_redo_resize_verify_autopar_and_save() {
 
     let _ = fs::remove_dir_all(&root);
 }
-
 #[test]
 fn editor_playtest_round_trip_and_unsaved_guard() {
     let Some(path) = asset_file_if_present() else {
@@ -1165,7 +1161,6 @@ fn editor_playtest_round_trip_and_unsaved_guard() {
 
     let _ = fs::remove_dir_all(&root);
 }
-
 fn sample_pack(name: &str) -> CustomPackFile {
     CustomPackFile {
         meta: CustomPackMeta {
@@ -1260,7 +1255,6 @@ fn pack_dir_and_delete_guards_block_unsafe_paths_and_tampered_files() {
 
     let _ = fs::remove_dir_all(&root);
 }
-
 #[cfg(unix)]
 #[test]
 fn symlink_guards_block_delete_and_overwrite() {
@@ -1356,7 +1350,6 @@ fn symlink_guards_block_delete_and_overwrite() {
 
     let _ = fs::remove_dir_all(&root);
 }
-
 #[test]
 fn endless_mode_setup_difficulty_max_grid_progression_retry_and_no_persistence() {
     use crate::game::Difficulty;
@@ -1614,7 +1607,6 @@ fn endless_mode_setup_difficulty_max_grid_progression_retry_and_no_persistence()
 
     let _ = fs::remove_dir_all(&root);
 }
-
 #[test]
 fn campaign_liquid_colors_enforced_in_generator_and_editor() {
     use std::collections::HashSet;
@@ -1722,6 +1714,12 @@ fn endless_config_persists_per_profile_and_sanitizes_loaded_save() {
         easy: false,
         medium: true,
         hard: false,
+        custom: true,
+        elements: EndlessElements {
+            frosted: false,
+            rocks: false,
+            ..Default::default()
+        },
         max_cols: 6,
         max_rows: 5,
         rules: EndlessRules::Fixed(Difficulty::Easy),
@@ -1762,6 +1760,10 @@ fn endless_config_persists_per_profile_and_sanitizes_loaded_save() {
                     "easy": false,
                     "medium": false,
                     "hard": false,
+                    "elements": {
+                        "movable": false,
+                        "rotatable": false
+                    },
                     "max_cols": 99,
                     "max_rows": 1,
                     "rules": "MatchLevel"
@@ -1780,6 +1782,7 @@ fn endless_config_persists_per_profile_and_sanitizes_loaded_save() {
             max_cols: MAX_GRID_COLS,
             max_rows: MIN_GEN_ROWS,
             rules: EndlessRules::MatchLevel,
+            ..Default::default()
         }
     );
 
@@ -1836,6 +1839,7 @@ fn endless_config_persists_per_profile_and_sanitizes_loaded_save() {
             max_cols: 5,
             max_rows: 4,
             rules: EndlessRules::Fixed(Difficulty::Hard),
+            ..Default::default()
         };
         assert_eq!(app.save.save_count.get(), saves_before_cancel + 1);
         assert_eq!(
@@ -1881,6 +1885,7 @@ fn endless_config_persists_per_profile_and_sanitizes_loaded_save() {
             max_cols: 7,
             max_rows: 5,
             rules: EndlessRules::Fixed(Difficulty::Easy),
+            ..Default::default()
         };
         assert_eq!(app.save.profiles[0].endless_config, expected_alice);
         assert_eq!(app.save.profiles[1].endless_config, expected_bob);
@@ -1902,4 +1907,282 @@ fn endless_config_persists_per_profile_and_sanitizes_loaded_save() {
     }
 
     let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn endless_custom_board_elements_validation_generator_and_modal() {
+    let mut cfg = EndlessConfig::default();
+    assert!(cfg.any_enabled());
+
+    // Switching to Custom prevents Easy/Medium/Hard toggling.
+    cfg.toggle_custom();
+    assert!(cfg.custom);
+    let easy_before = cfg.easy;
+    cfg.toggle(GenDifficulty::Easy);
+    assert_eq!(cfg.easy, easy_before);
+
+    // Immovable and Gate & Magic cannot stand without Movable or Rotatable pipes.
+    cfg.toggle_element(EndlessElement::Movable);
+    cfg.toggle_element(EndlessElement::Rotatable);
+    assert!(cfg.elements.immovable && cfg.elements.gate_magic);
+    assert!(!cfg.any_enabled());
+    cfg.toggle_element(EndlessElement::Rotatable);
+    assert!(cfg.any_enabled());
+
+    let assert_level_respects = |lvl: &LevelDef, el: EndlessElements| {
+        assert!(validate_level_structure(lvl).is_empty());
+        assert_eq!(
+            lvl.tiles
+                .iter()
+                .filter(|t| t.piece_type == PieceType::Source)
+                .count(),
+            1
+        );
+        assert_eq!(
+            lvl.tiles
+                .iter()
+                .filter(|t| t.piece_type == PieceType::Drain)
+                .count(),
+            1
+        );
+        for t in &lvl.tiles {
+            if !el.movable {
+                assert!(!t.is_moveable, "unexpected movable pipe: {:?}", t);
+            }
+            if !el.rotatable {
+                assert!(!t.can_rotate, "unexpected rotatable pipe: {:?}", t);
+            }
+            if !el.immovable
+                && matches!(t.piece_type, PieceType::Pipe | PieceType::FrozenPipe)
+                && !t.is_gate
+                && !t.is_magic
+            {
+                assert!(
+                    t.is_moveable || t.can_rotate,
+                    "unexpected immovable pipe: {:?}",
+                    t
+                );
+            }
+            if !el.frosted {
+                assert!(
+                    !t.is_freeze && t.piece_type != PieceType::FrozenPipe,
+                    "unexpected frosted pipe: {:?}",
+                    t
+                );
+            }
+            if !el.rocks {
+                assert_ne!(t.piece_type, PieceType::Blocker, "unexpected rock: {:?}", t);
+            }
+            if !el.gate_magic {
+                assert!(!t.is_gate && !t.is_magic, "unexpected gate/magic: {:?}", t);
+            }
+            if !el.portals {
+                assert_ne!(
+                    t.piece_type,
+                    PieceType::Portal,
+                    "unexpected portal: {:?}",
+                    t
+                );
+            }
+        }
+        match solve_level(lvl, Duration::from_millis(250)) {
+            SolveOutcome::Solvable(res) => assert!(res.verified_by_sim),
+            other => panic!("custom level not solvable: {:?}", other),
+        }
+    };
+
+    // Generator presets: movable-only (both 4x3 and 8x6), rotatable + modifiers, and all elements.
+    let mov_only = EndlessElements {
+        movable: true,
+        rotatable: false,
+        immovable: false,
+        frosted: false,
+        rocks: false,
+        gate_magic: false,
+        portals: false,
+    };
+    for (max_c, max_r) in [(4usize, 3usize), (8, 6)] {
+        for seed in 0..8u64 {
+            let mut rng = StdRng::seed_from_u64(9000 + max_c as u64 * 20 + seed);
+            let lvl = generate_custom_level_with_elements(max_c, max_r, mov_only, &mut rng);
+            assert_level_respects(&lvl, mov_only);
+        }
+    }
+
+    let rot_mods = EndlessElements {
+        movable: false,
+        rotatable: true,
+        immovable: true,
+        frosted: true,
+        rocks: true,
+        gate_magic: false,
+        portals: false,
+    };
+    let (mut saw_imm, mut saw_frz, mut saw_rock) = (false, false, false);
+    for seed in 0..16u64 {
+        let mut rng = StdRng::seed_from_u64(9200 + seed);
+        let lvl = generate_custom_level_with_elements(8, 6, rot_mods, &mut rng);
+        assert_level_respects(&lvl, rot_mods);
+        saw_imm |= lvl.tiles.iter().any(|t| {
+            matches!(t.piece_type, PieceType::Pipe | PieceType::FrozenPipe)
+                && !t.is_moveable
+                && !t.can_rotate
+                && !t.is_gate
+                && !t.is_magic
+        });
+        saw_frz |= lvl
+            .tiles
+            .iter()
+            .any(|t| t.is_freeze || t.piece_type == PieceType::FrozenPipe);
+        saw_rock |= lvl.tiles.iter().any(|t| t.piece_type == PieceType::Blocker);
+    }
+    assert!(saw_imm && saw_frz && saw_rock);
+
+    let all_el = EndlessElements::default();
+    let (mut saw_gate, mut saw_magic, mut saw_portal) = (false, false, false);
+    for seed in 0..24u64 {
+        let mut rng = StdRng::seed_from_u64(9400 + seed);
+        let lvl = generate_custom_level_with_elements(8, 6, all_el, &mut rng);
+        assert_level_respects(&lvl, all_el);
+        let has_g = lvl.tiles.iter().any(|t| t.is_gate);
+        let has_m = lvl.tiles.iter().any(|t| t.is_magic);
+        assert_eq!(has_g, has_m, "gate and magic must appear together");
+        saw_gate |= has_g;
+        saw_magic |= has_m;
+        saw_portal |= lvl.tiles.iter().any(|t| t.piece_type == PieceType::Portal);
+    }
+    assert!(saw_gate && saw_magic && saw_portal);
+
+    // Real-asset GameApp modal wiring + launch enforcement.
+    if let Some(path) = asset_file_if_present() {
+        let root = std::env::temp_dir().join(format!("aqualux_custom_el_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let primary = root.join("custom_packs");
+        let bundle = AssetBundle::load_from_path(path).expect("real assets load");
+        let mut app = GameApp::new_with_custom_dir(bundle, Some(120), Some(&primary), test_gpu())
+            .expect("GameApp init");
+        app.save.set_or_create_profile("Tester");
+        app.screen = Screen::Title;
+        app.trigger_action(UiAction::OpenEndlessSetup);
+
+        let btns_std = app.current_buttons();
+        assert!(btns_std.iter().any(|b| b.id == "end_easy" && b.enabled));
+        assert!(btns_std.iter().any(|b| b.id == "end_el_mov" && !b.enabled));
+
+        app.trigger_action(UiAction::EndlessToggleCustom);
+        let btns_custom = app.current_buttons();
+        assert!(btns_custom.iter().any(|b| b.id == "end_easy" && !b.enabled));
+        assert!(
+            btns_custom
+                .iter()
+                .any(|b| b.id == "end_custom" && b.enabled)
+        );
+        assert!(
+            btns_custom
+                .iter()
+                .any(|b| b.id == "end_el_mov" && b.enabled)
+        );
+        let mut canvas = Canvas::new();
+        app.render(&mut canvas);
+
+        // Uncheck both Movable & Rotatable -> Play disabled & ignored.
+        app.trigger_action(UiAction::EndlessToggleElement(EndlessElement::Movable));
+        app.trigger_action(UiAction::EndlessToggleElement(EndlessElement::Rotatable));
+        assert!(
+            app.current_buttons()
+                .iter()
+                .any(|b| b.id == "end_play" && !b.enabled)
+        );
+        app.trigger_action(UiAction::StartEndlessRun);
+        assert!(matches!(
+            app.modals.last(),
+            Some(ModalState::EndlessSetup(_))
+        ));
+
+        // Re-enable Rotatable, disable Rocks & Portals, and launch run.
+        app.trigger_action(UiAction::EndlessToggleElement(EndlessElement::Rotatable));
+        app.trigger_action(UiAction::EndlessToggleElement(EndlessElement::Rocks));
+        app.trigger_action(UiAction::EndlessToggleElement(EndlessElement::Portals));
+        app.trigger_action(UiAction::StartEndlessRun);
+        assert!(app.modals.is_empty());
+        for _ in 0..45 {
+            app.update(0.05);
+        }
+        assert_eq!(app.screen, Screen::Playing);
+        let saved_cfg = app.save.active_profile().unwrap().endless_config;
+        assert!(saved_cfg.custom);
+        assert!(!saved_cfg.elements.movable);
+        assert!(saved_cfg.elements.rotatable);
+        assert!(!saved_cfg.elements.rocks);
+        assert!(!saved_cfg.elements.portals);
+
+        let lvl = &app.campaign_sim.as_ref().expect("active level").level;
+        assert_level_respects(lvl, saved_cfg.elements);
+        let _ = fs::remove_dir_all(&root);
+    }
+}
+
+#[test]
+fn endless_max_grid_varies_across_full_range_independent_of_presets() {
+    let mut custom_dims = Vec::new();
+    let custom_el = EndlessElements::default();
+    for seed in 0..30u64 {
+        let mut rng = StdRng::seed_from_u64(11000 + seed);
+        let lvl = generate_custom_level_with_elements(8, 6, custom_el, &mut rng);
+        assert!(lvl.cols >= MIN_GEN_COLS && lvl.cols <= 8);
+        assert!(lvl.rows >= MIN_GEN_ROWS && lvl.rows <= 6);
+        assert!(validate_level_structure(&lvl).is_empty());
+        match solve_level(&lvl, Duration::from_millis(250)) {
+            SolveOutcome::Solvable(res) => assert!(res.verified_by_sim),
+            other => panic!("custom seed {seed} not solvable: {other:?}"),
+        }
+        custom_dims.push((lvl.cols, lvl.rows));
+    }
+    assert!(custom_dims.iter().any(|&(c, _)| c <= 5));
+    assert!(custom_dims.iter().any(|&(c, _)| c >= 7));
+    assert!(custom_dims.iter().any(|&(_, r)| r <= 4));
+    assert!(custom_dims.iter().any(|&(_, r)| r >= 5));
+
+    let mut easy_dims = Vec::new();
+    for seed in 0..30u64 {
+        let mut rng = StdRng::seed_from_u64(12000 + seed);
+        let lvl = generate_custom_level_with_max_size(GenDifficulty::Easy, 10, 8, &mut rng);
+        assert!(lvl.cols >= MIN_GEN_COLS && lvl.cols <= 10);
+        assert!(lvl.rows >= MIN_GEN_ROWS && lvl.rows <= 8);
+        assert!(validate_level_structure(&lvl).is_empty());
+        assert!(!lvl.tiles.iter().any(|t| {
+            t.piece_type == PieceType::Portal
+                || t.piece_type == PieceType::FrozenPipe
+                || t.is_freeze
+                || t.is_gate
+                || t.is_magic
+        }));
+        match solve_level(&lvl, Duration::from_millis(250)) {
+            SolveOutcome::Solvable(res) => assert!(res.verified_by_sim),
+            other => panic!("easy seed {seed} not solvable: {other:?}"),
+        }
+        easy_dims.push((lvl.cols, lvl.rows));
+    }
+    assert!(easy_dims.iter().any(|&(c, _)| c <= 5));
+    assert!(easy_dims.iter().any(|&(c, _)| c >= 7));
+    assert!(easy_dims.iter().any(|&(_, r)| r <= 4));
+    assert!(easy_dims.iter().any(|&(_, r)| r >= 6));
+
+    let mut hard_dims = Vec::new();
+    for seed in 0..30u64 {
+        let mut rng = StdRng::seed_from_u64(13000 + seed);
+        let lvl = generate_custom_level_with_max_size(GenDifficulty::Hard, 10, 8, &mut rng);
+        assert!(lvl.cols >= MIN_GEN_COLS && lvl.cols <= 10);
+        assert!(lvl.rows >= MIN_GEN_ROWS && lvl.rows <= 8);
+        assert!(validate_level_structure(&lvl).is_empty());
+        match solve_level(&lvl, Duration::from_millis(250)) {
+            SolveOutcome::Solvable(res) => assert!(res.verified_by_sim),
+            other => panic!("hard seed {seed} not solvable: {other:?}"),
+        }
+        hard_dims.push((lvl.cols, lvl.rows));
+    }
+    assert!(hard_dims.iter().any(|&(c, _)| c <= 5));
+    assert!(hard_dims.iter().any(|&(c, _)| c >= 8));
+    assert!(hard_dims.iter().any(|&(_, r)| r <= 4));
+    assert!(hard_dims.iter().any(|&(_, r)| r >= 7));
 }

@@ -30,7 +30,7 @@ use crate::game::{Difficulty, LevelDef, LevelSim, MatchSim, MetricResult};
 use crate::render::{
     BgAnimState, BoardLayout, FireworkBurst, GpuCore, LeakEmitter, Renderer, ScoreBlurbFx,
 };
-pub use crate::save::{EndlessConfig, EndlessRules};
+pub use crate::save::{EndlessConfig, EndlessElement, EndlessRules};
 use crate::save::{LevelRecord, SaveData};
 use champion::ChampionState;
 use custom_hub::CustomHubState;

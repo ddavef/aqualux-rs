@@ -98,7 +98,7 @@ pub fn menu_entries(submenu: TitleSubmenu, save: &SaveData) -> Vec<MenuEntry> {
                     MenuEntry {
                         id: "btn_endless",
                         label: "endless mode",
-                        info: "Play endless randomly generated levels!\nChoose difficulties and max grid size\nfor your run.",
+                        info: "Play endless randomly generated levels!\nChoose presets or custom elements and\nmax grid size for your run.",
                         action: Some(UiAction::OpenEndlessSetup),
                     },
                 ]
@@ -125,7 +125,7 @@ pub fn menu_entries(submenu: TitleSubmenu, save: &SaveData) -> Vec<MenuEntry> {
                     MenuEntry {
                         id: "btn_endless",
                         label: "endless mode",
-                        info: "Play endless randomly generated levels!\nChoose difficulties and max grid size\nfor your run.",
+                        info: "Play endless randomly generated levels!\nChoose presets or custom elements and\nmax grid size for your run.",
                         action: Some(UiAction::OpenEndlessSetup),
                     },
                 ]

@@ -6,9 +6,9 @@ use crate::game::{AwardKind, Difficulty, GameColor, LevelDef};
 use crate::render::{
     Canvas, FontFamily, FontSet, GlowPreset, Rect, TexBank, TextAlign, TextOutline,
 };
-use crate::ui::EndlessConfig;
 use crate::ui::editor::{EditorTool, LevelPropsDraft, PipeBehavior, PipeColorSlot};
 pub use crate::ui::roller::ScoreRoller;
+use crate::ui::{EndlessConfig, EndlessElement};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum QuestionId {
@@ -114,6 +114,8 @@ pub enum UiAction {
     StartMirrorMatch,
     OpenEndlessSetup,
     EndlessToggleDifficulty(GenDifficulty),
+    EndlessToggleCustom,
+    EndlessToggleElement(EndlessElement),
     EndlessAdjustMaxCols(i8),
     EndlessAdjustMaxRows(i8),
     EndlessCycleRules,
@@ -433,23 +435,14 @@ pub fn draw_checkbox_enabled(
         (0, 0, 0, 102),
         Some(border),
     );
-    if enabled && checked {
-        canvas.draw_line(
-            x + 1.0,
-            y + 1.0,
-            x + 14.0,
-            y + 14.0,
-            2.0,
-            (255, 255, 255, 255),
-        );
-        canvas.draw_line(
-            x + 14.0,
-            y + 1.0,
-            x + 1.0,
-            y + 14.0,
-            2.0,
-            (255, 255, 255, 255),
-        );
+    if checked {
+        let mark_col = if enabled {
+            (255, 255, 255, 255)
+        } else {
+            (155, 165, 180, 200)
+        };
+        canvas.draw_line(x + 1.0, y + 1.0, x + 14.0, y + 14.0, 2.0, mark_col);
+        canvas.draw_line(x + 14.0, y + 1.0, x + 1.0, y + 14.0, 2.0, mark_col);
     }
     fonts.draw(
         canvas,

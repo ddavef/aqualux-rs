@@ -2,7 +2,9 @@
 // Copyright (C) 2026 ddavef aqualux-rs
 
 use crate::audio::music_for_background;
-use crate::game::generator::generate_custom_level_with_max_size;
+use crate::game::generator::{
+    generate_custom_level_with_elements, generate_custom_level_with_max_size,
+};
 use crate::game::{AwardKind, Difficulty, LevelDef, LevelSim, MatchSim, SimEvent};
 use crate::render::{BoardLayout, LeakEmitter, ScoreBlurbFx};
 use crate::ui::widgets::{LaunchSource, ModalState, ScoreRoller};
@@ -97,20 +99,37 @@ impl GameApp {
         level_num: usize,
         session_score: u32,
     ) {
-        let gen_diff = config.pick_gen_difficulty(&mut self.rng);
-        let play_diff = config.play_difficulty_for(gen_diff);
-        let mut def = generate_custom_level_with_max_size(
-            gen_diff,
-            config.max_cols,
-            config.max_rows,
-            &mut self.rng,
-        );
+        let (play_diff, mut def, description) = if config.custom {
+            let play_diff = config.play_difficulty_for_custom();
+            let def = generate_custom_level_with_elements(
+                config.max_cols,
+                config.max_rows,
+                config.elements,
+                &mut self.rng,
+            );
+            let description = match config.rules {
+                EndlessRules::MatchLevel => "Endless - Custom".to_string(),
+                EndlessRules::Fixed(d) => format!("Custom ({})", d.human_label()),
+            };
+            (play_diff, def, description)
+        } else {
+            let gen_diff = config.pick_gen_difficulty(&mut self.rng);
+            let play_diff = config.play_difficulty_for(gen_diff);
+            let def = generate_custom_level_with_max_size(
+                gen_diff,
+                config.max_cols,
+                config.max_rows,
+                &mut self.rng,
+            );
+            let description = match config.rules {
+                EndlessRules::MatchLevel => format!("Endless - {}", gen_diff.label()),
+                EndlessRules::Fixed(d) => format!("{} ({})", gen_diff.label(), d.human_label()),
+            };
+            (play_diff, def, description)
+        };
         def.index = level_num.saturating_sub(1);
         def.title = format!("Level {}", level_num);
-        def.description = match config.rules {
-            EndlessRules::MatchLevel => format!("Endless - {}", gen_diff.label()),
-            EndlessRules::Fixed(d) => format!("{} ({})", gen_diff.label(), d.human_label()),
-        };
+        def.description = description;
         self.play_mode = PlayMode::Endless {
             config,
             level_num,

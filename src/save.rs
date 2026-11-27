@@ -38,12 +38,77 @@ impl EndlessRules {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndlessElement {
+    Movable,
+    Rotatable,
+    Immovable,
+    Frosted,
+    Rocks,
+    GateMagic,
+    Portals,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EndlessElements {
+    pub movable: bool,
+    pub rotatable: bool,
+    pub immovable: bool,
+    pub frosted: bool,
+    pub rocks: bool,
+    pub gate_magic: bool,
+    pub portals: bool,
+}
+
+impl Default for EndlessElements {
+    fn default() -> Self {
+        Self {
+            movable: true,
+            rotatable: true,
+            immovable: true,
+            frosted: true,
+            rocks: true,
+            gate_magic: true,
+            portals: true,
+        }
+    }
+}
+
+impl EndlessElements {
+    pub fn has_interactive_pipes(self) -> bool {
+        self.movable || self.rotatable
+    }
+
+    pub fn toggle(&mut self, elem: EndlessElement) {
+        match elem {
+            EndlessElement::Movable => self.movable = !self.movable,
+            EndlessElement::Rotatable => self.rotatable = !self.rotatable,
+            EndlessElement::Immovable => self.immovable = !self.immovable,
+            EndlessElement::Frosted => self.frosted = !self.frosted,
+            EndlessElement::Rocks => self.rocks = !self.rocks,
+            EndlessElement::GateMagic => self.gate_magic = !self.gate_magic,
+            EndlessElement::Portals => self.portals = !self.portals,
+        }
+    }
+
+    pub fn sanitized(mut self) -> Self {
+        if !self.has_interactive_pipes() {
+            self.movable = true;
+            self.rotatable = true;
+        }
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EndlessConfig {
     pub easy: bool,
     pub medium: bool,
     pub hard: bool,
+    pub custom: bool,
+    pub elements: EndlessElements,
     pub max_cols: usize,
     pub max_rows: usize,
     pub rules: EndlessRules,
@@ -55,6 +120,8 @@ impl Default for EndlessConfig {
             easy: true,
             medium: true,
             hard: true,
+            custom: false,
+            elements: EndlessElements::default(),
             max_cols: 8,
             max_rows: 6,
             rules: EndlessRules::MatchLevel,
@@ -66,7 +133,8 @@ impl EndlessConfig {
     pub fn sanitized(mut self) -> Self {
         self.max_cols = self.max_cols.clamp(MIN_GEN_COLS, MAX_GRID_COLS);
         self.max_rows = self.max_rows.clamp(MIN_GEN_ROWS, MAX_GRID_ROWS);
-        if !self.any_enabled() {
+        self.elements = self.elements.sanitized();
+        if !self.custom && !(self.easy || self.medium || self.hard) {
             self.easy = true;
             self.medium = true;
             self.hard = true;
@@ -75,14 +143,36 @@ impl EndlessConfig {
     }
 
     pub fn any_enabled(self) -> bool {
-        self.easy || self.medium || self.hard
+        if self.custom {
+            self.elements.has_interactive_pipes()
+        } else {
+            self.easy || self.medium || self.hard
+        }
     }
 
     pub fn toggle(&mut self, diff: GenDifficulty) {
+        if self.custom {
+            return;
+        }
         match diff {
             GenDifficulty::Easy => self.easy = !self.easy,
             GenDifficulty::Medium => self.medium = !self.medium,
             GenDifficulty::Hard => self.hard = !self.hard,
+        }
+    }
+
+    pub fn toggle_custom(&mut self) {
+        self.custom = !self.custom;
+        if !self.custom && !(self.easy || self.medium || self.hard) {
+            self.easy = true;
+            self.medium = true;
+            self.hard = true;
+        }
+    }
+
+    pub fn toggle_element(&mut self, elem: EndlessElement) {
+        if self.custom {
+            self.elements.toggle(elem);
         }
     }
 
@@ -127,6 +217,13 @@ impl EndlessConfig {
                 GenDifficulty::Medium => Difficulty::Medium,
                 GenDifficulty::Hard => Difficulty::Hard,
             },
+        }
+    }
+
+    pub fn play_difficulty_for_custom(self) -> Difficulty {
+        match self.rules {
+            EndlessRules::Fixed(d) => d,
+            EndlessRules::MatchLevel => Difficulty::Medium,
         }
     }
 }

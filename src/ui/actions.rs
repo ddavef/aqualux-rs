@@ -27,6 +27,8 @@ impl GameApp {
                 | UiAction::SetHdrPaperWhite(_)
                 | UiAction::SetHdrPeak(_)
                 | UiAction::EndlessToggleDifficulty(_)
+                | UiAction::EndlessToggleCustom
+                | UiAction::EndlessToggleElement(_)
                 | UiAction::NextTutorial
                 | UiAction::PauseGame
                 | UiAction::FastForward
@@ -90,6 +92,16 @@ impl GameApp {
             UiAction::EndlessToggleDifficulty(d) => {
                 if let Some(ModalState::EndlessSetup(cfg)) = self.modals.last_mut() {
                     cfg.toggle(d);
+                }
+            }
+            UiAction::EndlessToggleCustom => {
+                if let Some(ModalState::EndlessSetup(cfg)) = self.modals.last_mut() {
+                    cfg.toggle_custom();
+                }
+            }
+            UiAction::EndlessToggleElement(el) => {
+                if let Some(ModalState::EndlessSetup(cfg)) = self.modals.last_mut() {
+                    cfg.toggle_element(el);
                 }
             }
             UiAction::EndlessAdjustMaxCols(delta) => {
@@ -190,7 +202,7 @@ impl GameApp {
             | UiAction::PropsApply => self.handle_editor_action(action),
             UiAction::OpenMmgNotice => {
                 self.push_notice(
-                    "Aqualux Deluxe\nCopyright (C) 2010 Milkman Games, LLC.\nAll Rights Reserved.\naqualux-rs remaster by ddavef",
+                    "Aqualux Deluxe\nCopyright (C) 2010 Milkman Games, LLC.\nAll Rights Reserved.\naqualux-rs remaster by ddavef\n v2.0.0-git",
                 );
             }
             UiAction::OpenTrophyRoom => {
