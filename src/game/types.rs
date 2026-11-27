@@ -128,6 +128,9 @@ pub enum GameColor {
     Grey,
 }
 
+pub const CAMPAIGN_LIQUID_COLORS: &[GameColor] =
+    &[GameColor::Blue, GameColor::Green, GameColor::Violet];
+
 impl GameColor {
     pub fn from_str_loose(s: &str) -> Option<Self> {
         match s.trim().to_ascii_uppercase().as_str() {

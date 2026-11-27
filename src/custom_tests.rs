@@ -3,6 +3,7 @@
 
 use crate::assets::AssetBundle;
 use crate::custom::{CustomPackStore, LoadedPack, PackSource, sanitize_pack_id, validate_pack_dir};
+use crate::game::Difficulty;
 use crate::game::generator::{
     GenDifficulty, MIN_GEN_COLS, MIN_GEN_ROWS, generate_custom_level,
     generate_custom_level_with_max_size,
@@ -13,12 +14,13 @@ use crate::game::level_io::{
 };
 use crate::game::scoring::calculate_score;
 use crate::game::solver::{SolveOutcome, solve_level, validate_level_structure};
-use crate::game::types::{GameColor, LevelDef, PieceShape, PieceType, TileDef, TutorialMsg};
+use crate::game::types::{
+    CAMPAIGN_LIQUID_COLORS, GameColor, LevelDef, PieceShape, PieceType, TileDef, TutorialMsg,
+};
 use crate::render::{BoardLayout, Canvas};
 use crate::save::{ProfileData, SaveData};
-use crate::tests::asset_file_if_present;
-use crate::tests::test_gpu;
-use crate::ui::editor::{EditorTool, PipeBehavior, SolveStatus, editor_board_area};
+use crate::tests::{asset_file_if_present, test_gpu};
+use crate::ui::editor::{EditorState, EditorTool, PipeBehavior, SolveStatus, editor_board_area};
 use crate::ui::title::title_menu_metrics;
 use crate::ui::title_data::{TitleSubmenu, menu_entries};
 use crate::ui::widgets::{ModalState, QuestionId, UiAction};
@@ -1611,4 +1613,99 @@ fn endless_mode_setup_difficulty_max_grid_progression_retry_and_no_persistence()
     );
 
     let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn campaign_liquid_colors_enforced_in_generator_and_editor() {
+    use std::collections::HashSet;
+
+    // 1. Procedural generator (Endless & Custom Hub) only emits campaign liquid colors.
+    let mut seen_gen = HashSet::new();
+    for (diff_idx, diff) in [
+        GenDifficulty::Easy,
+        GenDifficulty::Medium,
+        GenDifficulty::Hard,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for seed in 0..10u64 {
+            let mut rng = StdRng::seed_from_u64(4000 + diff_idx as u64 * 100 + seed);
+            let lvl = generate_custom_level_with_max_size(diff, 8, 6, &mut rng);
+            assert!(
+                CAMPAIGN_LIQUID_COLORS.contains(&lvl.liquid_color),
+                "unexpected generated liquid color {:?} for {:?} seed {}",
+                lvl.liquid_color,
+                diff,
+                seed
+            );
+            seen_gen.insert(lvl.liquid_color);
+        }
+    }
+    let expected_set: HashSet<GameColor> = CAMPAIGN_LIQUID_COLORS.iter().copied().collect();
+    assert_eq!(seen_gen, expected_set);
+
+    // 2. Real campaign, LOTD assets, and Level Editor liquid cycling share CAMPAIGN_LIQUID_COLORS.
+    if let Some(path) = asset_file_if_present() {
+        let bundle = AssetBundle::load_from_path(path).expect("real assets load");
+        let camp_set: HashSet<GameColor> = bundle
+            .campaign_levels
+            .iter()
+            .map(|l| l.liquid_color)
+            .collect();
+        assert_eq!(camp_set, expected_set);
+        for lvl in &bundle.lotd_levels {
+            assert!(
+                CAMPAIGN_LIQUID_COLORS.contains(&lvl.liquid_color),
+                "LOTD level '{}' had unexpected liquid color {:?}",
+                lvl.title,
+                lvl.liquid_color
+            );
+        }
+
+        // 3. Level Editor cycles strictly through CAMPAIGN_LIQUID_COLORS and snaps legacy values in.
+        let root = std::env::temp_dir().join(format!("aqualux_liquid_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let primary = root.join("custom_packs");
+        let mut app = GameApp::new_with_custom_dir(bundle, Some(60), Some(&primary), test_gpu())
+            .expect("GameApp init");
+        app.editor = Some(EditorState::new(
+            "test_pack".to_string(),
+            0,
+            default_starter_level(0),
+            Difficulty::Medium,
+        ));
+        app.screen = Screen::Editor;
+
+        app.trigger_action(UiAction::EditorOpenProps);
+        let mut cycled = Vec::new();
+        for _ in 0..CAMPAIGN_LIQUID_COLORS.len() {
+            app.trigger_action(UiAction::PropsCycleLiquid);
+            if let Some(ModalState::LevelProps(props)) = app.modals.last() {
+                cycled.push(props.liquid_color);
+            }
+        }
+        assert_eq!(
+            cycled,
+            vec![GameColor::Green, GameColor::Violet, GameColor::Blue]
+        );
+        app.trigger_action(UiAction::PropsApply);
+        assert_eq!(
+            app.editor.as_ref().unwrap().draft.liquid_color,
+            GameColor::Blue
+        );
+
+        // Out-of-palette legacy liquid (e.g. Red) snaps to Blue on first cycle.
+        app.editor.as_mut().unwrap().draft.liquid_color = GameColor::Red;
+        app.trigger_action(UiAction::EditorOpenProps);
+        app.trigger_action(UiAction::PropsCycleLiquid);
+        match app.modals.last() {
+            Some(ModalState::LevelProps(props)) => {
+                assert_eq!(props.liquid_color, GameColor::Blue);
+            }
+            other => panic!("expected LevelProps modal, got {:?}", other),
+        }
+
+        let _ = fs::remove_dir_all(&root);
+    }
 }

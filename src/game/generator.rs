@@ -3,7 +3,9 @@
 
 use crate::game::level_io::{MAX_GRID_COLS, MAX_GRID_ROWS};
 use crate::game::solver::{SolveOutcome, solve_level};
-use crate::game::types::{GameColor, LevelDef, PieceShape, PieceType, Side, TileDef};
+use crate::game::types::{
+    CAMPAIGN_LIQUID_COLORS, GameColor, LevelDef, PieceShape, PieceType, Side, TileDef,
+};
 use rand::RngExt;
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
@@ -496,15 +498,7 @@ fn try_build_candidate(
         }
     }
 
-    let liquid_palette = [
-        GameColor::Blue,
-        GameColor::Green,
-        GameColor::Orange,
-        GameColor::Red,
-        GameColor::Violet,
-        GameColor::Yellow,
-    ];
-    let liquid_color = liquid_palette[rng.random_range(0..liquid_palette.len())];
+    let liquid_color = CAMPAIGN_LIQUID_COLORS[rng.random_range(0..CAMPAIGN_LIQUID_COLORS.len())];
 
     Some(LevelDef {
         index: 0,

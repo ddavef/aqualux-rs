@@ -5,7 +5,7 @@ use crate::audio::music_for_background;
 use crate::game::Difficulty;
 use crate::game::level_io::{MAX_LIQUID_SPEED, MAX_START_DELAY, MIN_LIQUID_SPEED};
 use crate::game::solver::{SolveOutcome, solve_level, validate_level_structure};
-use crate::game::types::GameColor;
+use crate::game::types::{CAMPAIGN_LIQUID_COLORS, GameColor};
 use crate::render::BoardLayout;
 use crate::ui::editor::{
     ALL_GAME_COLORS, EDITOR_BACKGROUNDS, EditorState, EditorTool, LevelPropsDraft, PipeBehavior,
@@ -16,8 +16,10 @@ use crate::ui::{GameApp, PlayMode, Screen};
 use std::time::Duration;
 
 fn cycle_in<T: PartialEq + Copy>(list: &[T], cur: T) -> T {
-    let pos = list.iter().position(|&v| v == cur).unwrap_or(0);
-    list[(pos + 1) % list.len()]
+    match list.iter().position(|&v| v == cur) {
+        Some(pos) => list[(pos + 1) % list.len()],
+        None => list[0],
+    }
 }
 
 fn cycle_str(list: &[&str], cur: &str) -> String {
@@ -437,7 +439,7 @@ impl GameApp {
             }
             UiAction::PropsCycleLiquid => {
                 if let Some(ModalState::LevelProps(props)) = self.modals.last_mut() {
-                    props.liquid_color = cycle_in(ALL_GAME_COLORS, props.liquid_color);
+                    props.liquid_color = cycle_in(CAMPAIGN_LIQUID_COLORS, props.liquid_color);
                 }
             }
             UiAction::PropsAdjustDelay(delta) => {
