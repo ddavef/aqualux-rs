@@ -4,7 +4,7 @@
 use crate::assets::AssetBundle;
 use crate::game::generator::{GenDifficulty, MIN_GEN_COLS, MIN_GEN_ROWS};
 use crate::game::level_io::{MAX_GRID_COLS, MAX_GRID_ROWS};
-use crate::game::{AwardKind, Difficulty};
+use crate::game::{AwardKind, Difficulty, GameColor};
 use crate::render::hdr::{HDR_PAPER_WHITE_MAX, HDR_PAPER_WHITE_MIN, HDR_PEAK_MAX, HDR_PEAK_MIN};
 use crate::render::{
     Canvas, FontFamily, FontSet, GlowPreset, LOGICAL_H, LOGICAL_W, Rect, TexBank, TextAlign,
@@ -430,23 +430,13 @@ pub fn build_modal_buttons(
                     hover_sfx: None,
                 },
             ];
-            let el_rows = [
-                ("end_el_mov", EndlessElement::Movable),
-                ("end_el_rot", EndlessElement::Rotatable),
-                ("end_el_imm", EndlessElement::Immovable),
-                ("end_el_frz", EndlessElement::Frosted),
-                ("end_el_rock", EndlessElement::Rocks),
-                ("end_el_gm", EndlessElement::GateMagic),
-                ("end_el_port", EndlessElement::Portals),
-            ];
-            for (idx, (id, el)) in el_rows.into_iter().enumerate() {
-                let y = 176.0 + (idx + 2) as f32 * 26.0;
+            for card in endless_element_cards() {
                 buttons.push(UiButton {
-                    id,
-                    rect: Rect::new(428.0, y - 4.0, 288.0, 23.0),
-                    action: UiAction::EndlessToggleElement(el),
+                    id: card.id,
+                    rect: card.rect,
+                    action: UiAction::EndlessToggleElement(card.element),
                     enabled: cfg.custom,
-                    hover_sfx: None,
+                    hover_sfx: Some("PopTwoSound"),
                 });
             }
             buttons
@@ -560,7 +550,7 @@ pub fn render_modal_stack(
                 render_level_props_modal(canvas, bank, fonts, props, mpos);
             }
             ModalState::EndlessSetup(cfg) => {
-                render_endless_setup_modal(canvas, bank, fonts, *cfg, mpos);
+                render_endless_setup_modal(canvas, bank, fonts, *cfg, time, mpos);
             }
         }
         if matches!(m, ModalState::TrophyRoom { .. }) {
@@ -1050,11 +1040,371 @@ fn render_award_modal(
     );
 }
 
+struct EndlessElementCard {
+    id: &'static str,
+    element: EndlessElement,
+    label: &'static str,
+    rect: Rect,
+}
+
+fn endless_element_cards() -> [EndlessElementCard; 7] {
+    [
+        EndlessElementCard {
+            id: "end_el_mov",
+            element: EndlessElement::Movable,
+            label: "Movable",
+            rect: Rect::new(428.0, 178.0, 139.0, 48.0),
+        },
+        EndlessElementCard {
+            id: "end_el_rot",
+            element: EndlessElement::Rotatable,
+            label: "Rotatable",
+            rect: Rect::new(577.0, 178.0, 139.0, 48.0),
+        },
+        EndlessElementCard {
+            id: "end_el_imm",
+            element: EndlessElement::Immovable,
+            label: "Immovable",
+            rect: Rect::new(428.0, 234.0, 139.0, 48.0),
+        },
+        EndlessElementCard {
+            id: "end_el_frz",
+            element: EndlessElement::Frosted,
+            label: "Frosted",
+            rect: Rect::new(577.0, 234.0, 139.0, 48.0),
+        },
+        EndlessElementCard {
+            id: "end_el_rock",
+            element: EndlessElement::Rocks,
+            label: "Rocks",
+            rect: Rect::new(428.0, 290.0, 139.0, 48.0),
+        },
+        EndlessElementCard {
+            id: "end_el_port",
+            element: EndlessElement::Portals,
+            label: "Portals",
+            rect: Rect::new(577.0, 290.0, 139.0, 48.0),
+        },
+        EndlessElementCard {
+            id: "end_el_gm",
+            element: EndlessElement::GateMagic,
+            label: "Gate & Magic",
+            rect: Rect::new(428.0, 346.0, 288.0, 48.0),
+        },
+    ]
+}
+
+fn endless_element_included(cfg: EndlessConfig, element: EndlessElement) -> bool {
+    match element {
+        EndlessElement::Movable => cfg.elements.movable,
+        EndlessElement::Rotatable => cfg.elements.rotatable,
+        EndlessElement::Immovable => cfg.elements.immovable,
+        EndlessElement::Frosted => cfg.elements.frosted,
+        EndlessElement::Rocks => cfg.elements.rocks,
+        EndlessElement::GateMagic => cfg.elements.gate_magic,
+        EndlessElement::Portals => cfg.elements.portals,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_modal_tile_sprite(
+    canvas: &mut Canvas,
+    bank: &TexBank,
+    key: &'static str,
+    cx: f32,
+    cy: f32,
+    size: f32,
+    rot_deg: f32,
+    tint: Option<(GameColor, bool)>,
+    alpha: f32,
+    glow: Option<(GlowPreset, f32)>,
+) {
+    let uv = [0.0, 0.0, 1.0, 1.0];
+    if let Some((preset, glow_alpha)) = glow
+        && let Some((gid, gw, gh, _)) = bank.glow_named(key, preset)
+    {
+        let scale = size / 128.0;
+        let g_rot = if key == "CementBlockerBitmap" {
+            0.0
+        } else {
+            rot_deg
+        };
+        canvas.draw_tex_uv_rotated_blur(
+            gid,
+            uv,
+            cx,
+            cy,
+            gw as f32 * scale,
+            gh as f32 * scale,
+            g_rot,
+            None,
+            1.0,
+            glow_alpha,
+            false,
+            (0.0, 0.0),
+        );
+    }
+    if let Some((tid, _, _)) = bank.named(key) {
+        canvas.draw_tex_uv_rotated_blur(
+            tid,
+            uv,
+            cx,
+            cy,
+            size,
+            size,
+            rot_deg,
+            tint,
+            1.0,
+            alpha,
+            false,
+            (0.0, 0.0),
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_endless_element_card(
+    canvas: &mut Canvas,
+    bank: &TexBank,
+    fonts: &FontSet,
+    card: EndlessElementCard,
+    included: bool,
+    enabled: bool,
+    hovered: bool,
+    time: f32,
+) {
+    let (fill, border, sprite_alpha, label_col) = match (enabled, included, hovered) {
+        (true, true, true) => (
+            (0x34, 0x7A, 0xC4, 230),
+            (255, 255, 255, 255, 2.0),
+            1.0,
+            (255, 255, 255),
+        ),
+        (true, true, false) => (
+            (0x24, 0x5E, 0x9E, 210),
+            (0x8A, 0xD2, 0xFF, 235, 1.8),
+            1.0,
+            (255, 255, 255),
+        ),
+        (true, false, true) => (
+            (0x1A, 0x35, 0x5A, 215),
+            (0xB8, 0xC8, 0xDE, 220, 1.8),
+            0.28,
+            (165, 182, 204),
+        ),
+        (true, false, false) => (
+            (0x0D, 0x20, 0x3D, 185),
+            (0x4A, 0x62, 0x82, 165, 1.5),
+            0.28,
+            (145, 162, 184),
+        ),
+        (false, true, _) => (
+            (0x19, 0x3F, 0x6E, 145),
+            (0x52, 0x6A, 0x88, 125, 1.4),
+            0.48,
+            (145, 160, 182),
+        ),
+        (false, false, _) => (
+            (0x0D, 0x1D, 0x35, 120),
+            (0x52, 0x6A, 0x88, 125, 1.4),
+            0.20,
+            (125, 138, 158),
+        ),
+    };
+
+    canvas.draw_rounded_rect(card.rect, 8.0, fill, Some(border));
+
+    let cy = card.rect.y + card.rect.h * 0.5;
+    let icon_sz = 34.0;
+    let glow = if enabled && hovered {
+        Some((GlowPreset::PipeHover, 0.85))
+    } else if included {
+        Some((GlowPreset::PipeDropShadow, sprite_alpha * 0.85))
+    } else {
+        None
+    };
+
+    match card.element {
+        EndlessElement::Movable => {
+            draw_modal_tile_sprite(
+                canvas,
+                bank,
+                "ElbowClearBitmap",
+                card.rect.x + 22.0,
+                cy,
+                icon_sz,
+                0.0,
+                Some((GameColor::Yellow, false)),
+                sprite_alpha,
+                glow,
+            );
+        }
+        EndlessElement::Rotatable => {
+            draw_modal_tile_sprite(
+                canvas,
+                bank,
+                "ElbowClearBitmap",
+                card.rect.x + 22.0,
+                cy,
+                icon_sz,
+                90.0,
+                Some((GameColor::White, false)),
+                sprite_alpha,
+                glow,
+            );
+        }
+        EndlessElement::Immovable => {
+            draw_modal_tile_sprite(
+                canvas,
+                bank,
+                "StraightClearBitmap",
+                card.rect.x + 22.0,
+                cy,
+                icon_sz,
+                90.0,
+                Some((GameColor::Orange, false)),
+                sprite_alpha,
+                glow,
+            );
+        }
+        EndlessElement::Frosted => {
+            let cx = card.rect.x + 22.0;
+            draw_modal_tile_sprite(
+                canvas,
+                bank,
+                "ElbowClearBitmap",
+                cx,
+                cy,
+                icon_sz,
+                0.0,
+                Some((GameColor::Yellow, false)),
+                sprite_alpha,
+                glow,
+            );
+            draw_modal_tile_sprite(
+                canvas,
+                bank,
+                "ElbowFrostBitmap",
+                cx,
+                cy,
+                icon_sz,
+                0.0,
+                None,
+                sprite_alpha,
+                None,
+            );
+        }
+        EndlessElement::Rocks => {
+            draw_modal_tile_sprite(
+                canvas,
+                bank,
+                "CementBlockerBitmap",
+                card.rect.x + 22.0,
+                cy,
+                icon_sz,
+                0.0,
+                None,
+                sprite_alpha,
+                glow,
+            );
+        }
+        EndlessElement::Portals => {
+            let cx = card.rect.x + 22.0;
+            let portal_rot = if enabled && included {
+                time * 60.0
+            } else {
+                0.0
+            };
+            draw_modal_tile_sprite(
+                canvas,
+                bank,
+                "YellowPortalBitmap",
+                cx,
+                cy,
+                icon_sz,
+                portal_rot,
+                Some((GameColor::Orange, false)),
+                sprite_alpha,
+                None,
+            );
+            draw_modal_tile_sprite(
+                canvas,
+                bank,
+                "DrainPipeClearBitmap",
+                cx,
+                cy,
+                icon_sz,
+                0.0,
+                Some((GameColor::Orange, false)),
+                sprite_alpha,
+                glow,
+            );
+        }
+        EndlessElement::GateMagic => {
+            draw_modal_tile_sprite(
+                canvas,
+                bank,
+                "StraightClearBitmap",
+                card.rect.x + 26.0,
+                cy,
+                icon_sz,
+                0.0,
+                Some((GameColor::Violet, false)),
+                sprite_alpha,
+                glow,
+            );
+            draw_modal_tile_sprite(
+                canvas,
+                bank,
+                "ElbowClearBitmap",
+                card.rect.x + 64.0,
+                cy,
+                icon_sz,
+                90.0,
+                Some((GameColor::Green, false)),
+                sprite_alpha,
+                glow,
+            );
+        }
+    }
+
+    if !included {
+        let slash_col = if enabled {
+            (0xE8, 0x68, 0x60, 215)
+        } else {
+            (0xA0, 0x58, 0x58, 130)
+        };
+        let (x0, x1) = if card.element == EndlessElement::GateMagic {
+            (card.rect.x + 12.0, card.rect.x + 78.0)
+        } else {
+            (card.rect.x + 9.0, card.rect.x + 35.0)
+        };
+        canvas.draw_line(x0, cy - 13.0, x1, cy + 13.0, 2.2, slash_col);
+    }
+
+    let (text_x, font_sz, text_y) = if card.element == EndlessElement::GateMagic {
+        (card.rect.x + 92.0, 13.5, cy - 8.5)
+    } else {
+        (card.rect.x + 42.0, 11.5, cy - 7.0)
+    };
+    fonts.draw(
+        canvas,
+        FontFamily::Neuropol,
+        text_x,
+        text_y,
+        font_sz,
+        label_col,
+        TextAlign::Left,
+        card.label,
+    );
+}
+
 fn render_endless_setup_modal(
     canvas: &mut Canvas,
     bank: &TexBank,
     fonts: &FontSet,
     cfg: EndlessConfig,
+    time: f32,
     mouse_pos: (f32, f32),
 ) {
     draw_modal_bubble(canvas, Rect::new(60.0, 96.0, 680.0, 408.0));
@@ -1253,47 +1603,28 @@ fn render_endless_setup_modal(
         TextAlign::Left,
         "Board Elements:",
     );
-    if !cfg.custom {
-        fonts.draw(
-            canvas,
-            FontFamily::Neuropol,
-            716.0,
-            150.0,
-            12.0,
-            (145, 160, 182),
-            TextAlign::Right,
-            "(Custom only)",
-        );
-    }
+    let el_hint = if cfg.custom {
+        "(click to toggle)"
+    } else {
+        "(Custom only)"
+    };
+    fonts.draw(
+        canvas,
+        FontFamily::Neuropol,
+        716.0,
+        150.0,
+        12.0,
+        (145, 160, 182),
+        TextAlign::Right,
+        el_hint,
+    );
 
-    let el_rows = [
-        ("Source", true, false, Some("(required)")),
-        ("Drain", true, false, Some("(required)")),
-        ("Movable pipes", cfg.elements.movable, cfg.custom, None),
-        ("Rotatable pipes", cfg.elements.rotatable, cfg.custom, None),
-        ("Immovable pipes", cfg.elements.immovable, cfg.custom, None),
-        ("Frosted pipes", cfg.elements.frosted, cfg.custom, None),
-        ("Rocks", cfg.elements.rocks, cfg.custom, None),
-        ("Gate & Magic", cfg.elements.gate_magic, cfg.custom, None),
-        ("Portals", cfg.elements.portals, cfg.custom, None),
-    ];
-    for (idx, (lbl, checked, enabled, note)) in el_rows.into_iter().enumerate() {
-        let y = 176.0 + idx as f32 * 26.0;
-        let hovered =
-            enabled && Rect::new(428.0, y - 4.0, 288.0, 23.0).contains(mouse_pos.0, mouse_pos.1);
-        draw_checkbox_enabled(canvas, fonts, 428.0, y, lbl, checked, hovered, enabled);
-        if let Some(tag) = note {
-            fonts.draw(
-                canvas,
-                FontFamily::Neuropol,
-                716.0,
-                y + 1.0,
-                12.0,
-                (145, 160, 182),
-                TextAlign::Right,
-                tag,
-            );
-        }
+    for card in endless_element_cards() {
+        let included = endless_element_included(cfg, card.element);
+        let hovered = cfg.custom && card.rect.contains(mouse_pos.0, mouse_pos.1);
+        draw_endless_element_card(
+            canvas, bank, fonts, card, included, cfg.custom, hovered, time,
+        );
     }
 
     let (status_msg, status_col) = if cfg.any_enabled() {

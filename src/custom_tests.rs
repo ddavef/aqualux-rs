@@ -17,6 +17,7 @@ use crate::game::solver::{SolveOutcome, solve_level, validate_level_structure};
 use crate::game::types::{
     CAMPAIGN_LIQUID_COLORS, GameColor, LevelDef, PieceShape, PieceType, TileDef, TutorialMsg,
 };
+use crate::render::canvas::DrawCmd;
 use crate::render::{BoardLayout, Canvas};
 use crate::save::{EndlessElements, ProfileData, SaveData};
 use crate::tests::{asset_file_if_present, test_gpu};
@@ -2082,8 +2083,105 @@ fn endless_custom_board_elements_validation_generator_and_modal() {
                 .iter()
                 .any(|b| b.id == "end_el_mov" && b.enabled)
         );
+        let el_ids = [
+            "end_el_mov",
+            "end_el_rot",
+            "end_el_imm",
+            "end_el_frz",
+            "end_el_rock",
+            "end_el_gm",
+            "end_el_port",
+        ];
+        let el_btns: Vec<_> = btns_custom
+            .iter()
+            .filter(|b| b.id.starts_with("end_el_"))
+            .collect();
+        assert_eq!(el_btns.len(), 7);
+        for id in el_ids {
+            let b = el_btns.iter().find(|b| b.id == id).expect("element button");
+            assert!(b.enabled);
+            assert!(
+                b.rect.x >= 428.0
+                    && b.rect.x + b.rect.w <= 716.5
+                    && b.rect.y >= 170.0
+                    && b.rect.y + b.rect.h <= 406.0,
+                "element card '{}' out of right-column bounds: {:?}",
+                id,
+                b.rect
+            );
+        }
+        for i in 0..el_btns.len() {
+            for j in (i + 1)..el_btns.len() {
+                let a = el_btns[i].rect;
+                let b = el_btns[j].rect;
+                let overlaps =
+                    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+                assert!(
+                    !overlaps,
+                    "element cards {} and {} overlap",
+                    el_btns[i].id, el_btns[j].id
+                );
+            }
+        }
+        assert!(
+            !btns_custom
+                .iter()
+                .any(|b| b.id.contains("src") || b.id.contains("drain"))
+        );
+
+        app.update(0.5);
         let mut canvas = Canvas::new();
         app.render(&mut canvas);
+
+        let required_tex = [
+            "ElbowClearBitmap",
+            "StraightClearBitmap",
+            "ElbowFrostBitmap",
+            "CementBlockerBitmap",
+            "YellowPortalBitmap",
+            "DrainPipeClearBitmap",
+        ];
+        for key in required_tex {
+            let tid = app.renderer.bank.named(key).unwrap().0;
+            assert!(
+                canvas
+                    .cmds
+                    .iter()
+                    .any(|cmd| matches!(cmd, DrawCmd::SpriteTex(t, _) if *t == tid)),
+                "expected game asset '{}' in EndlessSetup modal",
+                key
+            );
+        }
+        let forbidden_tex = ["SpigotClearBitmap", "PipeSpigotBitmap", "DrainBaseBitmap"];
+        for key in forbidden_tex {
+            let tid = app.renderer.bank.named(key).unwrap().0;
+            assert!(
+                !canvas
+                    .cmds
+                    .iter()
+                    .any(|cmd| matches!(cmd, DrawCmd::SpriteTex(t, _) if *t == tid)),
+                "did not expect non-toggleable asset '{}' in EndlessSetup modal",
+                key
+            );
+        }
+        for cmd in &canvas.cmds {
+            if let DrawCmd::SpriteDirect(_, inst) = cmd {
+                let x = inst.row0[2];
+                let y = inst.row1[2];
+                let w = inst.row0[3] * inst.row0[0];
+                let h = inst.row1[3] * inst.row1[1];
+                let cx = x + w * 0.5;
+                let cy = y + h * 0.5;
+                if let Some(card) = el_btns.iter().find(|b| b.rect.contains(cx, cy)) {
+                    assert!(
+                        x + w <= card.rect.x + card.rect.w - 2.0,
+                        "label in '{}' overflowed card bounds: x={x}, w={w}, card={:?}",
+                        card.id,
+                        card.rect
+                    );
+                }
+            }
+        }
 
         // Uncheck both Movable & Rotatable -> Play disabled & ignored.
         app.trigger_action(UiAction::EndlessToggleElement(EndlessElement::Movable));
