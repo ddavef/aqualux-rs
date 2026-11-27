@@ -26,12 +26,11 @@ pub mod widgets;
 use crate::assets::AssetBundle;
 use crate::audio::AudioEngine;
 use crate::custom::CustomPackStore;
-use crate::game::generator::{GenDifficulty, MIN_GEN_COLS, MIN_GEN_ROWS};
-use crate::game::level_io::{MAX_GRID_COLS, MAX_GRID_ROWS};
 use crate::game::{Difficulty, LevelDef, LevelSim, MatchSim, MetricResult};
 use crate::render::{
     BgAnimState, BoardLayout, FireworkBurst, GpuCore, LeakEmitter, Renderer, ScoreBlurbFx,
 };
+pub use crate::save::{EndlessConfig, EndlessRules};
 use crate::save::{LevelRecord, SaveData};
 use champion::ChampionState;
 use custom_hub::CustomHubState;
@@ -54,113 +53,6 @@ pub enum Screen {
     Paused,
     Summary,
     Champion,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EndlessRules {
-    MatchLevel,
-    Fixed(Difficulty),
-}
-
-impl EndlessRules {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::MatchLevel => "Match Level",
-            Self::Fixed(Difficulty::Easy) => "Relaxed (Easy)",
-            Self::Fixed(Difficulty::Medium) => "Casual (Medium)",
-            Self::Fixed(Difficulty::Hard) => "Hardcore (Hard)",
-        }
-    }
-
-    pub fn next(self) -> Self {
-        match self {
-            Self::MatchLevel => Self::Fixed(Difficulty::Easy),
-            Self::Fixed(Difficulty::Easy) => Self::Fixed(Difficulty::Medium),
-            Self::Fixed(Difficulty::Medium) => Self::Fixed(Difficulty::Hard),
-            Self::Fixed(Difficulty::Hard) => Self::MatchLevel,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EndlessConfig {
-    pub easy: bool,
-    pub medium: bool,
-    pub hard: bool,
-    pub max_cols: usize,
-    pub max_rows: usize,
-    pub rules: EndlessRules,
-}
-
-impl Default for EndlessConfig {
-    fn default() -> Self {
-        Self {
-            easy: true,
-            medium: true,
-            hard: true,
-            max_cols: 8,
-            max_rows: 6,
-            rules: EndlessRules::MatchLevel,
-        }
-    }
-}
-
-impl EndlessConfig {
-    pub fn any_enabled(self) -> bool {
-        self.easy || self.medium || self.hard
-    }
-
-    pub fn toggle(&mut self, diff: GenDifficulty) {
-        match diff {
-            GenDifficulty::Easy => self.easy = !self.easy,
-            GenDifficulty::Medium => self.medium = !self.medium,
-            GenDifficulty::Hard => self.hard = !self.hard,
-        }
-    }
-
-    pub fn adjust_max_cols(&mut self, delta: i8) {
-        self.max_cols = (self.max_cols as isize + delta as isize)
-            .clamp(MIN_GEN_COLS as isize, MAX_GRID_COLS as isize) as usize;
-    }
-
-    pub fn adjust_max_rows(&mut self, delta: i8) {
-        self.max_rows = (self.max_rows as isize + delta as isize)
-            .clamp(MIN_GEN_ROWS as isize, MAX_GRID_ROWS as isize) as usize;
-    }
-
-    pub fn enabled_difficulties(self) -> Vec<GenDifficulty> {
-        let mut out = Vec::with_capacity(3);
-        if self.easy {
-            out.push(GenDifficulty::Easy);
-        }
-        if self.medium {
-            out.push(GenDifficulty::Medium);
-        }
-        if self.hard {
-            out.push(GenDifficulty::Hard);
-        }
-        out
-    }
-
-    pub fn pick_gen_difficulty(self, rng: &mut impl rand::RngExt) -> GenDifficulty {
-        let pool = self.enabled_difficulties();
-        if pool.is_empty() {
-            GenDifficulty::Medium
-        } else {
-            pool[rng.random_range(0..pool.len())]
-        }
-    }
-
-    pub fn play_difficulty_for(self, gen_diff: GenDifficulty) -> Difficulty {
-        match self.rules {
-            EndlessRules::Fixed(d) => d,
-            EndlessRules::MatchLevel => match gen_diff {
-                GenDifficulty::Easy => Difficulty::Easy,
-                GenDifficulty::Medium => Difficulty::Medium,
-                GenDifficulty::Hard => Difficulty::Hard,
-            },
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -316,6 +208,10 @@ impl GameApp {
             save.config.sfx_volume,
         );
         let init_score = save.active_profile().map(|p| p.total_score()).unwrap_or(0);
+        let init_endless = save
+            .active_profile()
+            .map(|p| p.endless_config.sanitized())
+            .unwrap_or_default();
         Ok(Self {
             assets,
             save,
@@ -355,7 +251,7 @@ impl GameApp {
             custom_packs,
             custom_hub: CustomHubState::default(),
             editor: None,
-            endless_config: EndlessConfig::default(),
+            endless_config: init_endless,
             fail_count: 0,
             is_index_savable: true,
             retry_backup: None,
@@ -446,6 +342,17 @@ impl GameApp {
         }
         self.options_board_color_blind = None;
         self.save.save();
+    }
+
+    pub(crate) fn active_endless_config(&self) -> EndlessConfig {
+        self.save
+            .active_profile()
+            .map(|p| p.endless_config.sanitized())
+            .unwrap_or_else(|| self.endless_config.sanitized())
+    }
+
+    pub(crate) fn sync_endless_config_from_profile(&mut self) {
+        self.endless_config = self.active_endless_config();
     }
 
     pub(crate) fn is_board_busy(&self) -> bool {

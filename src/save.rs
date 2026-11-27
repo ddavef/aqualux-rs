@@ -1,13 +1,135 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 ddavef aqualux-rs
 
+use crate::game::generator::{GenDifficulty, MIN_GEN_COLS, MIN_GEN_ROWS};
+use crate::game::level_io::{MAX_GRID_COLS, MAX_GRID_ROWS};
 use crate::game::{Difficulty, MetricResult, Trophy};
 use crate::render::hdr::{HDR_PAPER_WHITE_DEFAULT, HDR_PEAK_DEFAULT};
 use directories::ProjectDirs;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EndlessRules {
+    MatchLevel,
+    Fixed(Difficulty),
+}
+
+impl EndlessRules {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::MatchLevel => "Match Level",
+            Self::Fixed(Difficulty::Easy) => "Relaxed (Easy)",
+            Self::Fixed(Difficulty::Medium) => "Casual (Medium)",
+            Self::Fixed(Difficulty::Hard) => "Hardcore (Hard)",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::MatchLevel => Self::Fixed(Difficulty::Easy),
+            Self::Fixed(Difficulty::Easy) => Self::Fixed(Difficulty::Medium),
+            Self::Fixed(Difficulty::Medium) => Self::Fixed(Difficulty::Hard),
+            Self::Fixed(Difficulty::Hard) => Self::MatchLevel,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EndlessConfig {
+    pub easy: bool,
+    pub medium: bool,
+    pub hard: bool,
+    pub max_cols: usize,
+    pub max_rows: usize,
+    pub rules: EndlessRules,
+}
+
+impl Default for EndlessConfig {
+    fn default() -> Self {
+        Self {
+            easy: true,
+            medium: true,
+            hard: true,
+            max_cols: 8,
+            max_rows: 6,
+            rules: EndlessRules::MatchLevel,
+        }
+    }
+}
+
+impl EndlessConfig {
+    pub fn sanitized(mut self) -> Self {
+        self.max_cols = self.max_cols.clamp(MIN_GEN_COLS, MAX_GRID_COLS);
+        self.max_rows = self.max_rows.clamp(MIN_GEN_ROWS, MAX_GRID_ROWS);
+        if !self.any_enabled() {
+            self.easy = true;
+            self.medium = true;
+            self.hard = true;
+        }
+        self
+    }
+
+    pub fn any_enabled(self) -> bool {
+        self.easy || self.medium || self.hard
+    }
+
+    pub fn toggle(&mut self, diff: GenDifficulty) {
+        match diff {
+            GenDifficulty::Easy => self.easy = !self.easy,
+            GenDifficulty::Medium => self.medium = !self.medium,
+            GenDifficulty::Hard => self.hard = !self.hard,
+        }
+    }
+
+    pub fn adjust_max_cols(&mut self, delta: i8) {
+        self.max_cols = (self.max_cols as isize + delta as isize)
+            .clamp(MIN_GEN_COLS as isize, MAX_GRID_COLS as isize) as usize;
+    }
+
+    pub fn adjust_max_rows(&mut self, delta: i8) {
+        self.max_rows = (self.max_rows as isize + delta as isize)
+            .clamp(MIN_GEN_ROWS as isize, MAX_GRID_ROWS as isize) as usize;
+    }
+
+    pub fn enabled_difficulties(self) -> Vec<GenDifficulty> {
+        let mut out = Vec::with_capacity(3);
+        if self.easy {
+            out.push(GenDifficulty::Easy);
+        }
+        if self.medium {
+            out.push(GenDifficulty::Medium);
+        }
+        if self.hard {
+            out.push(GenDifficulty::Hard);
+        }
+        out
+    }
+
+    pub fn pick_gen_difficulty(self, rng: &mut impl RngExt) -> GenDifficulty {
+        let pool = self.enabled_difficulties();
+        if pool.is_empty() {
+            GenDifficulty::Medium
+        } else {
+            pool[rng.random_range(0..pool.len())]
+        }
+    }
+
+    pub fn play_difficulty_for(self, gen_diff: GenDifficulty) -> Difficulty {
+        match self.rules {
+            EndlessRules::Fixed(d) => d,
+            EndlessRules::MatchLevel => match gen_diff {
+                GenDifficulty::Easy => Difficulty::Easy,
+                GenDifficulty::Medium => Difficulty::Medium,
+                GenDifficulty::Hard => Difficulty::Hard,
+            },
+        }
+    }
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -72,6 +194,7 @@ pub struct ProfileData {
     pub mirror_level_index: i32,
     pub awards: [bool; 4],
     pub records: HashMap<usize, LevelRecord>,
+    pub endless_config: EndlessConfig,
 }
 
 impl Default for ProfileData {
@@ -86,6 +209,7 @@ impl Default for ProfileData {
             mirror_level_index: -1,
             awards: [false; 4],
             records: HashMap::new(),
+            endless_config: EndlessConfig::default(),
         }
     }
 }
@@ -169,13 +293,21 @@ impl SaveData {
         PathBuf::from("save.json")
     }
 
+    pub(crate) fn from_json_str(raw: &str) -> Option<Self> {
+        let mut parsed = serde_json::from_str::<SaveData>(raw).ok()?;
+        for prof in &mut parsed.profiles {
+            prof.endless_config = prof.endless_config.sanitized();
+        }
+        Some(parsed)
+    }
+
     pub fn load() -> Self {
         if cfg!(test) {
             return Self::default();
         }
         let path = Self::save_path();
         if let Ok(raw) = fs::read_to_string(&path)
-            && let Ok(parsed) = serde_json::from_str::<SaveData>(&raw)
+            && let Some(parsed) = Self::from_json_str(&raw)
         {
             return parsed;
         }

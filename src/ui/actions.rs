@@ -83,7 +83,9 @@ impl GameApp {
                 self.start_title_hide(LaunchSource::Match { mirror: true })
             }
             UiAction::OpenEndlessSetup => {
-                self.push_modal(ModalState::EndlessSetup(self.endless_config));
+                let cfg = self.active_endless_config();
+                self.endless_config = cfg;
+                self.push_modal(ModalState::EndlessSetup(cfg));
             }
             UiAction::EndlessToggleDifficulty(d) => {
                 if let Some(ModalState::EndlessSetup(cfg)) = self.modals.last_mut() {
@@ -106,11 +108,16 @@ impl GameApp {
                 }
             }
             UiAction::StartEndlessRun => {
-                if let Some(&ModalState::EndlessSetup(cfg)) = self.modals.last()
-                    && cfg.any_enabled()
+                if let Some(&ModalState::EndlessSetup(raw_cfg)) = self.modals.last()
+                    && raw_cfg.any_enabled()
                 {
+                    let cfg = raw_cfg.sanitized();
                     self.pop_modal();
                     self.endless_config = cfg;
+                    if let Some(prof) = self.save.active_profile_mut() {
+                        prof.endless_config = cfg;
+                        self.save.save();
+                    }
                     if self.screen == Screen::Title {
                         self.start_title_hide(LaunchSource::Endless(cfg));
                     } else {

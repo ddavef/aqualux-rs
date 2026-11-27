@@ -92,6 +92,7 @@ impl GameApp {
                     if let Some(chosen) = items.get(selected) {
                         self.save.apply_profile_list(chosen, &items);
                     }
+                    self.sync_endless_config_from_profile();
                     let is_unsaved = self
                         .save
                         .active_profile()
@@ -153,6 +154,7 @@ impl GameApp {
             self.audio.play_sfx("ClickOneSound");
             self.pop_modal();
             self.save.set_or_create_profile(&trimmed);
+            self.sync_endless_config_from_profile();
             self.title_wait_profile_latched = false;
             self.title_profile_anim = Some(TitleProfileAnim::on_first_profile_created());
         }

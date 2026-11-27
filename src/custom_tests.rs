@@ -1709,3 +1709,197 @@ fn campaign_liquid_colors_enforced_in_generator_and_editor() {
         let _ = fs::remove_dir_all(&root);
     }
 }
+
+#[test]
+fn endless_config_persists_per_profile_and_sanitizes_loaded_save() {
+    let root = std::env::temp_dir().join(format!("aqualux_endless_prof_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let _ = fs::create_dir_all(&root);
+    let save_path = root.join("save.json");
+
+    // 1. JSON round-trip preserves independent per-profile EndlessConfig and sanitizes legacy/out-of-range saves.
+    let alice_cfg = EndlessConfig {
+        easy: false,
+        medium: true,
+        hard: false,
+        max_cols: 6,
+        max_rows: 5,
+        rules: EndlessRules::Fixed(Difficulty::Easy),
+    };
+    let save = SaveData {
+        current_profile: Some("Alice".to_string()),
+        profiles: vec![
+            ProfileData {
+                name: "Alice".to_string(),
+                endless_config: alice_cfg,
+                ..Default::default()
+            },
+            ProfileData {
+                name: "Bob".to_string(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    save.write_save_to_path(&save_path)
+        .expect("write save json");
+    let raw = fs::read_to_string(&save_path).expect("read save json");
+    let parsed = SaveData::from_json_str(&raw).expect("parse saved json");
+    assert_eq!(parsed.profiles[0].endless_config, alice_cfg);
+    assert_eq!(parsed.profiles[1].endless_config, EndlessConfig::default());
+
+    let mut legacy = parsed.profiles[0].clone();
+    legacy.reset_campaign();
+    assert_eq!(legacy.endless_config, alice_cfg);
+
+    let legacy_json = r#"{
+        "current_profile": "Legacy",
+        "profiles": [
+            { "name": "Legacy" },
+            {
+                "name": "Tampered",
+                "endless_config": {
+                    "easy": false,
+                    "medium": false,
+                    "hard": false,
+                    "max_cols": 99,
+                    "max_rows": 1,
+                    "rules": "MatchLevel"
+                }
+            }
+        ]
+    }"#;
+    let cleaned = SaveData::from_json_str(legacy_json).expect("parse legacy/tampered json");
+    assert_eq!(cleaned.profiles[0].endless_config, EndlessConfig::default());
+    assert_eq!(
+        cleaned.profiles[1].endless_config,
+        EndlessConfig {
+            easy: true,
+            medium: true,
+            hard: true,
+            max_cols: MAX_GRID_COLS,
+            max_rows: MIN_GEN_ROWS,
+            rules: EndlessRules::MatchLevel,
+        }
+    );
+
+    // 2. Real-asset GameApp flow: cancel discards edits, StartEndlessRun persists, switching profiles swaps cleanly.
+    if let Some(path) = asset_file_if_present() {
+        let primary = root.join("custom_packs");
+        let bundle = AssetBundle::load_from_path(path).expect("real assets load");
+        let mut app = GameApp::new_with_custom_dir(bundle, Some(120), Some(&primary), test_gpu())
+            .expect("GameApp init");
+        app.save.profiles = vec![
+            ProfileData {
+                name: "Alice".to_string(),
+                ..Default::default()
+            },
+            ProfileData {
+                name: "Bob".to_string(),
+                ..Default::default()
+            },
+        ];
+        app.save.current_profile = Some("Alice".to_string());
+        app.sync_endless_config_from_profile();
+        app.screen = Screen::Title;
+
+        // Cancel after editing in modal must not persist or save.
+        let saves_before_cancel = app.save.save_count.get();
+        app.trigger_action(UiAction::OpenEndlessSetup);
+        app.trigger_action(UiAction::EndlessAdjustMaxCols(-1));
+        app.trigger_action(UiAction::CloseTopModal);
+        assert_eq!(app.save.save_count.get(), saves_before_cancel);
+        assert_eq!(
+            app.save.active_profile().unwrap().endless_config,
+            EndlessConfig::default()
+        );
+
+        // Configure Alice: Hard only, 5x4, Fixed(Hard), and start run -> persists on Alice.
+        app.trigger_action(UiAction::OpenEndlessSetup);
+        app.trigger_action(UiAction::EndlessToggleDifficulty(GenDifficulty::Easy));
+        app.trigger_action(UiAction::EndlessToggleDifficulty(GenDifficulty::Medium));
+        for _ in 0..3 {
+            app.trigger_action(UiAction::EndlessAdjustMaxCols(-1));
+        }
+        for _ in 0..2 {
+            app.trigger_action(UiAction::EndlessAdjustMaxRows(-1));
+        }
+        app.trigger_action(UiAction::EndlessCycleRules);
+        app.trigger_action(UiAction::EndlessCycleRules);
+        app.trigger_action(UiAction::EndlessCycleRules);
+        app.trigger_action(UiAction::StartEndlessRun);
+
+        let expected_alice = EndlessConfig {
+            easy: false,
+            medium: false,
+            hard: true,
+            max_cols: 5,
+            max_rows: 4,
+            rules: EndlessRules::Fixed(Difficulty::Hard),
+        };
+        assert_eq!(app.save.save_count.get(), saves_before_cancel + 1);
+        assert_eq!(
+            app.save.active_profile().unwrap().endless_config,
+            expected_alice
+        );
+
+        for _ in 0..45 {
+            app.update(0.05);
+        }
+        app.return_to_main_menu();
+
+        // Re-opening Endless Setup restores Alice's saved config.
+        app.trigger_action(UiAction::OpenEndlessSetup);
+        assert_eq!(
+            app.modals.last(),
+            Some(&ModalState::EndlessSetup(expected_alice))
+        );
+        app.trigger_action(UiAction::CloseTopModal);
+
+        // Switch to Bob -> sees default, saves Bob's own config, Alice remains intact.
+        app.trigger_action(UiAction::OpenProfileModal);
+        app.trigger_action(UiAction::ProfileSelectIdx(1));
+        app.trigger_action(UiAction::ProfileAccept);
+        assert_eq!(app.save.current_profile.as_deref(), Some("Bob"));
+
+        app.trigger_action(UiAction::OpenEndlessSetup);
+        assert_eq!(
+            app.modals.last(),
+            Some(&ModalState::EndlessSetup(EndlessConfig::default()))
+        );
+        app.trigger_action(UiAction::EndlessToggleDifficulty(GenDifficulty::Medium));
+        app.trigger_action(UiAction::EndlessToggleDifficulty(GenDifficulty::Hard));
+        app.trigger_action(UiAction::EndlessAdjustMaxCols(-1));
+        app.trigger_action(UiAction::EndlessAdjustMaxRows(-1));
+        app.trigger_action(UiAction::EndlessCycleRules);
+        app.trigger_action(UiAction::StartEndlessRun);
+
+        let expected_bob = EndlessConfig {
+            easy: true,
+            medium: false,
+            hard: false,
+            max_cols: 7,
+            max_rows: 5,
+            rules: EndlessRules::Fixed(Difficulty::Easy),
+        };
+        assert_eq!(app.save.profiles[0].endless_config, expected_alice);
+        assert_eq!(app.save.profiles[1].endless_config, expected_bob);
+
+        for _ in 0..45 {
+            app.update(0.05);
+        }
+        app.return_to_main_menu();
+
+        // Switch back to Alice -> Alice's saved config is restored.
+        app.trigger_action(UiAction::OpenProfileModal);
+        app.trigger_action(UiAction::ProfileSelectIdx(0));
+        app.trigger_action(UiAction::ProfileAccept);
+        app.trigger_action(UiAction::OpenEndlessSetup);
+        assert_eq!(
+            app.modals.last(),
+            Some(&ModalState::EndlessSetup(expected_alice))
+        );
+    }
+
+    let _ = fs::remove_dir_all(&root);
+}
